@@ -931,3 +931,118 @@ export const DEFAULT_GA_ID = "G-89WN60ZK2E";
 
 export const SAAS_CHAT_URL = "https://newbiechat.club";
 export const SAAS_CHAT_UTM_URL = "https://newbiechat.club?utm=github";
+
+export enum CompanyProvider {
+  OpenAI = "OpenAI",
+  Google = "Google",
+  Perplexity = "Perplexity",
+}
+
+export const COMPANY_ENABLED_PROVIDERS = [
+  ServiceProvider.OpenAI,
+  ServiceProvider.Google,
+  "Perplexity",
+] as const;
+
+export const COMPANY_GATEWAY_BASE = "/api/gateway";
+
+export const COMPANY_API_PATH = {
+  OpenAI: "/api/gateway/openai",
+  Google: "/api/gateway/google",
+  Perplexity: "/api/gateway/perplexity",
+};
+
+export const PERPLEXITY_BASE_URL = "https://api.perplexity.ai";
+
+export const Perplexity = {
+  ExampleEndpoint: PERPLEXITY_BASE_URL,
+  ChatPath: "chat/completions",
+};
+
+export const COMPANY_DEFAULT_MODELS = [
+  {
+    name: "gpt-5.5",
+    displayName: "GPT-5.5",
+    available: true,
+    sorted: 100,
+    provider: {
+      id: "openai",
+      providerName: "OpenAI",
+      providerType: "openai",
+      sorted: 1,
+    },
+  },
+  {
+    name: "gpt-5.4-mini",
+    displayName: "GPT-5.4 Mini",
+    available: true,
+    sorted: 110,
+    provider: {
+      id: "openai",
+      providerName: "OpenAI",
+      providerType: "openai",
+      sorted: 1,
+    },
+  },
+  {
+    name: "gpt-image-2",
+    displayName: "GPT Image 2",
+    available: true,
+    sorted: 120,
+    provider: {
+      id: "openai",
+      providerName: "OpenAI",
+      providerType: "openai",
+      sorted: 1,
+    },
+  },
+  {
+    name: "gemini-2.5-pro",
+    displayName: "Gemini 2.5 Pro",
+    available: true,
+    sorted: 200,
+    provider: {
+      id: "google",
+      providerName: "Google",
+      providerType: "google",
+      sorted: 2,
+    },
+  },
+  {
+    name: "gemini-2.5-flash",
+    displayName: "Gemini 2.5 Flash",
+    available: true,
+    sorted: 210,
+    provider: {
+      id: "google",
+      providerName: "Google",
+      providerType: "google",
+      sorted: 2,
+    },
+  },
+  {
+    name: "sonar-pro",
+    displayName: "Sonar Pro",
+    available: true,
+    sorted: 300,
+    provider: {
+      id: "perplexity",
+      providerName: "Perplexity",
+      providerType: "perplexity",
+      sorted: 3,
+    },
+  },
+  {
+    name: "sonar-deep-research",
+    displayName: "Sonar Deep Research",
+    available: true,
+    sorted: 310,
+    provider: {
+      id: "perplexity",
+      providerName: "Perplexity",
+      providerType: "perplexity",
+      sorted: 3,
+    },
+  },
+];
+
