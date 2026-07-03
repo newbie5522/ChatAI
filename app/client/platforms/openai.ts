@@ -6,6 +6,7 @@ import {
   DEFAULT_MODELS,
   OpenaiPath,
   Azure,
+  COMPANY_DEFAULT_MODELS,
   REQUEST_TIMEOUT_MS,
   ServiceProvider,
 } from "@/app/constant";
@@ -493,7 +494,7 @@ export class ChatGPTApi implements LLMApi {
 
   async models(): Promise<LLMModel[]> {
     if (this.disableListModels) {
-      return DEFAULT_MODELS.slice();
+      return COMPANY_DEFAULT_MODELS.slice() as LLMModel[];
     }
 
     const res = await fetch(this.path(OpenaiPath.ListModelPath), {
