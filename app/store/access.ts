@@ -155,6 +155,7 @@ const DEFAULT_ACCESS_STATE = {
 };
 
 const EMPTY_PROVIDER_KEYS = {
+  useCustomConfig: false,
   openaiApiKey: "",
   azureApiKey: "",
   googleApiKey: "",

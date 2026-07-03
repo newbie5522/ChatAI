@@ -3,7 +3,7 @@ import { DalleQuality, DalleStyle, ModelSize } from "../typing";
 import { getClientConfig } from "../config/client";
 import {
   DEFAULT_INPUT_TEMPLATE,
-  DEFAULT_MODELS,
+  COMPANY_DEFAULT_MODELS,
   DEFAULT_SIDEBAR_WIDTH,
   DEFAULT_TTS_ENGINE,
   DEFAULT_TTS_ENGINES,
@@ -17,7 +17,7 @@ import {
 import { createPersistStore } from "../utils/store";
 import type { Voice } from "rt-client";
 
-export type ModelType = (typeof DEFAULT_MODELS)[number]["name"];
+export type ModelType = string;
 export type TTSModelType = (typeof DEFAULT_TTS_MODELS)[number];
 export type TTSVoiceType = (typeof DEFAULT_TTS_VOICES)[number];
 export type TTSEngineType = (typeof DEFAULT_TTS_ENGINES)[number];
@@ -61,10 +61,10 @@ export const DEFAULT_CONFIG = {
   hideBuiltinMasks: false, // dont add builtin masks
 
   customModels: "",
-  models: DEFAULT_MODELS as any as LLMModel[],
+  models: COMPANY_DEFAULT_MODELS as any as LLMModel[],
 
   modelConfig: {
-    model: "gpt-4o-mini" as ModelType,
+    model: "gpt-5.5" as ModelType,
     providerName: "OpenAI" as ServiceProvider,
     temperature: 0.5,
     top_p: 1,
@@ -195,7 +195,7 @@ export const useAppConfig = createPersistStore(
   }),
   {
     name: StoreKey.Config,
-    version: 4.1,
+    version: 4.2,
 
     merge(persistedState, currentState) {
       const state = persistedState as ChatConfig | undefined;
@@ -253,6 +253,13 @@ export const useAppConfig = createPersistStore(
           DEFAULT_CONFIG.modelConfig.compressModel;
         state.modelConfig.compressProviderName =
           DEFAULT_CONFIG.modelConfig.compressProviderName;
+      }
+
+      if (version < 4.2) {
+        state.models = DEFAULT_CONFIG.models;
+        state.modelConfig.model = DEFAULT_CONFIG.modelConfig.model;
+        state.modelConfig.providerName =
+          DEFAULT_CONFIG.modelConfig.providerName;
       }
 
       return state as any;

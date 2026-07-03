@@ -43,6 +43,10 @@ declare global {
       GOOGLE_API_KEY?: string;
       GOOGLE_URL?: string;
 
+      // perplexity only
+      PERPLEXITY_API_KEY?: string;
+      PERPLEXITY_BASE_URL?: string;
+
       // google tag manager
       GTM_ID?: string;
 
@@ -167,6 +171,7 @@ export const getServerSideConfig = () => {
 
   const isAzure = !!process.env.AZURE_URL;
   const isGoogle = !!process.env.GOOGLE_API_KEY;
+  const isPerplexity = !!process.env.PERPLEXITY_API_KEY;
   const isAnthropic = !!process.env.ANTHROPIC_API_KEY;
   const isTencent = !!process.env.TENCENT_API_KEY;
 
@@ -209,6 +214,10 @@ export const getServerSideConfig = () => {
     isGoogle,
     googleApiKey: getApiKey(process.env.GOOGLE_API_KEY),
     googleUrl: process.env.GOOGLE_URL,
+
+    isPerplexity,
+    perplexityApiKey: getApiKey(process.env.PERPLEXITY_API_KEY),
+    perplexityBaseUrl: process.env.PERPLEXITY_BASE_URL,
 
     isAnthropic,
     anthropicApiKey: getApiKey(process.env.ANTHROPIC_API_KEY),

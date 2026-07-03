@@ -4,13 +4,13 @@ NewbieChat is an internal AI workspace based on the open-source NextChat project
 
 This repository is used for company-level secondary development, including:
 
-* Internal employee access keys
-* Company-managed AI provider routing
-* OpenAI / Google Gemini / Perplexity gateway integration
-* Usage tracking and quota control
-* Admin management panel
-* Company prompt and mask templates
-* Multi-model chat, vision, and image generation workflows
+- Internal employee access keys
+- Company-managed AI provider routing
+- OpenAI / Google Gemini / Perplexity gateway integration
+- Usage tracking and quota control
+- Admin management panel
+- Company prompt and mask templates
+- Multi-model chat, vision, and image generation workflows
 
 ## Project Status
 
@@ -18,9 +18,9 @@ This project is currently under active internal development.
 
 Current phase:
 
-* Base project: NextChat
-* Rebrand name: NewbieChat
-* Development mode: controlled file-by-file secondary development
+- Base project: NextChat
+- Rebrand name: NewbieChat
+- Development mode: controlled file-by-file secondary development
 
 ## Development Rules
 
@@ -67,9 +67,11 @@ The project will be deployed as a private company AI workspace.
 
 Recommended deployment targets:
 
-* VPS + Docker
-* Vercel
-* Private cloud environment
+- VPS + Docker
+- Vercel
+- Private cloud environment
+
+Roadmap note: Docker one-click deployment has been added to the later deployment acceptance plan in [docs/newbiechat-roadmap.md](docs/newbiechat-roadmap.md).
 
 ## License
 

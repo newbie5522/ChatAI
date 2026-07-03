@@ -121,6 +121,7 @@ export enum ServiceProvider {
   OpenAI = "OpenAI",
   Azure = "Azure",
   Google = "Google",
+  Perplexity = "Perplexity",
   Anthropic = "Anthropic",
   Baidu = "Baidu",
   ByteDance = "ByteDance",
@@ -149,6 +150,7 @@ export enum ModelProvider {
   Stability = "Stability",
   GPT = "GPT",
   GeminiPro = "GeminiPro",
+  Perplexity = "Perplexity",
   Claude = "Claude",
   Ernie = "Ernie",
   Doubao = "Doubao",
@@ -493,7 +495,7 @@ export const VISION_MODEL_REGEXES = [
   /o3/,
   /o4-mini/,
   /grok-4/i,
-  /gpt-5/
+  /gpt-5/,
 ];
 
 export const EXCLUDE_VISION_MODEL_REGEXES = [/claude-3-5-haiku-20241022/];
@@ -561,7 +563,7 @@ const googleModels = [
   "gemini-2.0-pro-exp",
   "gemini-2.0-pro-exp-02-05",
   "gemini-2.5-pro-preview-06-05",
-  "gemini-2.5-pro"
+  "gemini-2.5-pro",
 ];
 
 const anthropicModels = [
@@ -938,7 +940,7 @@ export enum CompanyProvider {
 export const COMPANY_ENABLED_PROVIDERS = [
   ServiceProvider.OpenAI,
   ServiceProvider.Google,
-  "Perplexity",
+  ServiceProvider.Perplexity,
 ] as const;
 
 export const COMPANY_GATEWAY_BASE = "/api/gateway";

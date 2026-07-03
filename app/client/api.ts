@@ -13,6 +13,7 @@ import {
 } from "../store";
 import { ChatGPTApi, DalleRequestPayload } from "./platforms/openai";
 import { GeminiProApi } from "./platforms/google";
+import { PerplexityApi } from "./platforms/perplexity";
 import { ClaudeApi } from "./platforms/anthropic";
 import { ErnieApi } from "./platforms/baidu";
 import { DoubaoApi } from "./platforms/bytedance";
@@ -141,6 +142,9 @@ export class ClientApi {
       case ModelProvider.GeminiPro:
         this.llm = new GeminiProApi();
         break;
+      case ModelProvider.Perplexity:
+        this.llm = new PerplexityApi();
+        break;
       case ModelProvider.Claude:
         this.llm = new ClaudeApi();
         break;
@@ -256,6 +260,8 @@ export function getHeaders(ignoreHeaders: boolean = false) {
   function getConfig() {
     const modelConfig = chatStore.currentSession().mask.modelConfig;
     const isGoogle = modelConfig.providerName === ServiceProvider.Google;
+    const isPerplexity =
+      modelConfig.providerName === ServiceProvider.Perplexity;
     const isAzure = modelConfig.providerName === ServiceProvider.Azure;
     const isAnthropic = modelConfig.providerName === ServiceProvider.Anthropic;
     const isBaidu = modelConfig.providerName == ServiceProvider.Baidu;
@@ -270,7 +276,9 @@ export function getHeaders(ignoreHeaders: boolean = false) {
       modelConfig.providerName === ServiceProvider.SiliconFlow;
     const isAI302 = modelConfig.providerName === ServiceProvider["302.AI"];
     const isEnabledAccessControl = accessStore.enabledAccessControl();
-    const userApiKey = isGoogle
+    const userApiKey = isPerplexity
+      ? ""
+      : isGoogle
       ? accessStore.googleApiKey
       : isAzure
       ? accessStore.azureApiKey
@@ -300,6 +308,7 @@ export function getHeaders(ignoreHeaders: boolean = false) {
     const apiKey = accessStore.hideUserApiKey ? "" : userApiKey;
     return {
       isGoogle,
+      isPerplexity,
       isAzure,
       isAnthropic,
       isBaidu,
@@ -369,6 +378,8 @@ export function getClientApi(provider: ServiceProvider): ClientApi {
   switch (provider) {
     case ServiceProvider.Google:
       return new ClientApi(ModelProvider.GeminiPro);
+    case ServiceProvider.Perplexity:
+      return new ClientApi(ModelProvider.Perplexity);
     case ServiceProvider.Anthropic:
       return new ClientApi(ModelProvider.Claude);
     case ServiceProvider.Baidu:

@@ -108,6 +108,9 @@ export function auth(req: NextRequest, modelProvider: ModelProvider) {
       case ModelProvider.GeminiPro:
         systemApiKey = serverConfig.googleApiKey;
         break;
+      case ModelProvider.Perplexity:
+        systemApiKey = serverConfig.perplexityApiKey;
+        break;
       case ModelProvider.Claude:
         systemApiKey = serverConfig.anthropicApiKey;
         break;

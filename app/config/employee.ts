@@ -180,6 +180,8 @@ function allowedProviderNames(modelProvider: ModelProvider) {
       return [ServiceProvider.OpenAI, ModelProvider.GPT];
     case ModelProvider.GeminiPro:
       return [ServiceProvider.Google, ModelProvider.GeminiPro];
+    case ModelProvider.Perplexity:
+      return [ServiceProvider.Perplexity, ModelProvider.Perplexity];
     default:
       return [modelProvider];
   }
