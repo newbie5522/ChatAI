@@ -1,7 +1,20 @@
 import md5 from "spark-md5";
-import { DEFAULT_MODELS, DEFAULT_GA_ID } from "../constant";
+import {
+  COMPANY_DEFAULT_MODELS,
+  DEFAULT_GA_ID,
+  DEFAULT_MODELS,
+} from "../constant";
 import { isGPT4Model } from "../utils/model";
 import { getEmployeeAccessCount, hasEmployeeAccessControl } from "./employee";
+import {
+  AdminProviderId,
+  getEffectiveProviderApiVersion,
+  getEffectiveProviderBaseUrl,
+  getEffectiveProviderOrgId,
+  getEffectiveProviderSecret,
+  isProviderEnabled,
+  isProviderModelEnabled,
+} from "./admin-store";
 
 declare global {
   namespace NodeJS {
@@ -12,6 +25,9 @@ declare global {
       CODE?: string;
       EMPLOYEE_ACCESS_KEYS?: string;
       COMPANY_EMPLOYEE_KEYS?: string;
+      ADMIN_PASSWORD?: string;
+      ADMIN_SECRET?: string;
+      NEWBIE_ADMIN_CONFIG_PATH?: string;
       NEWBIE_USAGE_LOG_PATH?: string;
       USAGE_LOG_MAX_RECORDS?: string;
 
@@ -146,6 +162,29 @@ function getApiKey(keys?: string) {
   return apiKey;
 }
 
+function appendCustomModelRule(customModels: string, rule: string) {
+  return customModels ? `${customModels},${rule}` : rule;
+}
+
+function applyAdminModelAvailability(customModels: string) {
+  return COMPANY_DEFAULT_MODELS.reduce((nextCustomModels, model) => {
+    const providerId = model.provider?.id as AdminProviderId | undefined;
+    if (!providerId) return nextCustomModels;
+
+    if (
+      !isProviderEnabled(providerId) ||
+      !isProviderModelEnabled(providerId, model.name)
+    ) {
+      return appendCustomModelRule(
+        nextCustomModels,
+        `-${model.name}@${providerId}`,
+      );
+    }
+
+    return nextCustomModels;
+  }, customModels);
+}
+
 export const getServerSideConfig = () => {
   if (typeof process === "undefined") {
     throw Error(
@@ -169,12 +208,27 @@ export const getServerSideConfig = () => {
     }
   }
 
+  customModels = applyAdminModelAvailability(customModels);
+
   const isStability = !!process.env.STABILITY_API_KEY;
 
+  const openaiApiKey = isProviderEnabled("openai")
+    ? getEffectiveProviderSecret("openai")
+    : "";
+  const googleApiKey = isProviderEnabled("google")
+    ? getEffectiveProviderSecret("google")
+    : "";
+  const perplexityApiKey = isProviderEnabled("perplexity")
+    ? getEffectiveProviderSecret("perplexity")
+    : "";
+  const anthropicApiKey = isProviderEnabled("anthropic")
+    ? getEffectiveProviderSecret("anthropic")
+    : "";
+
   const isAzure = !!process.env.AZURE_URL;
-  const isGoogle = !!process.env.GOOGLE_API_KEY;
-  const isPerplexity = !!process.env.PERPLEXITY_API_KEY;
-  const isAnthropic = !!process.env.ANTHROPIC_API_KEY;
+  const isGoogle = !!googleApiKey;
+  const isPerplexity = !!perplexityApiKey;
+  const isAnthropic = !!anthropicApiKey;
   const isTencent = !!process.env.TENCENT_API_KEY;
 
   const isBaidu = !!process.env.BAIDU_API_KEY;
@@ -200,9 +254,9 @@ export const getServerSideConfig = () => {
   ).split(",");
 
   return {
-    baseUrl: process.env.BASE_URL,
-    apiKey: getApiKey(process.env.OPENAI_API_KEY),
-    openaiOrgId: process.env.OPENAI_ORG_ID,
+    baseUrl: getEffectiveProviderBaseUrl("openai"),
+    apiKey: getApiKey(openaiApiKey),
+    openaiOrgId: getEffectiveProviderOrgId("openai"),
 
     isStability,
     stabilityUrl: process.env.STABILITY_URL,
@@ -214,17 +268,17 @@ export const getServerSideConfig = () => {
     azureApiVersion: process.env.AZURE_API_VERSION,
 
     isGoogle,
-    googleApiKey: getApiKey(process.env.GOOGLE_API_KEY),
-    googleUrl: process.env.GOOGLE_URL,
+    googleApiKey: getApiKey(googleApiKey),
+    googleUrl: getEffectiveProviderBaseUrl("google"),
 
     isPerplexity,
-    perplexityApiKey: getApiKey(process.env.PERPLEXITY_API_KEY),
-    perplexityBaseUrl: process.env.PERPLEXITY_BASE_URL,
+    perplexityApiKey: getApiKey(perplexityApiKey),
+    perplexityBaseUrl: getEffectiveProviderBaseUrl("perplexity"),
 
     isAnthropic,
-    anthropicApiKey: getApiKey(process.env.ANTHROPIC_API_KEY),
-    anthropicApiVersion: process.env.ANTHROPIC_API_VERSION,
-    anthropicUrl: process.env.ANTHROPIC_URL,
+    anthropicApiKey: getApiKey(anthropicApiKey),
+    anthropicApiVersion: getEffectiveProviderApiVersion("anthropic"),
+    anthropicUrl: getEffectiveProviderBaseUrl("anthropic"),
 
     isBaidu,
     baiduUrl: process.env.BAIDU_URL,

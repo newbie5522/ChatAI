@@ -1,6 +1,7 @@
 import md5 from "spark-md5";
 
 import { ModelProvider, ServiceProvider } from "../constant";
+import { getAdminEmployeeRecords } from "./admin-store";
 
 export type EmployeeAccessStatus =
   | "active"
@@ -118,30 +119,45 @@ function normalizeRecord(
 
 export function getEmployeeAccessRecords(): EmployeeAccessRecord[] {
   const rawConfig = getRawEmployeeConfig();
-  if (!rawConfig) return [];
+  const envRecords: EmployeeAccessRecord[] = [];
 
-  try {
-    const parsed = JSON.parse(rawConfig) as unknown;
+  if (rawConfig) {
+    try {
+      const parsed = JSON.parse(rawConfig) as unknown;
 
-    if (Array.isArray(parsed)) {
-      return parsed
-        .map((value, index) => normalizeRecord(value, index))
-        .filter((record): record is EmployeeAccessRecord => !!record);
+      if (Array.isArray(parsed)) {
+        envRecords.push(
+          ...parsed
+            .map((value, index) => normalizeRecord(value, index))
+            .filter((record): record is EmployeeAccessRecord => !!record),
+        );
+      } else if (parsed && typeof parsed === "object") {
+        envRecords.push(
+          ...Object.entries(parsed as Record<string, unknown>)
+            .map(([id, value], index) => normalizeRecord(value, index, id))
+            .filter((record): record is EmployeeAccessRecord => !!record),
+        );
+      }
+    } catch {
+      envRecords.push(
+        ...rawConfig
+          .split(",")
+          .map((value, index) => normalizeRecord(value, index))
+          .filter((record): record is EmployeeAccessRecord => !!record),
+      );
     }
-
-    if (parsed && typeof parsed === "object") {
-      return Object.entries(parsed as Record<string, unknown>)
-        .map(([id, value], index) => normalizeRecord(value, index, id))
-        .filter((record): record is EmployeeAccessRecord => !!record);
-    }
-  } catch {
-    // Fall back to a simple comma-separated list for quick MVP deployments.
   }
 
-  return rawConfig
-    .split(",")
-    .map((value, index) => normalizeRecord(value, index))
-    .filter((record): record is EmployeeAccessRecord => !!record);
+  const recordMap = new Map<string, EmployeeAccessRecord>();
+  for (const record of envRecords) {
+    recordMap.set(record.id, record);
+  }
+
+  for (const record of getAdminEmployeeRecords()) {
+    recordMap.set(record.id, record);
+  }
+
+  return Array.from(recordMap.values());
 }
 
 export function hasEmployeeAccessControl() {

@@ -9,6 +9,10 @@ import {
   extractModelFromGatewayRequest,
 } from "@/app/config/usage";
 import {
+  isProviderEnabled,
+  isProviderModelEnabled,
+} from "@/app/config/admin-store";
+import {
   ANTHROPIC_BASE_URL,
   Anthropic,
   GEMINI_BASE_URL,
@@ -34,6 +38,16 @@ const SUPPORTED_PROVIDERS: GatewayProvider[] = [
   "perplexity",
   "anthropic",
 ];
+
+const PROVIDER_ADMIN_ID: Record<
+  GatewayProvider,
+  "openai" | "google" | "perplexity" | "anthropic"
+> = {
+  openai: "openai",
+  google: "google",
+  perplexity: "perplexity",
+  anthropic: "anthropic",
+};
 
 function normalizeBaseUrl(baseUrl: string) {
   const normalized = baseUrl || "";
@@ -184,6 +198,52 @@ async function handle(
       requestPath: path,
     });
     return gatewayError(provider, 401, authResult.msg ?? "unauthorized");
+  }
+
+  if (!isProviderEnabled(PROVIDER_ADMIN_ID[provider])) {
+    await recordUsageSafely({
+      employeeId: authResult.employee?.id ?? "unknown",
+      employeeName: authResult.employee?.name,
+      provider: providerConfig.serviceProvider,
+      model,
+      inputTokens,
+      outputTokens: 0,
+      estimatedCost: 0,
+      quotaUnits: 0,
+      status: "failed",
+      httpStatus: 403,
+      errorMessage: `${providerConfig.serviceProvider} provider is disabled`,
+      requestPath: path,
+    });
+
+    return gatewayError(
+      provider,
+      403,
+      `${providerConfig.serviceProvider} provider is disabled`,
+    );
+  }
+
+  if (!isProviderModelEnabled(PROVIDER_ADMIN_ID[provider], model)) {
+    await recordUsageSafely({
+      employeeId: authResult.employee?.id ?? "unknown",
+      employeeName: authResult.employee?.name,
+      provider: providerConfig.serviceProvider,
+      model,
+      inputTokens,
+      outputTokens: 0,
+      estimatedCost: 0,
+      quotaUnits: 0,
+      status: "failed",
+      httpStatus: 403,
+      errorMessage: `${model} is disabled for ${providerConfig.serviceProvider}`,
+      requestPath: path,
+    });
+
+    return gatewayError(
+      provider,
+      403,
+      `${model} is disabled for ${providerConfig.serviceProvider}`,
+    );
   }
 
   const quota = await checkMonthlyQuota(authResult.employee, inputTokens);
