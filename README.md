@@ -6,7 +6,7 @@ This repository is used for company-level secondary development, including:
 
 - Internal employee access keys
 - Company-managed AI provider routing
-- OpenAI / Google Gemini / Perplexity gateway integration
+- OpenAI / Google Gemini / Perplexity / Claude gateway integration
 - Usage tracking and quota control
 - Admin management panel
 - Company prompt and mask templates

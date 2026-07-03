@@ -34,7 +34,7 @@ export interface EmployeeAccessValidation {
   employee?: SafeEmployeeAccessRecord;
 }
 
-interface ValidationOptions {
+export interface ValidationOptions {
   modelProvider?: ModelProvider;
   model?: string;
 }
@@ -182,6 +182,8 @@ function allowedProviderNames(modelProvider: ModelProvider) {
       return [ServiceProvider.Google, ModelProvider.GeminiPro];
     case ModelProvider.Perplexity:
       return [ServiceProvider.Perplexity, ModelProvider.Perplexity];
+    case ModelProvider.Claude:
+      return [ServiceProvider.Anthropic, ModelProvider.Claude];
     default:
       return [modelProvider];
   }

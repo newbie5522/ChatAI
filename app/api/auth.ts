@@ -3,7 +3,10 @@ import { getServerSideConfig } from "../config/server";
 import md5 from "spark-md5";
 import { ACCESS_CODE_PREFIX, ModelProvider } from "../constant";
 import {
+  EmployeeAccessValidation,
+  SafeEmployeeAccessRecord,
   hasEmployeeAccessControl,
+  ValidationOptions,
   validateEmployeeAccessKey,
 } from "../config/employee";
 
@@ -28,13 +31,40 @@ function parseApiKey(bearToken: string) {
   };
 }
 
+export interface AuthResult {
+  error: boolean;
+  msg?: string;
+  employee?: SafeEmployeeAccessRecord;
+}
+
+export function validateEmployeeRequest(
+  req: NextRequest,
+  options: ValidationOptions = {},
+): EmployeeAccessValidation {
+  const authToken = req.headers.get("Authorization") ?? "";
+  const { accessCode, apiKey } = parseApiKey(authToken);
+
+  if (apiKey) {
+    return {
+      ok: false,
+      reason: "employee access key is required",
+    };
+  }
+
+  return validateEmployeeAccessKey(accessCode, options);
+}
+
 function maskSecret(value?: string) {
   if (!value) return "";
   if (value.length <= 6) return "***";
   return `${value.slice(0, 2)}...${value.slice(-2)}`;
 }
 
-export function auth(req: NextRequest, modelProvider: ModelProvider) {
+export function auth(
+  req: NextRequest,
+  modelProvider: ModelProvider,
+  model?: string,
+): AuthResult {
   const authToken = req.headers.get("Authorization") ?? "";
 
   // check if it is openai api key or user token
@@ -44,6 +74,7 @@ export function auth(req: NextRequest, modelProvider: ModelProvider) {
 
   const serverConfig = getServerSideConfig();
   const employeeAccessEnabled = hasEmployeeAccessControl();
+  let employee: SafeEmployeeAccessRecord | undefined;
   console.log("[Auth] got access code:", maskSecret(accessCode));
   console.log("[User IP] ", getIP(req));
   console.log("[Time] ", new Date().toLocaleString());
@@ -58,6 +89,7 @@ export function auth(req: NextRequest, modelProvider: ModelProvider) {
 
     const employeeAccess = validateEmployeeAccessKey(accessCode, {
       modelProvider,
+      model,
     });
 
     if (!employeeAccess.ok || !employeeAccess.employee) {
@@ -69,6 +101,7 @@ export function auth(req: NextRequest, modelProvider: ModelProvider) {
 
     req.headers.set("X-Newbie-Employee-Id", employeeAccess.employee.id);
     req.headers.set("X-Newbie-Employee-Name", employeeAccess.employee.name);
+    employee = employeeAccess.employee;
     console.log("[Auth] employee access:", employeeAccess.employee.id);
   } else if (
     serverConfig.needCode &&
@@ -163,5 +196,6 @@ export function auth(req: NextRequest, modelProvider: ModelProvider) {
 
   return {
     error: false,
+    employee,
   };
 }

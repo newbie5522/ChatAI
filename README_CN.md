@@ -4,13 +4,13 @@ NewbieChat 是基于开源 NextChat 项目进行二次开发的公司内部 AI �
 
 本仓库用于公司级内部 AI 工具开发，计划包含：
 
-* 员工内部访问密钥
-* 公司统一管理 AI Provider
-* OpenAI / Google Gemini / Perplexity 网关分流
-* 员工用量统计与额度控制
-* 管理员后台
-* 公司 Prompt / Mask 模板
-* 多模型聊天、图片识别、生图等工作流
+- 员工内部访问密钥
+- 公司统一管理 AI Provider
+- OpenAI / Google Gemini / Perplexity / Claude 网关分流
+- 员工用量统计与额度控制
+- 管理员后台
+- 公司 Prompt / Mask 模板
+- 多模型聊天、图片识别、生图等工作流
 
 ## 当前状态
 
@@ -18,9 +18,9 @@ NewbieChat 是基于开源 NextChat 项目进行二次开发的公司内部 AI �
 
 当前阶段：
 
-* 项目底座：NextChat
-* 项目品牌名：NewbieChat
-* 开发方式：基于原项目结构，按任务包逐步二次开发
+- 项目底座：NextChat
+- 项目品牌名：NewbieChat
+- 开发方式：基于原项目结构，按任务包逐步二次开发
 
 ## 开发规则
 
@@ -67,9 +67,9 @@ yarn build
 
 推荐部署方式：
 
-* VPS + Docker
-* Vercel
-* 私有云环境
+- VPS + Docker
+- Vercel
+- 私有云环境
 
 ## 许可证
 

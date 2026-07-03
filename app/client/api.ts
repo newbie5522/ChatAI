@@ -276,35 +276,36 @@ export function getHeaders(ignoreHeaders: boolean = false) {
       modelConfig.providerName === ServiceProvider.SiliconFlow;
     const isAI302 = modelConfig.providerName === ServiceProvider["302.AI"];
     const isEnabledAccessControl = accessStore.enabledAccessControl();
-    const userApiKey = isPerplexity
-      ? ""
-      : isGoogle
-      ? accessStore.googleApiKey
-      : isAzure
-      ? accessStore.azureApiKey
-      : isAnthropic
-      ? accessStore.anthropicApiKey
-      : isByteDance
-      ? accessStore.bytedanceApiKey
-      : isAlibaba
-      ? accessStore.alibabaApiKey
-      : isMoonshot
-      ? accessStore.moonshotApiKey
-      : isXAI
-      ? accessStore.xaiApiKey
-      : isDeepSeek
-      ? accessStore.deepseekApiKey
-      : isChatGLM
-      ? accessStore.chatglmApiKey
-      : isSiliconFlow
-      ? accessStore.siliconflowApiKey
-      : isIflytek
-      ? accessStore.iflytekApiKey && accessStore.iflytekApiSecret
-        ? accessStore.iflytekApiKey + ":" + accessStore.iflytekApiSecret
-        : ""
-      : isAI302
-      ? accessStore.ai302ApiKey
-      : accessStore.openaiApiKey;
+    const userApiKey =
+      isPerplexity || isAnthropic
+        ? ""
+        : isGoogle
+        ? accessStore.googleApiKey
+        : isAzure
+        ? accessStore.azureApiKey
+        : isAnthropic
+        ? accessStore.anthropicApiKey
+        : isByteDance
+        ? accessStore.bytedanceApiKey
+        : isAlibaba
+        ? accessStore.alibabaApiKey
+        : isMoonshot
+        ? accessStore.moonshotApiKey
+        : isXAI
+        ? accessStore.xaiApiKey
+        : isDeepSeek
+        ? accessStore.deepseekApiKey
+        : isChatGLM
+        ? accessStore.chatglmApiKey
+        : isSiliconFlow
+        ? accessStore.siliconflowApiKey
+        : isIflytek
+        ? accessStore.iflytekApiKey && accessStore.iflytekApiSecret
+          ? accessStore.iflytekApiKey + ":" + accessStore.iflytekApiSecret
+          : ""
+        : isAI302
+        ? accessStore.ai302ApiKey
+        : accessStore.openaiApiKey;
     const apiKey = accessStore.hideUserApiKey ? "" : userApiKey;
     return {
       isGoogle,

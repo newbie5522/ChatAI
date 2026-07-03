@@ -3,6 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/app/api/auth";
 import { getServerSideConfig } from "@/app/config/server";
 import {
+  appendUsageRecord,
+  checkMonthlyQuota,
+  estimateTokensFromBody,
+  extractModelFromGatewayRequest,
+} from "@/app/config/usage";
+import {
+  ANTHROPIC_BASE_URL,
+  Anthropic,
   GEMINI_BASE_URL,
   ModelProvider,
   OPENAI_BASE_URL,
@@ -11,13 +19,21 @@ import {
 } from "@/app/constant";
 import { cloudflareAIGatewayUrl } from "@/app/utils/cloudflare";
 
-type GatewayProvider = "openai" | "google" | "perplexity";
+type GatewayProvider = "openai" | "google" | "perplexity" | "anthropic";
 
 const PROVIDER_MODEL_MAP: Record<GatewayProvider, ModelProvider> = {
   openai: ModelProvider.GPT,
   google: ModelProvider.GeminiPro,
   perplexity: ModelProvider.Perplexity,
+  anthropic: ModelProvider.Claude,
 };
+
+const SUPPORTED_PROVIDERS: GatewayProvider[] = [
+  "openai",
+  "google",
+  "perplexity",
+  "anthropic",
+];
 
 function normalizeBaseUrl(baseUrl: string) {
   const normalized = baseUrl || "";
@@ -71,10 +87,22 @@ function getProviderConfig(provider: GatewayProvider) {
         ),
         serviceProvider: ServiceProvider.Perplexity,
       };
+    case "anthropic":
+      return {
+        apiKey: serverConfig.anthropicApiKey,
+        baseUrl: normalizeBaseUrl(
+          serverConfig.anthropicUrl || ANTHROPIC_BASE_URL,
+        ),
+        serviceProvider: ServiceProvider.Anthropic,
+      };
   }
 }
 
-function buildHeaders(provider: GatewayProvider, apiKey: string) {
+function buildHeaders(
+  provider: GatewayProvider,
+  apiKey: string,
+  req: NextRequest,
+) {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "Cache-Control": "no-store",
@@ -82,6 +110,13 @@ function buildHeaders(provider: GatewayProvider, apiKey: string) {
 
   if (provider === "google") {
     headers["x-goog-api-key"] = apiKey;
+  } else if (provider === "anthropic") {
+    const serverConfig = getServerSideConfig();
+    headers["x-api-key"] = apiKey;
+    headers["anthropic-version"] =
+      serverConfig.anthropicApiVersion ||
+      req.headers.get("anthropic-version") ||
+      Anthropic.Vision;
   } else {
     headers.Authorization = `Bearer ${apiKey}`;
   }
@@ -94,6 +129,21 @@ function buildHeaders(provider: GatewayProvider, apiKey: string) {
   return headers;
 }
 
+async function getRequestBody(req: NextRequest) {
+  if (req.method === "GET" || req.method === "HEAD") return undefined;
+  return req.text();
+}
+
+async function recordUsageSafely(
+  input: Parameters<typeof appendUsageRecord>[0],
+) {
+  try {
+    await appendUsageRecord(input);
+  } catch (error) {
+    console.error("[Gateway] failed to record usage", error);
+  }
+}
+
 async function handle(
   req: NextRequest,
   { params }: { params: { provider: string; path?: string[] } },
@@ -103,13 +153,8 @@ async function handle(
   }
 
   const provider = params.provider.toLowerCase() as GatewayProvider;
-  if (!["openai", "google", "perplexity"].includes(provider)) {
+  if (!SUPPORTED_PROVIDERS.includes(provider)) {
     return gatewayError(params.provider, 404, "unsupported gateway provider");
-  }
-
-  const authResult = auth(req, PROVIDER_MODEL_MAP[provider]);
-  if (authResult.error) {
-    return gatewayError(provider, 401, authResult.msg ?? "unauthorized");
   }
 
   const path = params.path?.join("/") ?? "";
@@ -118,7 +163,65 @@ async function handle(
   }
 
   const providerConfig = getProviderConfig(provider);
+  const bodyText = await getRequestBody(req);
+  const model = extractModelFromGatewayRequest(provider, path, bodyText);
+  const inputTokens = estimateTokensFromBody(bodyText);
+  const authResult = auth(req, PROVIDER_MODEL_MAP[provider], model);
+
+  if (authResult.error) {
+    await recordUsageSafely({
+      employeeId: authResult.employee?.id ?? "unknown",
+      employeeName: authResult.employee?.name,
+      provider: providerConfig.serviceProvider,
+      model,
+      inputTokens,
+      outputTokens: 0,
+      estimatedCost: 0,
+      quotaUnits: 0,
+      status: "auth_failed",
+      httpStatus: 401,
+      errorMessage: authResult.msg ?? "unauthorized",
+      requestPath: path,
+    });
+    return gatewayError(provider, 401, authResult.msg ?? "unauthorized");
+  }
+
+  const quota = await checkMonthlyQuota(authResult.employee, inputTokens);
+  if (!quota.allowed) {
+    await recordUsageSafely({
+      employeeId: authResult.employee?.id ?? "unknown",
+      employeeName: authResult.employee?.name,
+      provider: providerConfig.serviceProvider,
+      model,
+      inputTokens,
+      outputTokens: 0,
+      estimatedCost: 0,
+      quotaUnits: 0,
+      status: "quota_exceeded",
+      httpStatus: 429,
+      errorMessage: "monthly quota exceeded",
+      requestPath: path,
+    });
+
+    return gatewayError(provider, 429, "monthly quota exceeded", quota);
+  }
+
   if (!providerConfig.apiKey) {
+    await recordUsageSafely({
+      employeeId: authResult.employee?.id ?? "unknown",
+      employeeName: authResult.employee?.name,
+      provider: providerConfig.serviceProvider,
+      model,
+      inputTokens,
+      outputTokens: 0,
+      estimatedCost: 0,
+      quotaUnits: 0,
+      status: "failed",
+      httpStatus: 500,
+      errorMessage: `missing ${providerConfig.serviceProvider} provider api key`,
+      requestPath: path,
+    });
+
     return gatewayError(
       provider,
       500,
@@ -138,12 +241,27 @@ async function handle(
     console.log("[Gateway]", provider, path);
     const res = await fetch(fetchUrl, {
       method: req.method,
-      body: req.body,
-      headers: buildHeaders(provider, providerConfig.apiKey),
+      body: bodyText,
+      headers: buildHeaders(provider, providerConfig.apiKey, req),
       redirect: "manual",
       // @ts-ignore
       duplex: "half",
       signal: controller.signal,
+    });
+
+    await recordUsageSafely({
+      employeeId: authResult.employee?.id ?? "unknown",
+      employeeName: authResult.employee?.name,
+      provider: providerConfig.serviceProvider,
+      model,
+      inputTokens,
+      outputTokens: 0,
+      estimatedCost: 0,
+      quotaUnits: res.ok ? inputTokens : 0,
+      status: res.ok ? "success" : "failed",
+      httpStatus: res.status,
+      errorMessage: res.ok ? undefined : res.statusText,
+      requestPath: path,
     });
 
     const responseHeaders = new Headers(res.headers);
@@ -159,6 +277,21 @@ async function handle(
     });
   } catch (error) {
     console.error("[Gateway] request failed", provider, error);
+    await recordUsageSafely({
+      employeeId: authResult.employee?.id ?? "unknown",
+      employeeName: authResult.employee?.name,
+      provider: providerConfig.serviceProvider,
+      model,
+      inputTokens,
+      outputTokens: 0,
+      estimatedCost: 0,
+      quotaUnits: 0,
+      status: "failed",
+      httpStatus: 502,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      requestPath: path,
+    });
+
     return gatewayError(
       provider,
       502,
@@ -173,4 +306,4 @@ async function handle(
 export const GET = handle;
 export const POST = handle;
 
-export const runtime = "edge";
+export const runtime = "nodejs";

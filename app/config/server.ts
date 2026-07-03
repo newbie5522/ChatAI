@@ -12,6 +12,8 @@ declare global {
       CODE?: string;
       EMPLOYEE_ACCESS_KEYS?: string;
       COMPANY_EMPLOYEE_KEYS?: string;
+      NEWBIE_USAGE_LOG_PATH?: string;
+      USAGE_LOG_MAX_RECORDS?: string;
 
       BASE_URL?: string;
       OPENAI_ORG_ID?: string; // openai only

@@ -935,12 +935,14 @@ export enum CompanyProvider {
   OpenAI = "OpenAI",
   Google = "Google",
   Perplexity = "Perplexity",
+  Anthropic = "Anthropic",
 }
 
 export const COMPANY_ENABLED_PROVIDERS = [
   ServiceProvider.OpenAI,
   ServiceProvider.Google,
   ServiceProvider.Perplexity,
+  ServiceProvider.Anthropic,
 ] as const;
 
 export const COMPANY_GATEWAY_BASE = "/api/gateway";
@@ -949,6 +951,7 @@ export const COMPANY_API_PATH = {
   OpenAI: "/api/gateway/openai",
   Google: "/api/gateway/google",
   Perplexity: "/api/gateway/perplexity",
+  Anthropic: "/api/gateway/anthropic",
 };
 
 export const PERPLEXITY_BASE_URL = "https://api.perplexity.ai";
@@ -1041,6 +1044,30 @@ export const COMPANY_DEFAULT_MODELS = [
       providerName: "Perplexity",
       providerType: "perplexity",
       sorted: 3,
+    },
+  },
+  {
+    name: "claude-sonnet-4-20250514",
+    displayName: "Claude Sonnet 4",
+    available: true,
+    sorted: 400,
+    provider: {
+      id: "anthropic",
+      providerName: "Anthropic",
+      providerType: "anthropic",
+      sorted: 4,
+    },
+  },
+  {
+    name: "claude-opus-4-20250514",
+    displayName: "Claude Opus 4",
+    available: true,
+    sorted: 410,
+    provider: {
+      id: "anthropic",
+      providerName: "Anthropic",
+      providerType: "anthropic",
+      sorted: 4,
     },
   },
 ];
