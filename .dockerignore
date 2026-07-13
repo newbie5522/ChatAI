@@ -53,6 +53,16 @@ typings
 # local env files
 .env*.local
 
+# Git and local workspace metadata
+.git
+.github
+.codex
+.agents
+
+# Local NewbieChat runtime data
+.data
+data
+
 # Next.js build output
 .next
 out

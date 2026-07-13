@@ -71,7 +71,7 @@ Recommended deployment targets:
 - Vercel
 - Private cloud environment
 
-Roadmap note: Docker one-click deployment has been added to the later deployment acceptance plan in [docs/newbiechat-roadmap.md](docs/newbiechat-roadmap.md).
+Docker deployment guide: [docs/docker-deployment.md](docs/docker-deployment.md).
 
 ## License
 

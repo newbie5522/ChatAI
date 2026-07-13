@@ -71,6 +71,8 @@ yarn build
 - Vercel
 - 私有云环境
 
+Docker 部署说明：[docs/docker-deployment.md](docs/docker-deployment.md)。
+
 ## 许可证
 
 本项目基于开源 NextChat 项目进行二次开发，并保留原 MIT License。

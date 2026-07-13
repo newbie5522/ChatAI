@@ -1,0 +1,36 @@
+services:
+  newbiechat:
+    environment:
+      HOST_PORT: "3000"
+      ADMIN_PASSWORD: "stage6-admin-password"
+      ADMIN_SECRET: "stage6-admin-secret"
+      OPENAI_API_KEY: "stage6-mock-provider-key"
+      BASE_URL: "http://stage6-mock-openai:3999"
+      EMPLOYEE_ACCESS_KEYS: '[{"id":"emp-stage6","name":"Stage 6 Employee","accessKey":"stage6-key","status":"active","monthlyQuota":100000,"allowedProviders":["OpenAI"],"allowedModels":["gpt-5.5"]}]'
+    depends_on:
+      - stage6-mock-openai
+
+  stage6-mock-openai:
+    image: node:20-alpine
+    command:
+      - node
+      - -e
+      - |
+        const http = require("http");
+        const server = http.createServer((req, res) => {
+          req.resume();
+          req.on("end", () => {
+            res.writeHead(200, {
+              "content-type": "text/event-stream; charset=utf-8",
+              "cache-control": "no-cache",
+            });
+            res.write("data: " + JSON.stringify({
+              id: "stage6",
+              choices: [{ delta: { content: "pong" } }],
+            }) + "\n\n");
+            setTimeout(() => res.end("data: [DONE]\n\n"), 50);
+          });
+        });
+        server.listen(3999, "0.0.0.0", () => {
+          console.log("stage6 mock openai listening on 3999");
+        });
