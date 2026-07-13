@@ -15,10 +15,10 @@ This guide is the Stage 6 deployment baseline for running NewbieChat as a privat
 
 ## Quick Start
 
-Clone the Stage 6 acceptance branch:
+Clone the official main branch:
 
 ```bash
-git clone -b stage6 https://github.com/newbie5522/ChatAI.git newbiechat
+git clone -b main https://github.com/newbie5522/ChatAI.git newbiechat
 cd newbiechat
 ```
 
@@ -75,6 +75,20 @@ Stop:
 
 ```bash
 docker compose down
+```
+
+## VPS Deployment
+
+Use `main` for all production and VPS deployments:
+
+```bash
+cd /opt
+rm -rf newbiechat
+git clone -b main https://github.com/newbie5522/ChatAI.git newbiechat
+cd newbiechat
+cp .env.template .env
+nano .env
+docker compose up -d --build
 ```
 
 ## Stage 6 VPS Acceptance
