@@ -61,6 +61,18 @@ http://localhost:3000
 yarn build
 ```
 
+## First-time Initialization
+
+1. Deploy NewbieChat.
+2. Open `/#/admin`.
+3. Login with `ADMIN_PASSWORD`.
+4. Configure OpenAI / Google / Perplexity / Anthropic API Keys in Provider Config.
+5. Create employee keys in Employee Keys.
+6. Employees use employee keys to access NewbieChat.
+7. Ordinary employees should not enter OpenAI / Google / Perplexity / Anthropic API Keys.
+
+`EMPLOYEE_ACCESS_KEYS` and Provider API Key environment variables are optional bootstrap/fallback only. The normal management flow is the admin console.
+
 ## Deployment
 
 The project will be deployed as a private company AI workspace.

@@ -61,6 +61,18 @@ http://localhost:3000
 yarn build
 ```
 
+## 首次初始化流程
+
+1. 部署 NewbieChat。
+2. 打开 `/#/admin`。
+3. 使用 `ADMIN_PASSWORD` 登录管理员后台。
+4. 在 Provider Config 配置 OpenAI / Google / Perplexity / Anthropic API Key。
+5. 在 Employee Keys 创建员工密钥。
+6. 员工使用员工密钥访问 NewbieChat。
+7. 普通员工不需要、也不应该填写官方 Provider API Key。
+
+`EMPLOYEE_ACCESS_KEYS` 和 Provider API Key 环境变量只作为可选 bootstrap / fallback。正式管理流程以管理员后台为准。
+
 ## 部署
 
 本项目将作为公司内部 AI 工作台部署。

@@ -1,6 +1,6 @@
 # NewbieChat Docker Deployment
 
-This guide is the Stage 6 deployment baseline for running NewbieChat as a private company AI workspace with Docker Compose.
+This guide explains how to run NewbieChat as a private company AI workspace with Docker Compose.
 
 ## Files
 
@@ -34,18 +34,15 @@ On Linux or macOS:
 cp .env.template .env
 ```
 
-Edit `.env` before starting the container:
+Edit only the required startup settings in `.env` before starting the container:
 
 ```dotenv
 HOST_PORT=3000
 ADMIN_PASSWORD=change-this-admin-password
 ADMIN_SECRET=change-this-long-random-secret
-OPENAI_API_KEY=<openai-api-key>
-GOOGLE_API_KEY=
-PERPLEXITY_API_KEY=
-ANTHROPIC_API_KEY=
-EMPLOYEE_ACCESS_KEYS=[{"id":"emp-demo","name":"Demo Employee","accessKey":"change-this-employee-key","status":"active","monthlyQuota":100000,"allowedProviders":["OpenAI","Google","Perplexity","Anthropic"],"allowedModels":["gpt-5.5","gemini-2.5-pro","sonar-pro","claude-sonnet-4-20250514"]}]
 ```
+
+Do not put employee keys or Provider API Keys in `.env` for normal use. After deployment, open `/#/admin`, configure Provider Keys in Provider Config, and create employee keys in Employee Keys.
 
 Start NewbieChat:
 
@@ -88,8 +85,37 @@ git clone -b main https://github.com/newbie5522/ChatAI.git newbiechat
 cd newbiechat
 cp .env.template .env
 nano .env
+```
+
+For a normal VPS deployment, `.env` only needs the startup settings:
+
+```dotenv
+HOST_PORT=3100
+ADMIN_PASSWORD=change-this-admin-password
+ADMIN_SECRET=change-this-long-random-secret
+```
+
+Do not put employee keys or Provider API Keys in `.env` for normal use. `EMPLOYEE_ACCESS_KEYS`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `PERPLEXITY_API_KEY`, and `ANTHROPIC_API_KEY` are optional bootstrap or fallback variables only.
+
+Start the service:
+
+```bash
 docker compose up -d --build
 ```
+
+After deployment, open:
+
+```text
+http://YOUR_SERVER:3100/#/admin
+```
+
+Use the admin console as the normal initialization flow:
+
+1. Log in with `ADMIN_PASSWORD`.
+2. Configure OpenAI / Google / Perplexity / Anthropic Provider API Keys in Provider Config.
+3. Create employee keys in Employee Keys.
+4. Give employees only their employee keys for frontend access.
+5. Ordinary employees should not see or enter official Provider API Keys.
 
 ## Stage 6 VPS Acceptance
 
@@ -138,6 +164,8 @@ The Compose file passes these server-only variables into the container:
 - `NEWBIE_ADMIN_CONFIG_PATH`
 - `NEWBIE_USAGE_LOG_PATH`
 
+Only `ADMIN_PASSWORD`, `ADMIN_SECRET`, and `HOST_PORT` are part of the normal first-start setup. `EMPLOYEE_ACCESS_KEYS` and Provider API Key environment variables are optional bootstrap or fallback inputs. For ongoing operations, manage employees and Provider Keys in `/#/admin`.
+
 Default Docker storage paths:
 
 ```dotenv
@@ -160,7 +188,8 @@ On Linux servers, ensure the mounted directory is writable by container user `10
 
 - Do not put provider keys into any `NEXT_PUBLIC_*` variable.
 - Do not commit `.env`; it is ignored by git and Docker build context.
-- Provider keys are read server-side and injected by Gateway routes.
+- Provider keys are managed in the admin console for normal use, read server-side, and injected by Gateway routes.
+- Do not maintain employee keys or Provider API Keys in `.env` long term unless you intentionally need bootstrap or fallback behavior.
 - `/api/config` returns frontend feature flags and model rules only; it does not return provider keys.
 - `ALLOW_USER_PROVIDER_KEYS` is empty by default, so employees cannot use their own provider API keys unless explicitly enabled.
 - `PROXY_URL` is empty by default. Set it only when the container must access providers through a forward proxy.
