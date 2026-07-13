@@ -4,8 +4,10 @@ This guide explains how to run NewbieChat as a private company AI workspace with
 
 ## Files
 
-- `Dockerfile`: builds the current repository into a Next.js standalone image.
-- `docker-compose.yml`: builds and runs the local `newbiechat` service.
+- `Dockerfile`: used by GitHub Actions to build the prebuilt Docker image.
+- `docker-compose.yml`: used for development and local builds.
+- `docker-compose.prod.yml`: used for VPS production deployment. It pulls the GHCR prebuilt image directly.
+- `scripts/deploy-vps.sh`: pulls the prebuilt image and starts the production Compose stack.
 - `.env.template`: copy this file to `.env` and fill in runtime settings.
 
 ## Prerequisites
@@ -13,7 +15,9 @@ This guide explains how to run NewbieChat as a private company AI workspace with
 - Docker with Compose V2 must be installed on the deployment host.
 - The deployment host must be able to reach the selected Provider APIs, directly or through `PROXY_URL`.
 
-## Quick Start
+## Local Docker Build
+
+This path is for development or local verification on a machine that can build the Next.js image.
 
 Clone the official main branch:
 
@@ -76,7 +80,7 @@ docker compose down
 
 ## VPS Deployment
 
-Use `main` for all production and VPS deployments:
+Use `main` for all production and VPS deployments. The VPS should pull the GHCR prebuilt image, not build the Next.js image locally.
 
 ```bash
 cd /opt
@@ -85,6 +89,7 @@ git clone -b main https://github.com/newbie5522/ChatAI.git newbiechat
 cd newbiechat
 cp .env.template .env
 nano .env
+sh scripts/deploy-vps.sh
 ```
 
 For a normal VPS deployment, `.env` only needs the startup settings:
@@ -96,12 +101,6 @@ ADMIN_SECRET=change-this-long-random-secret
 ```
 
 Do not put employee keys or Provider API Keys in `.env` for normal use. `EMPLOYEE_ACCESS_KEYS`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `PERPLEXITY_API_KEY`, and `ANTHROPIC_API_KEY` are optional bootstrap or fallback variables only.
-
-Start the service:
-
-```bash
-docker compose up -d --build
-```
 
 After deployment, open:
 
@@ -116,6 +115,38 @@ Use the admin console as the normal initialization flow:
 3. Create employee keys in Employee Keys.
 4. Give employees only their employee keys for frontend access.
 5. Ordinary employees should not see or enter official Provider API Keys.
+
+## Production Image
+
+The production image is published by GitHub Actions:
+
+```text
+ghcr.io/newbie5522/newbiechat:latest
+```
+
+`docker-compose.prod.yml` uses this image directly and does not contain a `build:` section.
+
+If the GHCR package is private, log in on the VPS before running the deploy script:
+
+```bash
+docker login ghcr.io
+```
+
+For true one-command deployment, set the GHCR package visibility to public.
+
+## Do Not Build On VPS
+
+Do not use this for formal VPS deployment:
+
+```bash
+docker compose up -d --build
+```
+
+A 1GB VPS is not suitable for local Next.js image builds. Formal deployment should use `docker-compose.prod.yml` to pull the GHCR prebuilt image:
+
+```bash
+sh scripts/deploy-vps.sh
+```
 
 ## Stage 6 VPS Acceptance
 
@@ -152,7 +183,7 @@ KEEP_STAGE6_ACCEPTANCE_STACK=1 sh scripts/stage6-docker-acceptance.sh
 
 ## Runtime Configuration
 
-The Compose file passes these server-only variables into the container:
+The Compose files pass these server-only variables into the container:
 
 - `EMPLOYEE_ACCESS_KEYS`
 - `ADMIN_PASSWORD`
@@ -173,7 +204,7 @@ NEWBIE_ADMIN_CONFIG_PATH=/app/.data/newbiechat-admin.json
 NEWBIE_USAGE_LOG_PATH=/app/.data/newbiechat-usage.json
 ```
 
-`docker-compose.yml` mounts the named volume `newbiechat-data` at `/app/.data`, so administrator settings, provider settings, employee records, and usage records survive container restarts.
+`docker-compose.yml` and `docker-compose.prod.yml` mount the named volume `newbiechat-data` at `/app/.data`, so administrator settings, provider settings, employee records, and usage records survive container restarts.
 
 To use a host directory instead of the named volume, replace the volume mount with a writable directory:
 
