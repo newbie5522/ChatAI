@@ -2,7 +2,7 @@ import { getServerSideConfig } from "@/app/config/server";
 import { TENCENT_BASE_URL, ModelProvider } from "@/app/constant";
 import { prettyObject } from "@/app/utils/format";
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/app/api/auth";
+import { auth, blockLegacyProviderApiInEmployeeMode } from "@/app/api/auth";
 import { getHeader } from "@/app/utils/tencent";
 
 const serverConfig = getServerSideConfig();
@@ -15,6 +15,11 @@ async function handle(
 
   if (req.method === "OPTIONS") {
     return NextResponse.json({ body: "OK" }, { status: 200 });
+  }
+
+  const legacyProviderBlock = blockLegacyProviderApiInEmployeeMode();
+  if (legacyProviderBlock) {
+    return legacyProviderBlock;
   }
 
   const authResult = auth(req, ModelProvider.Hunyuan);

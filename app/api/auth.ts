@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSideConfig } from "../config/server";
 import md5 from "spark-md5";
 import { ACCESS_CODE_PREFIX, ModelProvider } from "../constant";
@@ -35,6 +35,19 @@ export interface AuthResult {
   error: boolean;
   msg?: string;
   employee?: SafeEmployeeAccessRecord;
+}
+
+export function blockLegacyProviderApiInEmployeeMode() {
+  if (!hasEmployeeAccessControl()) return null;
+
+  return NextResponse.json(
+    {
+      error: true,
+      message:
+        "Legacy Provider API is disabled in employee mode. Use /api/gateway/*.",
+    },
+    { status: 403 },
+  );
 }
 
 export function validateEmployeeRequest(

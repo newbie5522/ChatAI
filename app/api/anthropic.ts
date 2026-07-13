@@ -8,7 +8,7 @@ import {
 } from "@/app/constant";
 import { prettyObject } from "@/app/utils/format";
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "./auth";
+import { auth, blockLegacyProviderApiInEmployeeMode } from "./auth";
 import { isModelNotavailableInServer } from "@/app/utils/model";
 import { cloudflareAIGatewayUrl } from "@/app/utils/cloudflare";
 
@@ -22,6 +22,11 @@ export async function handle(
 
   if (req.method === "OPTIONS") {
     return NextResponse.json({ body: "OK" }, { status: 200 });
+  }
+
+  const legacyProviderBlock = blockLegacyProviderApiInEmployeeMode();
+  if (legacyProviderBlock) {
+    return legacyProviderBlock;
   }
 
   const subpath = params.path.join("/");

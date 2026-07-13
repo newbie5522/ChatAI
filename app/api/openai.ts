@@ -3,7 +3,7 @@ import { getServerSideConfig } from "@/app/config/server";
 import { ModelProvider, OpenaiPath } from "@/app/constant";
 import { prettyObject } from "@/app/utils/format";
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "./auth";
+import { auth, blockLegacyProviderApiInEmployeeMode } from "./auth";
 import { requestOpenai } from "./common";
 
 const ALLOWED_PATH = new Set(Object.values(OpenaiPath));
@@ -34,6 +34,11 @@ export async function handle(
 
   if (req.method === "OPTIONS") {
     return NextResponse.json({ body: "OK" }, { status: 200 });
+  }
+
+  const legacyProviderBlock = blockLegacyProviderApiInEmployeeMode();
+  if (legacyProviderBlock) {
+    return legacyProviderBlock;
   }
 
   const subpath = params.path.join("/");

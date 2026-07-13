@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "./auth";
+import { auth, blockLegacyProviderApiInEmployeeMode } from "./auth";
 import { getServerSideConfig } from "@/app/config/server";
 import { ApiPath, GEMINI_BASE_URL, ModelProvider } from "@/app/constant";
 import { prettyObject } from "@/app/utils/format";
@@ -14,6 +14,11 @@ export async function handle(
 
   if (req.method === "OPTIONS") {
     return NextResponse.json({ body: "OK" }, { status: 200 });
+  }
+
+  const legacyProviderBlock = blockLegacyProviderApiInEmployeeMode();
+  if (legacyProviderBlock) {
+    return legacyProviderBlock;
   }
 
   const authResult = auth(req, ModelProvider.GeminiPro);

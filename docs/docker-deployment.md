@@ -15,6 +15,13 @@ This guide is the Stage 6 deployment baseline for running NewbieChat as a privat
 
 ## Quick Start
 
+Clone the Stage 6 acceptance branch:
+
+```bash
+git clone -b stage6 https://github.com/newbie5522/ChatAI.git newbiechat
+cd newbiechat
+```
+
 Copy the environment template:
 
 ```powershell

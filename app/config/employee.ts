@@ -205,8 +205,8 @@ function allowedProviderNames(modelProvider: ModelProvider) {
   }
 }
 
-function isAllowed(value: string, allowedValues: string[]) {
-  if (allowedValues.length === 0) return true;
+function isAllowed(value: string, allowedValues: string[], allowEmpty = true) {
+  if (allowedValues.length === 0) return allowEmpty;
   const normalized = value.toLowerCase();
   return allowedValues.some((allowed) => allowed.toLowerCase() === normalized);
 }
@@ -250,7 +250,7 @@ export function validateEmployeeAccessKey(
 
   if (options.modelProvider) {
     const providerAllowed = allowedProviderNames(options.modelProvider).some(
-      (provider) => isAllowed(provider, record.allowedProviders ?? []),
+      (provider) => isAllowed(provider, record.allowedProviders ?? [], false),
     );
     if (!providerAllowed) {
       return {
