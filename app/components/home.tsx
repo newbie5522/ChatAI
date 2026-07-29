@@ -20,14 +20,19 @@ import {
   HashRouter as Router,
   Route,
   Routes,
+  useNavigate,
   useLocation,
 } from "react-router-dom";
 import { SideBar } from "./sidebar";
-import { useAppConfig } from "../store/config";
+import {
+  useAccessStore,
+  useAccountStore,
+  useAppConfig,
+  useChatStore,
+} from "../store";
 import { AuthPage } from "./auth";
 import { getClientConfig } from "../config/client";
 import { type ClientApi, getClientApi } from "../client/api";
-import { useAccessStore } from "../store";
 import clsx from "clsx";
 import { initializeMcpSystem, isMcpEnabled } from "../mcp/actions";
 
@@ -163,7 +168,10 @@ export function WindowContent(props: { children: React.ReactNode }) {
 
 function Screen() {
   const config = useAppConfig();
+  const chatStore = useChatStore();
+  const accountStore = useAccountStore();
   const location = useLocation();
+  const navigate = useNavigate();
   const isArtifact = location.pathname.includes(Path.Artifacts);
   const isHome = location.pathname === Path.Home;
   const isAuth = location.pathname === Path.Auth;
@@ -177,6 +185,61 @@ function Screen() {
   useEffect(() => {
     loadAsyncGoogleFont();
   }, []);
+
+  useEffect(() => {
+    void accountStore.fetchSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (
+      accountStore.loaded &&
+      !accountStore.authenticated &&
+      !isAuth &&
+      !isArtifact
+    ) {
+      navigate(Path.Auth);
+    }
+  }, [
+    accountStore.authenticated,
+    accountStore.loaded,
+    isArtifact,
+    isAuth,
+    navigate,
+  ]);
+
+  useEffect(() => {
+    if (!accountStore.authenticated || accountStore.models.length === 0) return;
+
+    const currentModel = config.modelConfig.model;
+    const currentProvider = config.modelConfig.providerName;
+    const currentAllowed = accountStore.models.some(
+      (model) =>
+        model.name === currentModel &&
+        model.provider.providerName === currentProvider,
+    );
+    if (currentAllowed) return;
+
+    const nextModel = accountStore.models[0];
+    config.update((config) => {
+      config.modelConfig.model = nextModel.name;
+      config.modelConfig.providerName = nextModel.provider.providerName as any;
+    });
+    chatStore.update((state) => {
+      const session = state.sessions[state.currentSessionIndex];
+      if (!session) return;
+      session.mask.modelConfig.model = nextModel.name;
+      session.mask.modelConfig.providerName = nextModel.provider
+        .providerName as any;
+    });
+  }, [
+    accountStore.authenticated,
+    accountStore.models,
+    chatStore,
+    config,
+    config.modelConfig.model,
+    config.modelConfig.providerName,
+  ]);
 
   if (isArtifact) {
     return (

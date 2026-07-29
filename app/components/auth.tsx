@@ -3,7 +3,7 @@ import { IconButton } from "./button";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Path } from "../constant";
-import { useAccessStore } from "../store";
+import { useAccountStore } from "../store";
 import Locale from "../locales";
 import BotIcon from "../icons/bot.svg";
 import { getClientConfig } from "../config/client";
@@ -13,48 +13,43 @@ import clsx from "clsx";
 
 export function AuthPage() {
   const navigate = useNavigate();
-  const accessStore = useAccessStore();
+  const accountStore = useAccountStore();
   const [checking, setChecking] = useState(false);
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("");
   const goChat = () => navigate(Path.Chat);
 
-  const validateAccessKey = async () => {
+  const login = async () => {
     if (checking) return;
 
     setChecking(true);
     try {
-      const response = await fetch("/api/employee-auth", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          accessKey: accessStore.accessCode,
-        }),
-      });
-      const result = (await response.json()) as {
-        ok?: boolean;
-        message?: string;
-      };
-
-      if (response.ok && result.ok) {
-        goChat();
-      } else {
-        showToast(result.message ?? Locale.Settings.Sync.Fail);
-      }
-    } catch {
-      showToast(Locale.Settings.Sync.Fail);
+      await accountStore.login(username, password);
+      setPassword("");
+      goChat();
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : Locale.Settings.Sync.Fail,
+      );
     } finally {
       setChecking(false);
     }
   };
 
   useEffect(() => {
-    accessStore.fetch();
+    void accountStore.fetchSession();
     if (getClientConfig()?.isApp) {
       navigate(Path.Settings);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (accountStore.authenticated) {
+      goChat();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountStore.authenticated]);
 
   return (
     <div className={styles["auth-page"]}>
@@ -73,16 +68,28 @@ export function AuthPage() {
       <div className={styles["auth-tips"]}>{Locale.Auth.Tips}</div>
 
       <PasswordInput
-        style={{ marginTop: "3vh", marginBottom: "3vh" }}
+        style={{ marginTop: "3vh", marginBottom: "1.2vh" }}
         aria={Locale.Settings.ShowPassword}
-        aria-label={Locale.Auth.Input}
-        value={accessStore.accessCode}
+        aria-label="Username"
+        value={username}
         type="text"
-        placeholder={Locale.Auth.Input}
+        placeholder="Username"
         onChange={(e) => {
-          accessStore.update(
-            (access) => (access.accessCode = e.currentTarget.value),
-          );
+          setUsername(e.currentTarget.value);
+        }}
+      />
+      <PasswordInput
+        style={{ marginBottom: "3vh" }}
+        aria={Locale.Settings.ShowPassword}
+        aria-label="Password"
+        value={password}
+        type="password"
+        placeholder="Password"
+        onChange={(e) => {
+          setPassword(e.currentTarget.value);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void login();
         }}
       />
 
@@ -93,7 +100,7 @@ export function AuthPage() {
           }
           type="primary"
           disabled={checking}
-          onClick={validateAccessKey}
+          onClick={login}
         />
       </div>
     </div>

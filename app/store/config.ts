@@ -3,7 +3,7 @@ import { DalleQuality, DalleStyle, ModelSize } from "../typing";
 import { getClientConfig } from "../config/client";
 import {
   DEFAULT_INPUT_TEMPLATE,
-  COMPANY_DEFAULT_MODELS,
+  DEFAULT_MODELS,
   DEFAULT_SIDEBAR_WIDTH,
   DEFAULT_TTS_ENGINE,
   DEFAULT_TTS_ENGINES,
@@ -61,10 +61,10 @@ export const DEFAULT_CONFIG = {
   hideBuiltinMasks: false, // dont add builtin masks
 
   customModels: "",
-  models: COMPANY_DEFAULT_MODELS as any as LLMModel[],
+  models: DEFAULT_MODELS as any as LLMModel[],
 
   modelConfig: {
-    model: "gpt-5.5" as ModelType,
+    model: "gpt-4o-mini" as ModelType,
     providerName: "OpenAI" as ServiceProvider,
     temperature: 0.5,
     top_p: 1,
@@ -161,6 +161,39 @@ export const ModalConfigValidator = {
   },
 };
 
+function isValidStoredModel(model: unknown): model is LLMModel {
+  return (
+    !!model &&
+    typeof model === "object" &&
+    typeof (model as LLMModel).name === "string" &&
+    !!(model as LLMModel).provider?.providerName
+  );
+}
+
+function normalizeModelConfig(modelConfig: Partial<ModelConfig> | undefined) {
+  const nextModelConfig = {
+    ...DEFAULT_CONFIG.modelConfig,
+    ...(modelConfig ?? {}),
+  };
+  if (typeof nextModelConfig.model !== "string" || !nextModelConfig.model) {
+    nextModelConfig.model = DEFAULT_CONFIG.modelConfig.model;
+  }
+  if (
+    typeof nextModelConfig.providerName !== "string" ||
+    !nextModelConfig.providerName
+  ) {
+    nextModelConfig.providerName = DEFAULT_CONFIG.modelConfig.providerName;
+  }
+  if (typeof nextModelConfig.compressModel !== "string") {
+    nextModelConfig.compressModel = DEFAULT_CONFIG.modelConfig.compressModel;
+  }
+  if (typeof nextModelConfig.compressProviderName !== "string") {
+    nextModelConfig.compressProviderName =
+      DEFAULT_CONFIG.modelConfig.compressProviderName;
+  }
+  return nextModelConfig;
+}
+
 export const useAppConfig = createPersistStore(
   { ...DEFAULT_CONFIG },
   (set, get) => ({
@@ -201,18 +234,30 @@ export const useAppConfig = createPersistStore(
       const state = persistedState as ChatConfig | undefined;
       if (!state) return { ...currentState };
       const models = currentState.models.slice();
-      state.models.forEach((pModel) => {
+      const persistedModels = Array.isArray(state.models)
+        ? state.models.filter(isValidStoredModel)
+        : [];
+      persistedModels.forEach((pModel) => {
         const idx = models.findIndex(
           (v) => v.name === pModel.name && v.provider === pModel.provider,
         );
         if (idx !== -1) models[idx] = pModel;
         else models.push(pModel);
       });
-      return { ...currentState, ...state, models: models };
+      return {
+        ...currentState,
+        ...state,
+        modelConfig: normalizeModelConfig(state.modelConfig),
+        models: models.filter(isValidStoredModel),
+      };
     },
 
     migrate(persistedState, version) {
       const state = persistedState as ChatConfig;
+      state.models = Array.isArray(state.models)
+        ? (state.models.filter(isValidStoredModel) as any)
+        : DEFAULT_CONFIG.models;
+      state.modelConfig = normalizeModelConfig(state.modelConfig) as any;
 
       if (version < 3.4) {
         state.modelConfig.sendMemory = true;

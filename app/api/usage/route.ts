@@ -1,21 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { validateEmployeeRequest } from "@/app/api/auth";
+import { requireAccount } from "@/app/config/account-auth";
 import {
-  getEmployeeUsageSummary,
+  getAccountUsageSummary,
   getMonthKey,
-  listEmployeeUsageRecords,
+  listAccountUsageRecords,
 } from "@/app/config/usage";
 
 async function handle(req: NextRequest) {
-  const employeeAccess = validateEmployeeRequest(req);
-
-  if (!employeeAccess.ok || !employeeAccess.employee) {
+  const { account, response } = requireAccount(req);
+  if (response) return response;
+  if (!account) {
     return NextResponse.json(
-      {
-        error: true,
-        message: employeeAccess.reason ?? "unauthorized",
-      },
+      { error: true, message: "account login required" },
       { status: 401 },
     );
   }
@@ -27,15 +24,16 @@ async function handle(req: NextRequest) {
     : 100;
 
   const [summary, records] = await Promise.all([
-    getEmployeeUsageSummary(employeeAccess.employee, month),
-    listEmployeeUsageRecords(employeeAccess.employee.id, month, safeLimit),
+    getAccountUsageSummary(account, month),
+    listAccountUsageRecords(account.id, month, safeLimit),
   ]);
 
   return NextResponse.json({
     error: false,
-    employee: {
-      id: employeeAccess.employee.id,
-      name: employeeAccess.employee.name,
+    account: {
+      id: account.id,
+      username: account.username,
+      name: account.name,
     },
     summary,
     records,

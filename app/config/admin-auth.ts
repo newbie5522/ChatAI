@@ -2,6 +2,8 @@ import { createHmac, timingSafeEqual } from "crypto";
 
 import { NextRequest, NextResponse } from "next/server";
 
+import { getAccountFromRequest, isAdminRole } from "./account-auth";
+
 const ADMIN_COOKIE = "newbie_admin_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -37,6 +39,10 @@ function safeEqual(a: string, b: string) {
   const right = Buffer.from(b);
   if (left.length !== right.length) return false;
   return timingSafeEqual(left, right);
+}
+
+function shouldUseSecureAdminCookie() {
+  return process.env.ADMIN_COOKIE_SECURE === "1";
 }
 
 export function isAdminConfigured() {
@@ -76,6 +82,9 @@ export function verifyAdminSessionToken(token?: string) {
 }
 
 export function isAdminRequest(req: NextRequest) {
+  const account = getAccountFromRequest(req);
+  if (isAdminRole(account?.role)) return true;
+
   return verifyAdminSessionToken(req.cookies.get(ADMIN_COOKIE)?.value);
 }
 
@@ -105,7 +114,7 @@ export function setAdminCookie(res: NextResponse, token: string) {
   res.cookies.set(ADMIN_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureAdminCookie(),
     path: "/",
     maxAge: Math.floor(SESSION_TTL_MS / 1000),
   });
@@ -115,7 +124,7 @@ export function clearAdminCookie(res: NextResponse) {
   res.cookies.set(ADMIN_COOKIE, "", {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureAdminCookie(),
     path: "/",
     maxAge: 0,
   });

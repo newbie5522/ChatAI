@@ -2,35 +2,37 @@ import { randomUUID } from "crypto";
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
 
-import { SafeEmployeeAccessRecord } from "./employee";
+import type { ModelCategory } from "./model-registry";
+import type { SafeAccountRecord } from "./admin-store";
 
-export type UsageStatus =
-  | "success"
-  | "failed"
-  | "auth_failed"
-  | "quota_exceeded";
+export type UsageStatus = "success" | "failed" | "blocked";
 
-export interface UsageRecord {
+export interface UsageLogRecord {
   id: string;
-  employeeId: string;
-  employeeName?: string;
+  accountId: string;
+  username: string;
+  role: string;
   provider: string;
+  modelId: string;
   model: string;
-  inputTokens: number;
-  outputTokens: number;
-  estimatedCost: number;
-  quotaUnits: number;
+  category: ModelCategory;
+  promptPreview: string;
+  promptContent?: string;
+  inputTokens?: number;
+  quotaUnits?: number;
   status: UsageStatus;
-  httpStatus?: number;
   errorMessage?: string;
+  httpStatus?: number;
   requestPath?: string;
   month: string;
   createdAt: string;
 }
 
 export interface UsageSummary {
-  employeeId: string;
-  employeeName?: string;
+  accountId: string;
+  username: string;
+  name?: string;
+  role: string;
   month: string;
   monthlyQuota?: number;
   usedQuota: number;
@@ -38,17 +40,16 @@ export interface UsageSummary {
   requestCount: number;
   successCount: number;
   failedCount: number;
+  blockedCount: number;
   inputTokens: number;
-  outputTokens: number;
-  estimatedCost: number;
 }
 
 interface UsageStore {
-  version: 1;
-  records: UsageRecord[];
+  version: 2;
+  records: UsageLogRecord[];
 }
 
-type UsageRecordInput = Omit<UsageRecord, "id" | "createdAt" | "month"> & {
+type UsageRecordInput = Omit<UsageLogRecord, "id" | "createdAt" | "month"> & {
   createdAt?: string;
 };
 
@@ -78,18 +79,51 @@ export function getMonthKey(date = new Date()) {
 
 function emptyStore(): UsageStore {
   return {
-    version: 1,
+    version: 2,
     records: [],
+  };
+}
+
+function normalizeRecord(record: Partial<UsageLogRecord>): UsageLogRecord {
+  const createdAt = record.createdAt ?? new Date().toISOString();
+  const legacy = record as Record<string, unknown>;
+  const status = String(record.status ?? "failed");
+  return {
+    id: record.id || randomUUID(),
+    accountId: String(record.accountId ?? legacy.employeeId ?? ""),
+    username: String(record.username ?? legacy.employeeName ?? ""),
+    role: String(record.role ?? "employee"),
+    provider: String(record.provider ?? ""),
+    modelId: String(record.modelId ?? ""),
+    model: String(record.model ?? "unknown"),
+    category: (record.category ?? "chat") as ModelCategory,
+    promptPreview: String(record.promptPreview ?? ""),
+    promptContent:
+      typeof record.promptContent === "string"
+        ? record.promptContent.slice(0, 12000)
+        : undefined,
+    inputTokens: Number(record.inputTokens ?? 0),
+    quotaUnits: Number(record.quotaUnits ?? 0),
+    status: ["success", "failed", "blocked"].includes(status)
+      ? (status as UsageStatus)
+      : "failed",
+    errorMessage: record.errorMessage?.slice(0, 1000),
+    httpStatus: record.httpStatus,
+    requestPath: record.requestPath,
+    month: record.month || getMonthKey(new Date(createdAt)),
+    createdAt,
   };
 }
 
 async function readStoreUnsafe(): Promise<UsageStore> {
   try {
     const raw = await readFile(getUsageLogPath(), "utf8");
-    const parsed = JSON.parse(raw) as UsageStore;
+    const parsed = JSON.parse(raw) as Partial<UsageStore>;
     return {
-      version: 1,
-      records: Array.isArray(parsed.records) ? parsed.records : [],
+      version: 2,
+      records: Array.isArray(parsed.records)
+        ? parsed.records.map((record) => normalizeRecord(record))
+        : [],
     };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
@@ -105,7 +139,7 @@ async function writeStoreUnsafe(store: UsageStore) {
 
   const maxRecords = getMaxRecords();
   const trimmedStore: UsageStore = {
-    version: 1,
+    version: 2,
     records: store.records.slice(-maxRecords),
   };
 
@@ -130,14 +164,11 @@ export async function readUsageRecords() {
 
 export async function appendUsageRecord(input: UsageRecordInput) {
   return enqueueWrite(async () => {
-    const createdAt = input.createdAt ?? new Date().toISOString();
-    const record: UsageRecord = {
+    const record = normalizeRecord({
       ...input,
       id: randomUUID(),
-      createdAt,
-      month: getMonthKey(new Date(createdAt)),
-      errorMessage: input.errorMessage?.slice(0, 1000),
-    };
+      createdAt: input.createdAt ?? new Date().toISOString(),
+    });
 
     const store = await readStoreUnsafe();
     store.records.push(record);
@@ -150,6 +181,64 @@ export async function appendUsageRecord(input: UsageRecordInput) {
 export function estimateTokensFromBody(bodyText?: string) {
   if (!bodyText?.trim()) return 0;
   return Math.max(1, Math.ceil(bodyText.length / 4));
+}
+
+function textFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object" && "text" in part) {
+          return String((part as { text?: unknown }).text ?? "");
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
+}
+
+export function extractPromptFromBody(bodyText?: string) {
+  if (!bodyText) return "";
+
+  try {
+    const parsed = JSON.parse(bodyText) as Record<string, unknown>;
+    if (Array.isArray(parsed.messages)) {
+      const userMessages = parsed.messages
+        .filter(
+          (message) =>
+            message &&
+            typeof message === "object" &&
+            (message as { role?: string }).role === "user",
+        )
+        .map((message) =>
+          textFromContent((message as { content?: unknown }).content),
+        )
+        .filter(Boolean);
+      return userMessages.at(-1) ?? "";
+    }
+
+    if (Array.isArray(parsed.contents)) {
+      const userContents = parsed.contents
+        .filter(
+          (content) =>
+            content &&
+            typeof content === "object" &&
+            (content as { role?: string }).role !== "model",
+        )
+        .map((content) =>
+          textFromContent((content as { parts?: unknown }).parts),
+        )
+        .filter(Boolean);
+      return userContents.at(-1) ?? "";
+    }
+
+    return textFromContent(parsed.prompt);
+  } catch {
+    return bodyText.slice(0, 12000);
+  }
 }
 
 export function extractModelFromGatewayRequest(
@@ -176,60 +265,53 @@ export function extractModelFromGatewayRequest(
   return "unknown";
 }
 
-function quotaSeed(employee?: SafeEmployeeAccessRecord) {
-  const usedQuota = Number(employee?.usedQuota ?? 0);
+function quotaSeed(account?: SafeAccountRecord) {
+  const usedQuota = Number(account?.usedQuota ?? 0);
   return Number.isFinite(usedQuota) && usedQuota > 0 ? usedQuota : 0;
 }
 
-function quotaLimit(employee?: SafeEmployeeAccessRecord) {
-  const monthlyQuota = Number(employee?.monthlyQuota ?? 0);
+function quotaLimit(account?: SafeAccountRecord) {
+  const monthlyQuota = Number(account?.monthlyQuota ?? 0);
   return Number.isFinite(monthlyQuota) && monthlyQuota > 0
     ? monthlyQuota
     : undefined;
 }
 
 function getMonthlyRecords(
-  records: UsageRecord[],
-  employeeId: string,
+  records: UsageLogRecord[],
+  accountId: string,
   month = getMonthKey(),
 ) {
   return records.filter(
-    (record) => record.employeeId === employeeId && record.month === month,
+    (record) => record.accountId === accountId && record.month === month,
   );
 }
 
-export async function getEmployeeUsageSummary(
-  employee: SafeEmployeeAccessRecord,
+export async function getAccountUsageSummary(
+  account: SafeAccountRecord,
   month = getMonthKey(),
 ): Promise<UsageSummary> {
   const records = getMonthlyRecords(
     await readUsageRecords(),
-    employee.id,
+    account.id,
     month,
   );
   const successfulRecords = records.filter(
     (record) => record.status === "success",
   );
   const usedQuota =
-    quotaSeed(employee) +
-    successfulRecords.reduce((sum, record) => sum + record.quotaUnits, 0);
-  const monthlyQuota = quotaLimit(employee);
-  const inputTokens = records.reduce(
-    (sum, record) => sum + record.inputTokens,
-    0,
-  );
-  const outputTokens = records.reduce(
-    (sum, record) => sum + record.outputTokens,
-    0,
-  );
-  const estimatedCost = records.reduce(
-    (sum, record) => sum + record.estimatedCost,
-    0,
-  );
+    quotaSeed(account) +
+    successfulRecords.reduce(
+      (sum, record) => sum + Number(record.quotaUnits ?? 0),
+      0,
+    );
+  const monthlyQuota = quotaLimit(account);
 
   return {
-    employeeId: employee.id,
-    employeeName: employee.name,
+    accountId: account.id,
+    username: account.username,
+    name: account.name,
+    role: account.role,
     month,
     monthlyQuota,
     usedQuota,
@@ -239,31 +321,33 @@ export async function getEmployeeUsageSummary(
         : Math.max(0, monthlyQuota - usedQuota),
     requestCount: records.length,
     successCount: successfulRecords.length,
-    failedCount: records.length - successfulRecords.length,
-    inputTokens,
-    outputTokens,
-    estimatedCost,
+    failedCount: records.filter((record) => record.status === "failed").length,
+    blockedCount: records.filter((record) => record.status === "blocked")
+      .length,
+    inputTokens: records.reduce(
+      (sum, record) => sum + Number(record.inputTokens ?? 0),
+      0,
+    ),
   };
 }
 
-export async function listEmployeeUsageRecords(
-  employeeId: string,
+export async function listAccountUsageRecords(
+  accountId?: string,
   month = getMonthKey(),
-  limit = 100,
+  limit = 200,
 ) {
-  const records = getMonthlyRecords(
-    await readUsageRecords(),
-    employeeId,
-    month,
+  const records = (await readUsageRecords()).filter(
+    (record) =>
+      (!accountId || record.accountId === accountId) && record.month === month,
   );
   return records.slice(-limit).reverse();
 }
 
 export async function checkMonthlyQuota(
-  employee: SafeEmployeeAccessRecord | undefined,
+  account: SafeAccountRecord | undefined,
   requestedQuotaUnits: number,
 ) {
-  if (!employee) {
+  if (!account || account.role === "admin" || account.role === "super_admin") {
     return {
       allowed: true,
       usedQuota: 0,
@@ -271,7 +355,7 @@ export async function checkMonthlyQuota(
     };
   }
 
-  const summary = await getEmployeeUsageSummary(employee);
+  const summary = await getAccountUsageSummary(account);
   if (summary.monthlyQuota === undefined) {
     return {
       allowed: true,

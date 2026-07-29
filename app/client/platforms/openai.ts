@@ -6,7 +6,6 @@ import {
   DEFAULT_MODELS,
   OpenaiPath,
   Azure,
-  COMPANY_DEFAULT_MODELS,
   REQUEST_TIMEOUT_MS,
   ServiceProvider,
 } from "@/app/constant";
@@ -196,11 +195,12 @@ export class ChatGPTApi implements LLMApi {
     let requestPayload: RequestPayload | DalleRequestPayload;
 
     const isDalle3 = _isDalle3(options.config.model);
+    const requestedModel = options.config.model || "";
     const isO1OrO3 =
-      options.config.model.startsWith("o1") ||
-      options.config.model.startsWith("o3") ||
-      options.config.model.startsWith("o4-mini");
-    const isGpt5 = options.config.model.startsWith("gpt-5");
+      requestedModel.startsWith("o1") ||
+      requestedModel.startsWith("o3") ||
+      requestedModel.startsWith("o4-mini");
+    const isGpt5 = requestedModel.startsWith("gpt-5");
     if (isDalle3) {
       const prompt = getMessageTextContent(
         options.messages.slice(-1)?.pop() as any,
@@ -494,7 +494,7 @@ export class ChatGPTApi implements LLMApi {
 
   async models(): Promise<LLMModel[]> {
     if (this.disableListModels) {
-      return COMPANY_DEFAULT_MODELS.slice() as LLMModel[];
+      return DEFAULT_MODELS.slice() as LLMModel[];
     }
 
     const res = await fetch(this.path(OpenaiPath.ListModelPath), {

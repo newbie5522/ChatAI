@@ -1,42 +1,42 @@
 import { randomUUID } from "crypto";
 
 import { NextRequest, NextResponse } from "next/server";
-import md5 from "spark-md5";
 
 import {
   clearAdminCookie,
   createAdminSessionToken,
   isAdminConfigured,
   isAdminRequest,
-  requireAdmin,
   setAdminCookie,
   verifyAdminPassword,
 } from "@/app/config/admin-auth";
 import {
-  ADMIN_PROVIDER_IDS,
-  AdminProviderId,
-  deleteAdminEmployeeRecord,
-  getAdminProviderConfig,
-  hasAdminEmployeeRecord,
-  listProviderPublicConfigs,
-  saveAdminEmployeeRecord,
-  saveAdminProviderConfig,
+  AccountRole,
+  AccountStatus,
+  SafeAccountRecord,
+  deleteAccountRecord,
+  deleteProviderCredential,
+  findAccountById,
+  getAccountRecords,
+  getAllCompanyModelsForAdmin,
+  listProviderCredentials,
+  listProviderCredentialsPublic,
+  saveAccountRecord,
+  saveCompanyModel,
+  saveProviderCredential,
+  toSafeAccount,
 } from "@/app/config/admin-store";
+import { canManageRole, requireAdminAccount } from "@/app/config/account-auth";
 import {
-  EmployeeAccessRecord,
-  SafeEmployeeAccessRecord,
-  getEmployeeAccessRecords,
-} from "@/app/config/employee";
-import { getMonthKey, readUsageRecords } from "@/app/config/usage";
-
-function safeEmployee(record: EmployeeAccessRecord): SafeEmployeeAccessRecord {
-  const {
-    accessKey: _accessKey,
-    accessKeyHash: _accessKeyHash,
-    ...safe
-  } = record;
-  return safe;
-}
+  verifyCompanyModel,
+  verifyProviderCredentialConnection,
+} from "@/app/config/model-verification";
+import {
+  getAccountUsageSummary,
+  getMonthKey,
+  listAccountUsageRecords,
+} from "@/app/config/usage";
+import type { ModelCategory } from "@/app/config/model-registry";
 
 async function readBody(req: NextRequest) {
   try {
@@ -62,39 +62,49 @@ function toList(value: unknown) {
   return undefined;
 }
 
+function toCategories(value: unknown) {
+  const categories = toList(value);
+  if (!categories) return undefined;
+  return categories.filter((category): category is ModelCategory =>
+    ["chat", "image", "search", "video"].includes(category),
+  );
+}
+
 function toNumber(value: unknown) {
   if (value === undefined || value === null || value === "") return undefined;
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
-function findEmployee(id: string) {
-  return getEmployeeAccessRecords().find((employee) => employee.id === id);
+function forbidden(message: string) {
+  return NextResponse.json({ error: true, message }, { status: 403 });
 }
 
-function employeePayload(
+function notFound(message: string) {
+  return NextResponse.json({ error: true, message }, { status: 404 });
+}
+
+function accountPayload(
   body: Record<string, unknown>,
-  existing?: EmployeeAccessRecord,
-): Partial<EmployeeAccessRecord> {
-  const accessKey =
-    typeof body.accessKey === "string" && body.accessKey.trim()
-      ? body.accessKey.trim()
+  existing?: SafeAccountRecord,
+) {
+  const password =
+    typeof body.password === "string" && body.password.trim()
+      ? body.password
       : undefined;
-  const allowedProviders = toList(body.allowedProviders);
-  const allowedModels = toList(body.allowedModels);
+  const allowedModelIds = toList(body.allowedModelIds);
+  const allowedCategories = toCategories(body.allowedCategories);
 
   return {
     ...existing,
-    id: String(body.id ?? existing?.id ?? "").trim(),
+    id: String(body.id ?? existing?.id ?? `acct-${randomUUID()}`).trim(),
+    username: String(body.username ?? existing?.username ?? "").trim(),
     name: String(body.name ?? existing?.name ?? "").trim(),
-    accessKey,
-    accessKeyHash: accessKey
-      ? undefined
-      : existing?.accessKeyHash ||
-        (existing?.accessKey
-          ? md5.hash(existing.accessKey).toLowerCase()
-          : undefined),
-    status: String(body.status ?? existing?.status ?? "active").trim(),
+    role: String(body.role ?? existing?.role ?? "employee") as AccountRole,
+    status: String(
+      body.status ?? existing?.status ?? "active",
+    ) as AccountStatus,
+    password,
     monthlyQuota:
       body.monthlyQuota === undefined
         ? existing?.monthlyQuota
@@ -103,30 +113,23 @@ function employeePayload(
       body.usedQuota === undefined
         ? existing?.usedQuota
         : toNumber(body.usedQuota),
-    allowedProviders:
-      allowedProviders === undefined
-        ? existing?.allowedProviders
-        : allowedProviders,
-    allowedModels:
-      allowedModels === undefined ? existing?.allowedModels : allowedModels,
+    allowedModelIds:
+      allowedModelIds === undefined
+        ? existing?.allowedModelIds
+        : allowedModelIds,
+    allowedCategories:
+      allowedCategories === undefined
+        ? existing?.allowedCategories
+        : allowedCategories,
     createdAt: existing?.createdAt,
-    lastUsedAt: existing?.lastUsedAt,
+    lastLoginAt: existing?.lastLoginAt,
   };
 }
 
-function providerId(value: string): AdminProviderId | undefined {
-  return ADMIN_PROVIDER_IDS.includes(value as AdminProviderId)
-    ? (value as AdminProviderId)
-    : undefined;
-}
-
-async function handleLogin(req: NextRequest) {
+async function handleLegacyLogin(req: NextRequest) {
   if (!isAdminConfigured()) {
     return NextResponse.json(
-      {
-        error: true,
-        message: "admin password is not configured",
-      },
+      { error: true, message: "admin password is not configured" },
       { status: 503 },
     );
   }
@@ -136,26 +139,18 @@ async function handleLogin(req: NextRequest) {
 
   if (!verifyAdminPassword(password)) {
     return NextResponse.json(
-      {
-        error: true,
-        message: "wrong admin password",
-      },
+      { error: true, message: "wrong admin password" },
       { status: 401 },
     );
   }
 
-  const res = NextResponse.json({
-    error: false,
-    admin: true,
-  });
+  const res = NextResponse.json({ error: false, admin: true });
   setAdminCookie(res, createAdminSessionToken());
   return res;
 }
 
-function handleLogout() {
-  const res = NextResponse.json({
-    error: false,
-  });
+function handleLegacyLogout() {
+  const res = NextResponse.json({ error: false });
   clearAdminCookie(res);
   return res;
 }
@@ -168,229 +163,226 @@ function handleSession(req: NextRequest) {
   });
 }
 
-function listEmployees() {
+function listAccounts() {
   return NextResponse.json({
     error: false,
-    employees: getEmployeeAccessRecords()
-      .filter(
-        (employee) =>
-          String(employee.status ?? "active").toLowerCase() !== "deleted",
-      )
-      .map(safeEmployee),
+    accounts: getAccountRecords().map(toSafeAccount),
   });
 }
 
-async function createEmployee(req: NextRequest) {
+async function createAccount(req: NextRequest, actor: SafeAccountRecord) {
   const body = await readBody(req);
-  const id =
-    typeof body.id === "string" && body.id.trim()
-      ? body.id.trim()
-      : `emp-${randomUUID().slice(0, 8)}`;
-  const accessKey =
-    typeof body.accessKey === "string" ? body.accessKey.trim() : "";
+  const payload = accountPayload(body);
 
-  if (!accessKey) {
+  if (!payload.username) {
+    return NextResponse.json(
+      { error: true, message: "username is required" },
+      { status: 400 },
+    );
+  }
+  if (!payload.password) {
+    return NextResponse.json(
+      { error: true, message: "password is required" },
+      { status: 400 },
+    );
+  }
+  if (!canManageRole(actor, payload.role)) {
+    return forbidden("insufficient role permission");
+  }
+
+  const account = saveAccountRecord(payload);
+  return NextResponse.json({ error: false, account: toSafeAccount(account) });
+}
+
+async function updateAccount(
+  req: NextRequest,
+  id: string,
+  actor: SafeAccountRecord,
+) {
+  const existing = findAccountById(id);
+  if (!existing) return notFound("account not found");
+  if (!canManageRole(actor, existing.role)) {
+    return forbidden("insufficient role permission");
+  }
+
+  const body = await readBody(req);
+  const payload = accountPayload(body, toSafeAccount(existing));
+  if (!canManageRole(actor, payload.role)) {
+    return forbidden("insufficient role permission");
+  }
+
+  const account = saveAccountRecord(payload);
+  return NextResponse.json({ error: false, account: toSafeAccount(account) });
+}
+
+function disableAccount(id: string, actor: SafeAccountRecord) {
+  const existing = findAccountById(id);
+  if (!existing) return notFound("account not found");
+  if (!canManageRole(actor, existing.role)) {
+    return forbidden("insufficient role permission");
+  }
+
+  const account = saveAccountRecord({ ...existing, status: "disabled" });
+  return NextResponse.json({ error: false, account: toSafeAccount(account) });
+}
+
+function removeAccount(id: string, actor: SafeAccountRecord) {
+  const existing = findAccountById(id);
+  if (!existing) return notFound("account not found");
+  if (!canManageRole(actor, existing.role)) {
+    return forbidden("insufficient role permission");
+  }
+
+  try {
+    deleteAccountRecord(id);
+    return NextResponse.json({
+      error: false,
+      account: { ...toSafeAccount(existing), status: "deleted" },
+    });
+  } catch (error) {
     return NextResponse.json(
       {
         error: true,
-        message: "employee access key is required",
+        message: error instanceof Error ? error.message : String(error),
       },
       { status: 400 },
     );
   }
+}
 
-  const employee = saveAdminEmployeeRecord(
-    employeePayload(
-      {
-        ...body,
-        id,
-        accessKey,
-      },
-      undefined,
-    ),
-  );
-
+function listCredentials() {
   return NextResponse.json({
     error: false,
-    employee: safeEmployee(employee),
+    credentials: listProviderCredentialsPublic(),
   });
 }
 
-async function updateEmployee(req: NextRequest, id: string) {
-  const existing = findEmployee(id);
-  if (!existing) {
-    return NextResponse.json(
-      {
-        error: true,
-        message: "employee not found",
-      },
-      { status: 404 },
-    );
-  }
-
+async function createCredential(req: NextRequest) {
   const body = await readBody(req);
-  const employee = saveAdminEmployeeRecord(
-    employeePayload(
-      {
-        ...body,
-        id,
-      },
-      existing,
-    ),
-  );
-
-  return NextResponse.json({
-    error: false,
-    employee: safeEmployee(employee),
-  });
-}
-
-function disableEmployee(id: string) {
-  const existing = findEmployee(id);
-  if (!existing) {
-    return NextResponse.json(
-      {
-        error: true,
-        message: "employee not found",
-      },
-      { status: 404 },
-    );
-  }
-
-  const employee = saveAdminEmployeeRecord({
-    ...existing,
-    status: "disabled",
-  });
-
-  return NextResponse.json({
-    error: false,
-    employee: safeEmployee(employee),
-  });
-}
-
-function deleteEmployee(id: string) {
-  const existing = findEmployee(id);
-  if (!existing) {
-    return NextResponse.json(
-      {
-        error: true,
-        message: "employee not found",
-      },
-      { status: 404 },
-    );
-  }
-
-  deleteAdminEmployeeRecord(id);
-  const envRecord = findEmployee(id);
-
-  if (envRecord && !hasAdminEmployeeRecord(id)) {
-    saveAdminEmployeeRecord({
-      ...envRecord,
-      status: "deleted",
-    });
-  }
-
-  return NextResponse.json({
-    error: false,
-    employee: {
-      ...safeEmployee(existing),
-      status: "deleted",
-    },
-  });
-}
-
-function listProviders() {
-  return NextResponse.json({
-    error: false,
-    providers: listProviderPublicConfigs(),
-  });
-}
-
-async function updateProvider(req: NextRequest, id: AdminProviderId) {
-  const body = await readBody(req);
-  const current = getAdminProviderConfig(id);
-  const apiKey =
-    typeof body.apiKey === "string" && body.apiKey.trim()
-      ? body.apiKey.trim()
-      : undefined;
-  const enabledModels = toList(body.enabledModels);
-
-  saveAdminProviderConfig(id, {
-    enabled:
-      typeof body.enabled === "boolean"
-        ? body.enabled
-        : current?.enabled ?? true,
-    apiKey:
-      body.clearApiKey === true
-        ? ""
-        : apiKey === undefined
-        ? current?.apiKey
-        : apiKey,
-    baseUrl:
-      typeof body.baseUrl === "string" ? body.baseUrl.trim() : current?.baseUrl,
+  const credential = saveProviderCredential({
+    id: typeof body.id === "string" ? body.id : undefined,
+    provider: body.provider as never,
+    name: typeof body.name === "string" ? body.name : undefined,
+    apiKey: typeof body.apiKey === "string" ? body.apiKey : "",
+    baseUrl: typeof body.baseUrl === "string" ? body.baseUrl : undefined,
     apiVersion:
-      typeof body.apiVersion === "string"
-        ? body.apiVersion.trim()
-        : current?.apiVersion,
-    orgId: typeof body.orgId === "string" ? body.orgId.trim() : current?.orgId,
-    enabledModels:
-      enabledModels === undefined ? current?.enabledModels : enabledModels,
+      typeof body.apiVersion === "string" ? body.apiVersion : undefined,
+    orgId: typeof body.orgId === "string" ? body.orgId : undefined,
+    categoryScope: body.categoryScope as never,
+    modelIds: toList(body.modelIds),
+    enabled:
+      typeof body.enabled === "boolean" ? body.enabled : body.enabled !== false,
+    verified: body.verified === true,
+    priority: toNumber(body.priority) ?? 100,
   });
-
-  return listProviders();
+  return NextResponse.json({
+    error: false,
+    credential: listProviderCredentialsPublic().find(
+      (item) => item.id === credential.id,
+    ),
+  });
 }
 
-async function usageSummary() {
-  const records = await readUsageRecords();
-  const month = getMonthKey();
-  const employees = getEmployeeAccessRecords().map(safeEmployee);
-  const employeeMap = new Map(
-    employees.map((employee) => [employee.id, employee]),
-  );
-
-  const summaries = employees.map((employee) => {
-    const employeeRecords = records.filter(
-      (record) => record.employeeId === employee.id && record.month === month,
-    );
-    const successRecords = employeeRecords.filter(
-      (record) => record.status === "success",
-    );
-    const usedQuota =
-      (employee.usedQuota ?? 0) +
-      successRecords.reduce((sum, record) => sum + record.quotaUnits, 0);
-
-    return {
-      employeeId: employee.id,
-      employeeName: employee.name,
-      month,
-      monthlyQuota: employee.monthlyQuota,
-      usedQuota,
-      remainingQuota:
-        employee.monthlyQuota === undefined
-          ? undefined
-          : Math.max(0, employee.monthlyQuota - usedQuota),
-      requestCount: employeeRecords.length,
-      successCount: successRecords.length,
-      failedCount: employeeRecords.length - successRecords.length,
-      inputTokens: employeeRecords.reduce(
-        (sum, record) => sum + record.inputTokens,
-        0,
-      ),
-    };
+async function updateCredential(req: NextRequest, id: string) {
+  const body = await readBody(req);
+  const credential = saveProviderCredential({
+    id,
+    provider: body.provider as never,
+    name: typeof body.name === "string" ? body.name : undefined,
+    apiKey: typeof body.apiKey === "string" ? body.apiKey : undefined,
+    clearApiKey: body.clearApiKey === true,
+    baseUrl: typeof body.baseUrl === "string" ? body.baseUrl : undefined,
+    apiVersion:
+      typeof body.apiVersion === "string" ? body.apiVersion : undefined,
+    orgId: typeof body.orgId === "string" ? body.orgId : undefined,
+    categoryScope: body.categoryScope as never,
+    modelIds: toList(body.modelIds),
+    enabled: typeof body.enabled === "boolean" ? body.enabled : undefined,
+    verified: typeof body.verified === "boolean" ? body.verified : undefined,
+    priority: toNumber(body.priority),
   });
+  return NextResponse.json({
+    error: false,
+    credential: listProviderCredentialsPublic().find(
+      (item) => item.id === credential.id,
+    ),
+  });
+}
+
+async function testCredential(id: string) {
+  const credential = listProviderCredentials(true).find(
+    (item) => item.id === id,
+  );
+  if (!credential) return notFound("credential not found");
+
+  const result = await verifyProviderCredentialConnection(credential);
+  saveProviderCredential({ ...credential, verified: result.ok });
+  return NextResponse.json({
+    error: false,
+    ok: result.ok,
+    message: result.message,
+    credential: listProviderCredentialsPublic().find((item) => item.id === id),
+  });
+}
+
+function removeCredential(id: string) {
+  if (!deleteProviderCredential(id)) return notFound("credential not found");
+  return NextResponse.json({ error: false });
+}
+
+function listModels() {
+  return NextResponse.json({
+    error: false,
+    models: getAllCompanyModelsForAdmin(),
+  });
+}
+
+async function updateModel(req: NextRequest, id: string) {
+  const body = await readBody(req);
+  const model = saveCompanyModel(id, {
+    displayName:
+      typeof body.displayName === "string" ? body.displayName : undefined,
+    model: typeof body.model === "string" ? body.model : undefined,
+    endpointType: body.endpointType as never,
+    enabled: typeof body.enabled === "boolean" ? body.enabled : undefined,
+    verified: typeof body.verified === "boolean" ? body.verified : undefined,
+    adminOnly: typeof body.adminOnly === "boolean" ? body.adminOnly : undefined,
+    legacy: typeof body.legacy === "boolean" ? body.legacy : undefined,
+    deprecated:
+      typeof body.deprecated === "boolean" ? body.deprecated : undefined,
+    sort: toNumber(body.sort),
+  });
+  return NextResponse.json({ error: false, model });
+}
+
+async function verifyModel(id: string) {
+  const result = await verifyCompanyModel(id);
+  const model = saveCompanyModel(id, {
+    verified: result.ok,
+    enabled: result.ok,
+  });
+  return NextResponse.json({
+    error: false,
+    ok: result.ok,
+    message: result.message,
+    model,
+  });
+}
+
+async function usageLogs(req: NextRequest) {
+  const month = req.nextUrl.searchParams.get("month") || getMonthKey();
+  const accountId = req.nextUrl.searchParams.get("accountId") || undefined;
+  const accounts = getAccountRecords().map(toSafeAccount);
+  const summaries = await Promise.all(
+    accounts.map((account) => getAccountUsageSummary(account, month)),
+  );
+  const records = await listAccountUsageRecords(accountId, month, 500);
 
   return NextResponse.json({
     error: false,
     month,
     summaries,
-    records: records
-      .slice(-200)
-      .reverse()
-      .map((record) => ({
-        ...record,
-        employeeName:
-          record.employeeName || employeeMap.get(record.employeeId)?.name,
-      })),
+    records,
   });
 }
 
@@ -401,46 +393,53 @@ async function dispatch(
   const path = params.path ?? [];
   const [resource, id, action] = path;
 
-  if (resource === "login" && req.method === "POST") return handleLogin(req);
-  if (resource === "logout" && req.method === "POST") return handleLogout();
+  if (resource === "login" && req.method === "POST")
+    return handleLegacyLogin(req);
+  if (resource === "logout" && req.method === "POST")
+    return handleLegacyLogout();
   if (resource === "session" && req.method === "GET") return handleSession(req);
 
-  const adminError = requireAdmin(req);
-  if (adminError) return adminError;
+  const { account: actor, response } = requireAdminAccount(req);
+  if (response) return response;
+  if (!actor) return forbidden("admin role required");
 
-  if (resource === "employees") {
-    if (!id && req.method === "GET") return listEmployees();
-    if (!id && req.method === "POST") return createEmployee(req);
-    if (id && req.method === "PUT") return updateEmployee(req, id);
+  if (resource === "accounts" || resource === "employees") {
+    if (!id && req.method === "GET") return listAccounts();
+    if (!id && req.method === "POST") return createAccount(req, actor);
+    if (id && req.method === "PUT") return updateAccount(req, id, actor);
     if (id && req.method === "POST" && action === "disable") {
-      return disableEmployee(id);
+      return disableAccount(id, actor);
     }
-    if (id && req.method === "DELETE") return deleteEmployee(id);
+    if (id && req.method === "DELETE") return removeAccount(id, actor);
   }
 
-  if (resource === "providers") {
-    if (!id && req.method === "GET") return listProviders();
-
-    const provider = id ? providerId(id) : undefined;
-    if (!provider) {
-      return NextResponse.json(
-        {
-          error: true,
-          message: "unknown provider",
-        },
-        { status: 404 },
-      );
+  if (resource === "credentials" || resource === "providers") {
+    if (!id && req.method === "GET") return listCredentials();
+    if (!id && req.method === "POST") return createCredential(req);
+    if (id && req.method === "PUT") return updateCredential(req, id);
+    if (id && req.method === "POST" && action === "test") {
+      return testCredential(id);
     }
-    if (req.method === "PUT") return updateProvider(req, provider);
+    if (id && req.method === "DELETE") return removeCredential(id);
   }
 
-  if (resource === "usage" && req.method === "GET") return usageSummary();
+  if (resource === "models") {
+    if (!id && req.method === "GET") return listModels();
+    if (id && req.method === "PUT") return updateModel(req, id);
+    if (id && req.method === "POST" && action === "verify") {
+      return verifyModel(id);
+    }
+  }
+
+  if (
+    (resource === "usage-logs" || resource === "usage") &&
+    req.method === "GET"
+  ) {
+    return usageLogs(req);
+  }
 
   return NextResponse.json(
-    {
-      error: true,
-      message: "admin api not found",
-    },
+    { error: true, message: "admin api not found" },
     { status: 404 },
   );
 }

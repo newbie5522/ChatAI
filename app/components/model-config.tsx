@@ -16,7 +16,12 @@ export function ModelConfigList(props: {
   const allModels = useAllModels();
   const groupModels = groupBy(
     allModels.filter((v) => v.available),
-    "provider.providerName",
+    (model) =>
+      (model as { category?: string }).category
+        ? `${(model as { category?: string }).category} · ${
+            model.provider?.providerName ?? "Provider"
+          }`
+        : model.provider?.providerName ?? "Provider",
   );
   const value = `${props.modelConfig.model}@${props.modelConfig?.providerName}`;
   const compressModelValue = `${props.modelConfig.compressModel}@${props.modelConfig?.compressProviderName}`;

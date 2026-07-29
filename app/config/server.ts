@@ -1,19 +1,13 @@
 import md5 from "spark-md5";
-import {
-  COMPANY_DEFAULT_MODELS,
-  DEFAULT_GA_ID,
-  DEFAULT_MODELS,
-} from "../constant";
+import { DEFAULT_GA_ID, DEFAULT_MODELS } from "../constant";
 import { isGPT4Model } from "../utils/model";
 import { getEmployeeAccessCount, hasEmployeeAccessControl } from "./employee";
 import {
-  AdminProviderId,
   getEffectiveProviderApiVersion,
   getEffectiveProviderBaseUrl,
   getEffectiveProviderOrgId,
   getEffectiveProviderSecret,
   isProviderEnabled,
-  isProviderModelEnabled,
 } from "./admin-store";
 
 declare global {
@@ -25,8 +19,10 @@ declare global {
       CODE?: string;
       EMPLOYEE_ACCESS_KEYS?: string;
       COMPANY_EMPLOYEE_KEYS?: string;
+      ADMIN_USERNAME?: string;
       ADMIN_PASSWORD?: string;
       ADMIN_SECRET?: string;
+      ADMIN_COOKIE_SECURE?: string;
       NEWBIE_ADMIN_CONFIG_PATH?: string;
       NEWBIE_USAGE_LOG_PATH?: string;
       USAGE_LOG_MAX_RECORDS?: string;
@@ -162,29 +158,6 @@ function getApiKey(keys?: string) {
   return apiKey;
 }
 
-function appendCustomModelRule(customModels: string, rule: string) {
-  return customModels ? `${customModels},${rule}` : rule;
-}
-
-function applyAdminModelAvailability(customModels: string) {
-  return COMPANY_DEFAULT_MODELS.reduce((nextCustomModels, model) => {
-    const providerId = model.provider?.id as AdminProviderId | undefined;
-    if (!providerId) return nextCustomModels;
-
-    if (
-      !isProviderEnabled(providerId) ||
-      !isProviderModelEnabled(providerId, model.name)
-    ) {
-      return appendCustomModelRule(
-        nextCustomModels,
-        `-${model.name}@${providerId}`,
-      );
-    }
-
-    return nextCustomModels;
-  }, customModels);
-}
-
 export const getServerSideConfig = () => {
   if (typeof process === "undefined") {
     throw Error(
@@ -207,8 +180,6 @@ export const getServerSideConfig = () => {
       defaultModel = "";
     }
   }
-
-  customModels = applyAdminModelAvailability(customModels);
 
   const isStability = !!process.env.STABILITY_API_KEY;
 

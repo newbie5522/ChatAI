@@ -1,36 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { auth } from "@/app/api/auth";
-import { getServerSideConfig } from "@/app/config/server";
+import { requireAccount } from "@/app/config/account-auth";
+import {
+  getCompanyModelForRequest,
+  selectProviderCredentialForModel,
+} from "@/app/config/admin-store";
+import type { SafeAccountRecord } from "@/app/config/admin-store";
+import type {
+  CompanyModel,
+  ModelEndpointType,
+  ModelProvider,
+} from "@/app/config/model-registry";
 import {
   appendUsageRecord,
   checkMonthlyQuota,
   estimateTokensFromBody,
   extractModelFromGatewayRequest,
+  extractPromptFromBody,
 } from "@/app/config/usage";
-import {
-  isProviderEnabled,
-  isProviderModelEnabled,
-} from "@/app/config/admin-store";
-import {
-  ANTHROPIC_BASE_URL,
-  Anthropic,
-  GEMINI_BASE_URL,
-  ModelProvider,
-  OPENAI_BASE_URL,
-  PERPLEXITY_BASE_URL,
-  ServiceProvider,
-} from "@/app/constant";
-import { cloudflareAIGatewayUrl } from "@/app/utils/cloudflare";
+
+import { callAnthropicMessages } from "../../adapters/anthropic-messages";
+import { callGoogleGenerateContent } from "../../adapters/google-generate-content";
+import { callGoogleImage } from "../../adapters/google-image";
+import { callGoogleInteractions } from "../../adapters/google-interactions";
+import { callOpenAIImages } from "../../adapters/openai-images";
+import { callOpenAIResponses } from "../../adapters/openai-responses";
+import { callPerplexitySonar } from "../../adapters/perplexity-sonar";
+import type { GatewayAdapterContext } from "../../adapters/types";
 
 type GatewayProvider = "openai" | "google" | "perplexity" | "anthropic";
-
-const PROVIDER_MODEL_MAP: Record<GatewayProvider, ModelProvider> = {
-  openai: ModelProvider.GPT,
-  google: ModelProvider.GeminiPro,
-  perplexity: ModelProvider.Perplexity,
-  anthropic: ModelProvider.Claude,
-};
 
 const SUPPORTED_PROVIDERS: GatewayProvider[] = [
   "openai",
@@ -38,27 +36,6 @@ const SUPPORTED_PROVIDERS: GatewayProvider[] = [
   "perplexity",
   "anthropic",
 ];
-
-const PROVIDER_ADMIN_ID: Record<
-  GatewayProvider,
-  "openai" | "google" | "perplexity" | "anthropic"
-> = {
-  openai: "openai",
-  google: "google",
-  perplexity: "perplexity",
-  anthropic: "anthropic",
-};
-
-function normalizeBaseUrl(baseUrl: string) {
-  const normalized = baseUrl || "";
-  const withProtocol = normalized.startsWith("http")
-    ? normalized
-    : `https://${normalized}`;
-
-  return withProtocol.endsWith("/")
-    ? withProtocol.slice(0, withProtocol.length - 1)
-    : withProtocol;
-}
 
 function gatewayError(
   provider: string,
@@ -77,82 +54,90 @@ function gatewayError(
   );
 }
 
-function getProviderConfig(provider: GatewayProvider) {
-  const serverConfig = getServerSideConfig();
-
-  switch (provider) {
-    case "openai":
-      return {
-        apiKey: serverConfig.apiKey,
-        baseUrl: normalizeBaseUrl(serverConfig.baseUrl || OPENAI_BASE_URL),
-        serviceProvider: ServiceProvider.OpenAI,
-      };
-    case "google":
-      return {
-        apiKey: serverConfig.googleApiKey,
-        baseUrl: normalizeBaseUrl(serverConfig.googleUrl || GEMINI_BASE_URL),
-        serviceProvider: ServiceProvider.Google,
-      };
-    case "perplexity":
-      return {
-        apiKey: serverConfig.perplexityApiKey,
-        baseUrl: normalizeBaseUrl(
-          serverConfig.perplexityBaseUrl || PERPLEXITY_BASE_URL,
-        ),
-        serviceProvider: ServiceProvider.Perplexity,
-      };
-    case "anthropic":
-      return {
-        apiKey: serverConfig.anthropicApiKey,
-        baseUrl: normalizeBaseUrl(
-          serverConfig.anthropicUrl || ANTHROPIC_BASE_URL,
-        ),
-        serviceProvider: ServiceProvider.Anthropic,
-      };
-  }
-}
-
-function buildHeaders(
-  provider: GatewayProvider,
-  apiKey: string,
-  req: NextRequest,
-) {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "Cache-Control": "no-store",
-  };
-
-  if (provider === "google") {
-    headers["x-goog-api-key"] = apiKey;
-  } else if (provider === "anthropic") {
-    const serverConfig = getServerSideConfig();
-    headers["x-api-key"] = apiKey;
-    headers["anthropic-version"] =
-      serverConfig.anthropicApiVersion ||
-      req.headers.get("anthropic-version") ||
-      Anthropic.Vision;
-  } else {
-    headers.Authorization = `Bearer ${apiKey}`;
-  }
-
-  const serverConfig = getServerSideConfig();
-  if (provider === "openai" && serverConfig.openaiOrgId) {
-    headers["OpenAI-Organization"] = serverConfig.openaiOrgId;
-  }
-
-  return headers;
-}
-
 async function getRequestBody(req: NextRequest) {
   if (req.method === "GET" || req.method === "HEAD") return undefined;
   return req.text();
 }
 
+function accountCanUseModel(account: SafeAccountRecord, model: CompanyModel) {
+  if (account.role === "admin" || account.role === "super_admin") return true;
+  if (model.adminOnly || model.legacy || model.deprecated) return false;
+
+  return (
+    account.allowedModelIds.includes(model.id) ||
+    account.allowedCategories.includes(model.category)
+  );
+}
+
+function modelBlockedReason(model?: CompanyModel) {
+  if (!model) return "model is not in NewbieChat company catalog";
+  if (!model.enabled) return "model is disabled";
+  if (!model.verified) return "model is not verified";
+  if (model.endpointType === "not_implemented") {
+    return "model adapter is not implemented";
+  }
+  if (model.deprecated) return "model is deprecated";
+  return "";
+}
+
+function adapterFor(
+  endpointType: ModelEndpointType,
+): ((ctx: GatewayAdapterContext) => Promise<Response>) | undefined {
+  switch (endpointType) {
+    case "openai_responses":
+      return callOpenAIResponses;
+    case "openai_images":
+      return async () => callOpenAIImages();
+    case "anthropic_messages":
+      return callAnthropicMessages;
+    case "google_interactions":
+      return callGoogleInteractions;
+    case "google_generate_content":
+      return callGoogleGenerateContent;
+    case "google_image":
+      return async () => callGoogleImage();
+    case "perplexity_sonar":
+      return callPerplexitySonar;
+    case "not_implemented":
+    default:
+      return undefined;
+  }
+}
+
 async function recordUsageSafely(
-  input: Parameters<typeof appendUsageRecord>[0],
+  account: SafeAccountRecord | null,
+  model: CompanyModel | undefined,
+  input: {
+    provider: string;
+    modelName: string;
+    bodyText?: string;
+    inputTokens: number;
+    quotaUnits: number;
+    status: "success" | "failed" | "blocked";
+    httpStatus?: number;
+    errorMessage?: string;
+    requestPath?: string;
+  },
 ) {
   try {
-    await appendUsageRecord(input);
+    const promptContent = extractPromptFromBody(input.bodyText);
+    await appendUsageRecord({
+      accountId: account?.id ?? "unknown",
+      username: account?.username ?? "unknown",
+      role: account?.role ?? "anonymous",
+      provider: model?.provider ?? input.provider,
+      modelId: model?.id ?? "",
+      model: model?.model ?? input.modelName,
+      category: model?.category ?? "chat",
+      promptPreview: promptContent.slice(0, 300),
+      promptContent,
+      inputTokens: input.inputTokens,
+      quotaUnits: input.quotaUnits,
+      status: input.status,
+      httpStatus: input.httpStatus,
+      errorMessage: input.errorMessage,
+      requestPath: input.requestPath,
+    });
   } catch (error) {
     console.error("[Gateway] failed to record usage", error);
   }
@@ -176,180 +161,158 @@ async function handle(
     return gatewayError(provider, 400, "missing provider api path");
   }
 
-  const providerConfig = getProviderConfig(provider);
   const bodyText = await getRequestBody(req);
-  const model = extractModelFromGatewayRequest(provider, path, bodyText);
+  const modelName = extractModelFromGatewayRequest(provider, path, bodyText);
   const inputTokens = estimateTokensFromBody(bodyText);
-  const authResult = auth(req, PROVIDER_MODEL_MAP[provider], model);
+  const requestPath = path;
+  const { account, response } = requireAccount(req);
 
-  if (authResult.error) {
-    await recordUsageSafely({
-      employeeId: authResult.employee?.id ?? "unknown",
-      employeeName: authResult.employee?.name,
-      provider: providerConfig.serviceProvider,
-      model,
+  if (response) {
+    await recordUsageSafely(null, undefined, {
+      provider,
+      modelName,
+      bodyText,
       inputTokens,
-      outputTokens: 0,
-      estimatedCost: 0,
       quotaUnits: 0,
-      status: "auth_failed",
+      status: "blocked",
       httpStatus: 401,
-      errorMessage: authResult.msg ?? "unauthorized",
-      requestPath: path,
+      errorMessage: "account login required",
+      requestPath,
     });
-    return gatewayError(provider, 401, authResult.msg ?? "unauthorized");
+    return response;
+  }
+  if (!account) {
+    return gatewayError(provider, 401, "account login required");
   }
 
-  if (!isProviderEnabled(PROVIDER_ADMIN_ID[provider])) {
-    await recordUsageSafely({
-      employeeId: authResult.employee?.id ?? "unknown",
-      employeeName: authResult.employee?.name,
-      provider: providerConfig.serviceProvider,
-      model,
-      inputTokens,
-      outputTokens: 0,
-      estimatedCost: 0,
-      quotaUnits: 0,
-      status: "failed",
-      httpStatus: 403,
-      errorMessage: `${providerConfig.serviceProvider} provider is disabled`,
-      requestPath: path,
-    });
+  const companyModel = getCompanyModelForRequest(
+    provider as ModelProvider,
+    modelName,
+  );
+  const blockedReason = modelBlockedReason(companyModel);
 
+  if (blockedReason || !companyModel) {
+    await recordUsageSafely(account, companyModel, {
+      provider,
+      modelName,
+      bodyText,
+      inputTokens,
+      quotaUnits: 0,
+      status: "blocked",
+      httpStatus: 403,
+      errorMessage: blockedReason,
+      requestPath,
+    });
+    return gatewayError(provider, 403, blockedReason);
+  }
+
+  if (!accountCanUseModel(account, companyModel)) {
+    await recordUsageSafely(account, companyModel, {
+      provider,
+      modelName,
+      bodyText,
+      inputTokens,
+      quotaUnits: 0,
+      status: "blocked",
+      httpStatus: 403,
+      errorMessage: "account is not allowed to use this model",
+      requestPath,
+    });
     return gatewayError(
       provider,
       403,
-      `${providerConfig.serviceProvider} provider is disabled`,
+      "account is not allowed to use this model",
     );
   }
 
-  if (!isProviderModelEnabled(PROVIDER_ADMIN_ID[provider], model)) {
-    await recordUsageSafely({
-      employeeId: authResult.employee?.id ?? "unknown",
-      employeeName: authResult.employee?.name,
-      provider: providerConfig.serviceProvider,
-      model,
+  const credential = selectProviderCredentialForModel(companyModel);
+  if (!credential) {
+    await recordUsageSafely(account, companyModel, {
+      provider,
+      modelName,
+      bodyText,
       inputTokens,
-      outputTokens: 0,
-      estimatedCost: 0,
       quotaUnits: 0,
-      status: "failed",
+      status: "blocked",
       httpStatus: 403,
-      errorMessage: `${model} is disabled for ${providerConfig.serviceProvider}`,
-      requestPath: path,
+      errorMessage: "no verified provider credential is available",
+      requestPath,
     });
-
     return gatewayError(
       provider,
       403,
-      `${model} is disabled for ${providerConfig.serviceProvider}`,
+      "no verified provider credential is available",
     );
   }
 
-  const quota = await checkMonthlyQuota(authResult.employee, inputTokens);
+  const quotaUnits = inputTokens;
+  const quota = await checkMonthlyQuota(account, quotaUnits);
   if (!quota.allowed) {
-    await recordUsageSafely({
-      employeeId: authResult.employee?.id ?? "unknown",
-      employeeName: authResult.employee?.name,
-      provider: providerConfig.serviceProvider,
-      model,
+    await recordUsageSafely(account, companyModel, {
+      provider,
+      modelName,
+      bodyText,
       inputTokens,
-      outputTokens: 0,
-      estimatedCost: 0,
-      quotaUnits: 0,
-      status: "quota_exceeded",
+      quotaUnits,
+      status: "blocked",
       httpStatus: 429,
       errorMessage: "monthly quota exceeded",
-      requestPath: path,
+      requestPath,
     });
-
     return gatewayError(provider, 429, "monthly quota exceeded", quota);
   }
 
-  if (!providerConfig.apiKey) {
-    await recordUsageSafely({
-      employeeId: authResult.employee?.id ?? "unknown",
-      employeeName: authResult.employee?.name,
-      provider: providerConfig.serviceProvider,
-      model,
-      inputTokens,
-      outputTokens: 0,
-      estimatedCost: 0,
-      quotaUnits: 0,
-      status: "failed",
-      httpStatus: 500,
-      errorMessage: `missing ${providerConfig.serviceProvider} provider api key`,
-      requestPath: path,
-    });
-
-    return gatewayError(
+  const adapter = adapterFor(companyModel.endpointType);
+  if (!adapter) {
+    await recordUsageSafely(account, companyModel, {
       provider,
-      500,
-      `missing ${providerConfig.serviceProvider} provider api key`,
-    );
+      modelName,
+      bodyText,
+      inputTokens,
+      quotaUnits: 0,
+      status: "blocked",
+      httpStatus: 501,
+      errorMessage: "model adapter is not implemented",
+      requestPath,
+    });
+    return gatewayError(provider, 501, "model adapter is not implemented");
   }
 
-  const search = req.nextUrl.search || "";
-  const fetchUrl = cloudflareAIGatewayUrl(
-    `${providerConfig.baseUrl}/${path}${search}`,
-  );
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000);
+  const adapterContext: GatewayAdapterContext = {
+    req,
+    path,
+    search: req.nextUrl.search || "",
+    bodyText,
+    model: companyModel,
+    credential,
+  };
 
   try {
-    console.log("[Gateway]", provider, path);
-    const res = await fetch(fetchUrl, {
-      method: req.method,
-      body: bodyText,
-      headers: buildHeaders(provider, providerConfig.apiKey, req),
-      redirect: "manual",
-      // @ts-ignore
-      duplex: "half",
-      signal: controller.signal,
-    });
-
-    await recordUsageSafely({
-      employeeId: authResult.employee?.id ?? "unknown",
-      employeeName: authResult.employee?.name,
-      provider: providerConfig.serviceProvider,
-      model,
+    const res = await adapter(adapterContext);
+    await recordUsageSafely(account, companyModel, {
+      provider,
+      modelName,
+      bodyText,
       inputTokens,
-      outputTokens: 0,
-      estimatedCost: 0,
-      quotaUnits: res.ok ? inputTokens : 0,
+      quotaUnits: res.ok ? quotaUnits : 0,
       status: res.ok ? "success" : "failed",
       httpStatus: res.status,
       errorMessage: res.ok ? undefined : res.statusText,
-      requestPath: path,
+      requestPath,
     });
-
-    const responseHeaders = new Headers(res.headers);
-    responseHeaders.delete("www-authenticate");
-    responseHeaders.delete("content-encoding");
-    responseHeaders.delete("OpenAI-Organization");
-    responseHeaders.set("X-Accel-Buffering", "no");
-
-    return new Response(res.body, {
-      status: res.status,
-      statusText: res.statusText,
-      headers: responseHeaders,
-    });
+    return res;
   } catch (error) {
     console.error("[Gateway] request failed", provider, error);
-    await recordUsageSafely({
-      employeeId: authResult.employee?.id ?? "unknown",
-      employeeName: authResult.employee?.name,
-      provider: providerConfig.serviceProvider,
-      model,
+    await recordUsageSafely(account, companyModel, {
+      provider,
+      modelName,
+      bodyText,
       inputTokens,
-      outputTokens: 0,
-      estimatedCost: 0,
       quotaUnits: 0,
       status: "failed",
       httpStatus: 502,
       errorMessage: error instanceof Error ? error.message : String(error),
-      requestPath: path,
+      requestPath,
     });
 
     return gatewayError(
@@ -358,8 +321,6 @@ async function handle(
       "gateway request failed",
       error instanceof Error ? error.message : String(error),
     );
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 

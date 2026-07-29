@@ -38,6 +38,7 @@ import {
   Theme,
   useUpdateStore,
   useAccessStore,
+  useAccountStore,
   useAppConfig,
 } from "../store";
 
@@ -602,6 +603,7 @@ export function Settings() {
   }
 
   const accessStore = useAccessStore();
+  const accountStore = useAccountStore();
   const shouldHideBalanceQuery = useMemo(() => {
     const isOpenAiUrl = accessStore.openaiUrl.includes(OPENAI_BASE_URL);
 
@@ -1786,6 +1788,22 @@ export function Settings() {
             />
           </ListItem>
         </List>
+
+        {accountStore.isAdmin() && (
+          <List>
+            <ListItem
+              title="Workspace"
+              subTitle="Manage team accounts, credentials, models and usage logs."
+            >
+              <IconButton
+                aria="Open workspace administration"
+                icon={<ConfigIcon />}
+                text="Admin"
+                onClick={() => navigate(Path.Admin)}
+              />
+            </ListItem>
+          </List>
+        )}
 
         <List id={SlotID.CustomModel}>
           {accessCodeComponent}

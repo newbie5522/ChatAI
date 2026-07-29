@@ -4,10 +4,10 @@ NewbieChat is an internal AI workspace based on the open-source NextChat project
 
 This repository is used for company-level secondary development, including:
 
-- Internal employee access keys
-- Company-managed AI provider routing
+- Internal employee username/password accounts
+- Company-managed AI provider credentials and routing
 - OpenAI / Google Gemini / Perplexity / Claude gateway integration
-- Usage tracking and quota control
+- Prompt usage tracking and quota control
 - Admin management panel
 - Company prompt and mask templates
 - Multi-model chat, vision, and image generation workflows
@@ -29,7 +29,7 @@ This project must follow these rules:
 1. Do not rebuild the project from scratch.
 2. Keep the original NextChat structure unless a change is explicitly approved.
 3. Do not write any official API key into the source code.
-4. Do not expose provider API keys to the frontend.
+4. Do not expose provider API keys to ordinary employees.
 5. Do not add new model providers unless explicitly approved.
 6. Do not modify core chat logic unless the task requires it.
 7. Each development task must list modified files clearly.
@@ -65,13 +65,15 @@ yarn build
 
 1. Deploy NewbieChat.
 2. Open `/#/admin`.
-3. Login with `ADMIN_PASSWORD`.
-4. Configure OpenAI / Google / Perplexity / Anthropic API Keys in Provider Config.
-5. Create employee keys in Employee Keys.
-6. Employees use employee keys to access NewbieChat.
-7. Ordinary employees should not enter OpenAI / Google / Perplexity / Anthropic API Keys.
+3. Log in with the bootstrap `ADMIN_USERNAME` and `ADMIN_PASSWORD`.
+4. Configure OpenAI / Google / Perplexity / Anthropic Provider Credentials.
+5. Test Provider Credentials and verify the models that should be available.
+6. Create employee accounts with username/password.
+7. Assign employee quota, allowed categories, and allowed model IDs.
+8. Employees log in through the original-style Auth page and chat with authorized models only.
+9. Ordinary employees do not see or enter official Provider API Keys.
 
-`EMPLOYEE_ACCESS_KEYS` and Provider API Key environment variables are optional bootstrap/fallback only. The normal management flow is the admin console.
+`.env` is startup-only configuration. Provider Keys, employee accounts, quotas, and model permissions are managed in `/#/admin`.
 
 ## Deployment
 

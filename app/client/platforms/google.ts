@@ -199,7 +199,7 @@ export class GeminiProApi implements LLMApi {
         headers: getHeaders(),
       };
 
-      const isThinking = options.config.model.includes("-thinking");
+      const isThinking = (options.config.model || "").includes("-thinking");
       // make a fetch request
       const requestTimeoutId = setTimeout(
         () => controller.abort(),

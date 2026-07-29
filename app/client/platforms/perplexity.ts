@@ -1,6 +1,6 @@
 import {
   COMPANY_API_PATH,
-  COMPANY_DEFAULT_MODELS,
+  DEFAULT_MODELS,
   OpenaiPath,
   Perplexity,
   ServiceProvider,
@@ -29,7 +29,7 @@ export class PerplexityApi extends ChatGPTApi {
   }
 
   async models(): Promise<LLMModel[]> {
-    return COMPANY_DEFAULT_MODELS.filter(
+    return DEFAULT_MODELS.filter(
       (model) => model.provider.providerName === ServiceProvider.Perplexity,
     ) as LLMModel[];
   }
