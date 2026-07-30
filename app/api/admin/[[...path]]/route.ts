@@ -17,11 +17,16 @@ import {
   deleteAccountRecord,
   deleteProviderCredential,
   findAccountById,
+  findAccountByUsername,
   getAccountRecords,
   getAllCompanyModelsForAdmin,
+  getPrimaryProviderCredential,
+  getPrimaryProviderCredentialPublic,
+  isProviderEnabled,
   listProviderCredentials,
   listProviderCredentialsPublic,
   saveAccountRecord,
+  saveAdminProviderConfig,
   saveCompanyModel,
   saveProviderCredential,
   toSafeAccount,
@@ -33,7 +38,7 @@ import {
   getMonthKey,
   listAccountUsageRecords,
 } from "@/app/config/usage";
-import type { ModelCategory } from "@/app/config/model-registry";
+import type { ModelCategory, ModelProvider } from "@/app/config/model-registry";
 
 async function readBody(req: NextRequest) {
   try {
@@ -173,18 +178,33 @@ async function createAccount(req: NextRequest, actor: SafeAccountRecord) {
 
   if (!payload.username) {
     return NextResponse.json(
-      { error: true, message: "username is required" },
+      { error: true, message: "请输入登录账号" },
       { status: 400 },
     );
   }
   if (!payload.password) {
     return NextResponse.json(
-      { error: true, message: "password is required" },
+      { error: true, message: "请输入密码" },
       { status: 400 },
     );
   }
+  if (payload.password.length < 8) {
+    return NextResponse.json(
+      { error: true, message: "密码至少需要 8 位" },
+      { status: 400 },
+    );
+  }
+  if (payload.role === "super_admin") {
+    return forbidden("不能通过普通页面创建超级管理员");
+  }
+  if (findAccountByUsername(payload.username)) {
+    return NextResponse.json(
+      { error: true, message: "该账号已存在" },
+      { status: 409 },
+    );
+  }
   if (!canManageRole(actor, payload.role)) {
-    return forbidden("insufficient role permission");
+    return forbidden("没有权限创建该角色");
   }
 
   const account = saveAccountRecord(payload);
@@ -197,15 +217,56 @@ async function updateAccount(
   actor: SafeAccountRecord,
 ) {
   const existing = findAccountById(id);
-  if (!existing) return notFound("account not found");
+  if (!existing) return notFound("账号不存在");
   if (!canManageRole(actor, existing.role)) {
-    return forbidden("insufficient role permission");
+    return forbidden("没有权限管理该账号");
   }
 
   const body = await readBody(req);
   const payload = accountPayload(body, toSafeAccount(existing));
+  if (!payload.username) {
+    return NextResponse.json(
+      { error: true, message: "请输入登录账号" },
+      { status: 400 },
+    );
+  }
+  const duplicate = findAccountByUsername(payload.username);
+  if (duplicate && duplicate.id !== existing.id) {
+    return NextResponse.json(
+      { error: true, message: "该账号已存在" },
+      { status: 409 },
+    );
+  }
+  if (payload.password && payload.password.length < 8) {
+    return NextResponse.json(
+      { error: true, message: "密码至少需要 8 位" },
+      { status: 400 },
+    );
+  }
+  if (actor.id === existing.id) {
+    if (payload.status !== "active") {
+      return forbidden("当前账号不能禁用自己");
+    }
+    if (payload.role !== existing.role) {
+      return forbidden("当前账号不能修改自己的角色");
+    }
+  }
   if (!canManageRole(actor, payload.role)) {
-    return forbidden("insufficient role permission");
+    return forbidden("没有权限修改为该角色");
+  }
+  if (
+    existing.role === "super_admin" &&
+    existing.status === "active" &&
+    payload.role !== "super_admin" &&
+    getAccountRecords().filter(
+      (account) =>
+        account.role === "super_admin" && account.status === "active",
+    ).length <= 1
+  ) {
+    return NextResponse.json(
+      { error: true, message: "不能修改最后一个超级管理员的角色" },
+      { status: 400 },
+    );
   }
 
   const account = saveAccountRecord(payload);
@@ -214,20 +275,50 @@ async function updateAccount(
 
 function disableAccount(id: string, actor: SafeAccountRecord) {
   const existing = findAccountById(id);
-  if (!existing) return notFound("account not found");
+  if (!existing) return notFound("账号不存在");
   if (!canManageRole(actor, existing.role)) {
-    return forbidden("insufficient role permission");
+    return forbidden("没有权限禁用该账号");
+  }
+  if (actor.id === existing.id) {
+    return forbidden("当前账号不能禁用自己");
+  }
+  if (
+    existing.role === "super_admin" &&
+    existing.status === "active" &&
+    getAccountRecords().filter(
+      (account) =>
+        account.role === "super_admin" && account.status === "active",
+    ).length <= 1
+  ) {
+    return NextResponse.json(
+      { error: true, message: "不能禁用最后一个超级管理员" },
+      { status: 400 },
+    );
   }
 
   const account = saveAccountRecord({ ...existing, status: "disabled" });
   return NextResponse.json({ error: false, account: toSafeAccount(account) });
 }
 
+function enableAccount(id: string, actor: SafeAccountRecord) {
+  const existing = findAccountById(id);
+  if (!existing) return notFound("账号不存在");
+  if (!canManageRole(actor, existing.role)) {
+    return forbidden("没有权限启用该账号");
+  }
+
+  const account = saveAccountRecord({ ...existing, status: "active" });
+  return NextResponse.json({ error: false, account: toSafeAccount(account) });
+}
+
 function removeAccount(id: string, actor: SafeAccountRecord) {
   const existing = findAccountById(id);
-  if (!existing) return notFound("account not found");
+  if (!existing) return notFound("账号不存在");
   if (!canManageRole(actor, existing.role)) {
-    return forbidden("insufficient role permission");
+    return forbidden("没有权限删除该账号");
+  }
+  if (actor.id === existing.id) {
+    return forbidden("当前账号不能删除自己");
   }
 
   try {
@@ -250,26 +341,51 @@ function removeAccount(id: string, actor: SafeAccountRecord) {
 function listCredentials() {
   return NextResponse.json({
     error: false,
-    credentials: listProviderCredentialsPublic(),
+    credentials: (["openai", "anthropic", "google", "perplexity"] as const)
+      .map(getPrimaryProviderCredentialPublic)
+      .filter(
+        (credential): credential is NonNullable<typeof credential> =>
+          !!credential,
+      )
+      .map((credential) => ({
+        ...credential,
+        enabled: isProviderEnabled(credential.provider),
+      })),
   });
 }
 
 async function createCredential(req: NextRequest) {
   const body = await readBody(req);
+  const provider =
+    typeof body.provider === "string" &&
+    (
+      ["openai", "anthropic", "google", "perplexity"] as readonly string[]
+    ).includes(body.provider)
+      ? (body.provider as ModelProvider)
+      : undefined;
+  if (!provider) {
+    return NextResponse.json(
+      { error: true, message: "服务商不受支持" },
+      { status: 400 },
+    );
+  }
+  const existing = getPrimaryProviderCredential(provider);
+  const apiKey =
+    typeof body.apiKey === "string" && body.apiKey.trim()
+      ? body.apiKey
+      : undefined;
   const credential = saveProviderCredential({
-    id: typeof body.id === "string" ? body.id : undefined,
-    provider: body.provider as never,
-    name: typeof body.name === "string" ? body.name : undefined,
-    apiKey: typeof body.apiKey === "string" ? body.apiKey : "",
-    baseUrl: typeof body.baseUrl === "string" ? body.baseUrl : undefined,
-    apiVersion:
-      typeof body.apiVersion === "string" ? body.apiVersion : undefined,
-    orgId: typeof body.orgId === "string" ? body.orgId : undefined,
+    id: existing?.id,
+    provider,
+    name: existing?.name ?? `${String(body.provider)} 主配置`,
+    apiKey,
     categoryScope: "all",
     modelIds: [],
-    enabled:
-      typeof body.enabled === "boolean" ? body.enabled : body.enabled !== false,
-    priority: toNumber(body.priority) ?? 100,
+    enabled: existing?.enabled ?? true,
+    priority: existing?.priority ?? 100,
+  });
+  saveAdminProviderConfig(credential.provider, {
+    enabled: typeof body.enabled === "boolean" ? body.enabled : true,
   });
   return NextResponse.json({
     error: false,
@@ -281,19 +397,22 @@ async function createCredential(req: NextRequest) {
 
 async function updateCredential(req: NextRequest, id: string) {
   const body = await readBody(req);
+  const existing = listProviderCredentials(true).find(
+    (credential) => credential.id === id,
+  );
+  if (!existing) return notFound("服务商配置不存在");
+  const apiKey =
+    typeof body.apiKey === "string" && body.apiKey.trim()
+      ? body.apiKey
+      : undefined;
   const credential = saveProviderCredential({
     id,
-    provider: body.provider as never,
-    name: typeof body.name === "string" ? body.name : undefined,
-    apiKey: typeof body.apiKey === "string" ? body.apiKey : undefined,
-    clearApiKey: body.clearApiKey === true,
-    baseUrl: typeof body.baseUrl === "string" ? body.baseUrl : undefined,
-    apiVersion:
-      typeof body.apiVersion === "string" ? body.apiVersion : undefined,
-    orgId: typeof body.orgId === "string" ? body.orgId : undefined,
-    enabled: typeof body.enabled === "boolean" ? body.enabled : undefined,
-    priority: toNumber(body.priority),
+    provider: existing.provider,
+    apiKey,
   });
+  if (typeof body.enabled === "boolean") {
+    saveAdminProviderConfig(existing.provider, { enabled: body.enabled });
+  }
   return NextResponse.json({
     error: false,
     credential: listProviderCredentialsPublic().find(
@@ -332,18 +451,13 @@ function listModels() {
 
 async function updateModel(req: NextRequest, id: string) {
   const body = await readBody(req);
-  const model = saveCompanyModel(id, {
-    displayName:
-      typeof body.displayName === "string" ? body.displayName : undefined,
-    model: typeof body.model === "string" ? body.model : undefined,
-    endpointType: body.endpointType as never,
-    enabled: typeof body.enabled === "boolean" ? body.enabled : undefined,
-    adminOnly: typeof body.adminOnly === "boolean" ? body.adminOnly : undefined,
-    legacy: typeof body.legacy === "boolean" ? body.legacy : undefined,
-    deprecated:
-      typeof body.deprecated === "boolean" ? body.deprecated : undefined,
-    sort: toNumber(body.sort),
-  });
+  if (typeof body.enabled !== "boolean") {
+    return NextResponse.json(
+      { error: true, message: "只允许修改模型启用状态" },
+      { status: 400 },
+    );
+  }
+  const model = saveCompanyModel(id, { enabled: body.enabled });
   return NextResponse.json({ error: false, model });
 }
 
@@ -379,7 +493,7 @@ async function dispatch(
 
   const { account: actor, response } = requireAdminAccount(req);
   if (response) return response;
-  if (!actor) return forbidden("admin role required");
+  if (!actor) return forbidden("需要管理员权限");
 
   if (resource === "accounts" || resource === "employees") {
     if (!id && req.method === "GET") return listAccounts();
@@ -387,6 +501,9 @@ async function dispatch(
     if (id && req.method === "PUT") return updateAccount(req, id, actor);
     if (id && req.method === "POST" && action === "disable") {
       return disableAccount(id, actor);
+    }
+    if (id && req.method === "POST" && action === "enable") {
+      return enableAccount(id, actor);
     }
     if (id && req.method === "DELETE") return removeAccount(id, actor);
   }

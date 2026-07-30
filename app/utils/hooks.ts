@@ -1,33 +1,22 @@
 import { useMemo } from "react";
-import { useAccessStore, useAccountStore, useAppConfig } from "../store";
-import { collectModelsWithDefaultModel } from "./model";
+import { useAccountStore } from "../store";
+import type { LLMModel } from "../client/api";
 
 export function useAllModels() {
-  const accessStore = useAccessStore();
   const accountStore = useAccountStore();
-  const configStore = useAppConfig();
   const models = useMemo(() => {
-    if (accountStore.authenticated && accountStore.models.length > 0) {
-      return accountStore.models.filter(
-        (model) => !!model?.name && !!model?.provider?.providerName,
-      ) as ReturnType<typeof collectModelsWithDefaultModel>;
-    }
+    if (!accountStore.loaded || !accountStore.authenticated) return [];
 
-    return collectModelsWithDefaultModel(
-      configStore.models.filter(
-        (model) => !!model?.name && !!model?.provider?.providerName,
-      ),
-      [configStore.customModels, accessStore.customModels].join(","),
-      accessStore.defaultModel,
-    ).filter((model) => !!model?.name && !!model?.provider?.providerName);
-  }, [
-    accountStore.authenticated,
-    accountStore.models,
-    accessStore.customModels,
-    accessStore.defaultModel,
-    configStore.customModels,
-    configStore.models,
-  ]);
+    return accountStore.models.filter(
+      (model): model is LLMModel =>
+        !!model &&
+        typeof model.name === "string" &&
+        model.name.trim().length > 0 &&
+        !!model.provider &&
+        typeof model.provider.providerName === "string" &&
+        model.provider.providerName.trim().length > 0,
+    );
+  }, [accountStore.authenticated, accountStore.loaded, accountStore.models]);
 
   return models;
 }

@@ -118,7 +118,7 @@ export class GeminiProApi implements LLMApi {
   async chat(options: ChatOptions): Promise<void> {
     const apiClient = this;
     const modelCategory = getModelCategory(
-      [...useAccountStore.getState().models, ...useAppConfig.getState().models],
+      useAccountStore.getState().models,
       options.config.model,
       options.config.providerName,
     );
@@ -216,17 +216,21 @@ export class GeminiProApi implements LLMApi {
         model: options.config.model,
       },
     };
+    const usesLatestGeminiParams =
+      options.config.model.startsWith("gemini-3.6-") ||
+      options.config.model.startsWith("gemini-3.5-");
+    const generationConfig = usesLatestGeminiParams
+      ? {
+          maxOutputTokens: modelConfig.max_tokens,
+        }
+      : {
+          temperature: modelConfig.temperature,
+          maxOutputTokens: modelConfig.max_tokens,
+          topP: modelConfig.top_p,
+        };
     const requestPayload = {
       contents: messages,
-      generationConfig: {
-        // stopSequences: [
-        //   "Title"
-        // ],
-        temperature: modelConfig.temperature,
-        maxOutputTokens: modelConfig.max_tokens,
-        topP: modelConfig.top_p,
-        // "topK": modelConfig.top_k,
-      },
+      generationConfig,
       safetySettings: [
         {
           category: "HARM_CATEGORY_HARASSMENT",

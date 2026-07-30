@@ -113,7 +113,7 @@ export function requireAdminAccount(req: NextRequest) {
     return {
       account: null,
       response: NextResponse.json(
-        { error: true, message: "admin role required" },
+        { error: true, message: "需要管理员权限" },
         { status: 403 },
       ),
     };

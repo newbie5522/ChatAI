@@ -1,35 +1,39 @@
 import styles from "./auth.module.scss";
-import { IconButton } from "./button";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Path } from "../constant";
 import { useAccountStore } from "../store";
-import Locale from "../locales";
-import BotIcon from "../icons/bot.svg";
-import { getClientConfig } from "../config/client";
-import { PasswordInput, showToast } from "./ui-lib";
-import LeftIcon from "@/app/icons/left.svg";
-import clsx from "clsx";
 
 export function AuthPage() {
   const navigate = useNavigate();
   const accountStore = useAccountStore();
   const [checking, setChecking] = useState(false);
-  const [username, setUsername] = useState("admin");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
   const goChat = () => navigate(Path.Chat);
 
   const login = async () => {
     if (checking) return;
+    if (!username.trim()) {
+      setError("请输入账号");
+      return;
+    }
+    if (!password) {
+      setError("请输入密码");
+      return;
+    }
 
     setChecking(true);
+    setError("");
     try {
-      await accountStore.login(username, password);
+      await accountStore.login(username.trim(), password);
       setPassword("");
       goChat();
-    } catch (error) {
-      showToast(
-        error instanceof Error ? error.message : Locale.Settings.Sync.Fail,
+    } catch (loginError) {
+      setError(
+        loginError instanceof TypeError ? "网络连接失败" : "账号或密码错误",
       );
     } finally {
       setChecking(false);
@@ -38,9 +42,6 @@ export function AuthPage() {
 
   useEffect(() => {
     void accountStore.fetchSession();
-    if (getClientConfig()?.isApp) {
-      navigate(Path.Settings);
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -53,56 +54,56 @@ export function AuthPage() {
 
   return (
     <div className={styles["auth-page"]}>
-      <div className={styles["auth-header"]}>
-        <IconButton
-          icon={<LeftIcon />}
-          text={Locale.Auth.Return}
-          onClick={() => navigate(Path.Home)}
-        ></IconButton>
-      </div>
-      <div className={clsx("no-dark", styles["auth-logo"])}>
-        <BotIcon />
-      </div>
-
-      <div className={styles["auth-title"]}>{Locale.Auth.Title}</div>
-      <div className={styles["auth-tips"]}>{Locale.Auth.Tips}</div>
-
-      <PasswordInput
-        style={{ marginTop: "3vh", marginBottom: "1.2vh" }}
-        aria={Locale.Settings.ShowPassword}
-        aria-label="Username"
-        value={username}
-        type="text"
-        placeholder="Username"
-        onChange={(e) => {
-          setUsername(e.currentTarget.value);
+      <div className={styles["auth-title"]}>NewbieChat</div>
+      <form
+        className={styles["auth-form"]}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void login();
         }}
-      />
-      <PasswordInput
-        style={{ marginBottom: "3vh" }}
-        aria={Locale.Settings.ShowPassword}
-        aria-label="Password"
-        value={password}
-        type="password"
-        placeholder="Password"
-        onChange={(e) => {
-          setPassword(e.currentTarget.value);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") void login();
-        }}
-      />
-
-      <div className={styles["auth-actions"]}>
-        <IconButton
-          text={
-            checking ? Locale.Settings.Usage.IsChecking : Locale.Auth.Confirm
-          }
-          type="primary"
-          disabled={checking}
-          onClick={login}
+      >
+        <label htmlFor="account-username">账号</label>
+        <input
+          id="account-username"
+          type="text"
+          autoComplete="username"
+          value={username}
+          placeholder="请输入账号"
+          onChange={(event) => setUsername(event.currentTarget.value)}
         />
-      </div>
+
+        <label htmlFor="account-password">密码</label>
+        <div className={styles["password-field"]}>
+          <input
+            id="account-password"
+            type={showPassword ? "text" : "password"}
+            autoComplete="current-password"
+            value={password}
+            placeholder="请输入密码"
+            onChange={(event) => setPassword(event.currentTarget.value)}
+          />
+          <button
+            type="button"
+            className={styles["password-toggle"]}
+            aria-label={showPassword ? "隐藏密码" : "显示密码"}
+            onClick={() => setShowPassword((visible) => !visible)}
+          >
+            {showPassword ? "隐藏" : "显示"}
+          </button>
+        </div>
+
+        <div className={styles["auth-error"]} aria-live="polite">
+          {error}
+        </div>
+
+        <button
+          className={styles["auth-submit"]}
+          type="submit"
+          disabled={checking}
+        >
+          {checking ? "正在登录…" : "登录"}
+        </button>
+      </form>
     </div>
   );
 }

@@ -443,9 +443,9 @@ export function findAccountById(id: string) {
 
 export function findAccountByUsername(username: string) {
   const normalized = username.trim().toLowerCase();
-  return getAccountRecords().find(
-    (account) => account.username.toLowerCase() === normalized,
-  );
+  return ensureBootstrapSuperAdmin()
+    .accounts.map((account) => normalizeAccountRecord(account))
+    .find((account) => account.username.toLowerCase() === normalized);
 }
 
 export function authenticateAccount(username: string, password: string) {
@@ -464,12 +464,9 @@ export function saveAccountRecord(
   record: Partial<AccountRecord> & { password?: string },
 ) {
   const store = ensureBootstrapSuperAdmin();
-  const existingIndex = store.accounts.findIndex(
-    (account) =>
-      account.id === record.id ||
-      (record.username &&
-        account.username.toLowerCase() === record.username.toLowerCase()),
-  );
+  const existingIndex = record.id
+    ? store.accounts.findIndex((account) => account.id === record.id)
+    : -1;
   const existing =
     existingIndex >= 0 ? store.accounts[existingIndex] : undefined;
   const passwordHash = record.password
@@ -502,12 +499,12 @@ export function saveAccountRecord(
 export function deleteAccountRecord(id: string) {
   const account = findAccountById(id);
   if (!account) return false;
-  if (account.role === "super_admin") {
+  if (account.role === "super_admin" && account.status === "active") {
     const superAdminCount = getAccountRecords().filter(
-      (item) => item.role === "super_admin" && item.status !== "deleted",
+      (item) => item.role === "super_admin" && item.status === "active",
     ).length;
     if (superAdminCount <= 1) {
-      throw new Error("cannot delete the last super admin");
+      throw new Error("不能删除最后一个超级管理员");
     }
   }
 
@@ -537,6 +534,26 @@ export function listProviderCredentialsPublic(): PublicProviderCredential[] {
       keyPreview: previewSecret(credential.apiKey),
     };
   });
+}
+
+export function getPrimaryProviderCredential(provider: ModelProvider) {
+  return listProviderCredentials(true)
+    .filter((credential) => credential.provider === provider)
+    .sort((a, b) => {
+      const aUsable = a.enabled && a.apiKey.trim().length > 0 ? 0 : 1;
+      const bUsable = b.enabled && b.apiKey.trim().length > 0 ? 0 : 1;
+      return aUsable - bUsable || a.priority - b.priority;
+    })
+    .at(0);
+}
+
+export function getPrimaryProviderCredentialPublic(provider: ModelProvider) {
+  const primary = getPrimaryProviderCredential(provider);
+  return primary
+    ? listProviderCredentialsPublic().find(
+        (credential) => credential.id === primary.id,
+      )
+    : undefined;
 }
 
 export function saveProviderCredential(
@@ -598,7 +615,15 @@ export function saveCompanyModel(id: string, patch: Partial<CompanyModel>) {
     throw new Error("model not found");
   }
 
-  const model = normalizeCompanyModel({ ...existing, ...patch, id }, existing);
+  const model = normalizeCompanyModel(
+    {
+      ...existing,
+      id,
+      enabled:
+        typeof patch.enabled === "boolean" ? patch.enabled : existing.enabled,
+    },
+    existing,
+  );
   store.models = mergeCompanyModels([
     ...store.models.filter((item) => item.id !== id),
     model,
@@ -623,15 +648,11 @@ export function getCompanyModelForRequest(
 }
 
 export function selectProviderCredentialForModel(model: CompanyModel) {
-  return readAdminStore()
-    .credentials.filter(
-      (credential) =>
-        credential.provider === model.provider &&
-        credential.enabled &&
-        credential.apiKey.trim().length > 0,
-    )
-    .sort((a, b) => a.priority - b.priority)
-    .at(0);
+  if (!isProviderEnabled(model.provider)) return undefined;
+  const credential = getPrimaryProviderCredential(model.provider);
+  return credential?.enabled && credential.apiKey.trim().length > 0
+    ? credential
+    : undefined;
 }
 
 export function hasUsableCredentialForModel(model: CompanyModel) {

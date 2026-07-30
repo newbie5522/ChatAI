@@ -87,6 +87,7 @@ import { useMaskStore } from "../store/mask";
 import { ProviderType } from "../utils/cloud";
 import { TTSConfigList } from "./tts-config";
 import { RealtimeConfigList } from "./realtime-chat/realtime-config";
+import { getRoleDisplayName } from "../utils/roles";
 
 function EditPromptModal(props: { id: string; onClose: () => void }) {
   const promptStore = usePromptStore();
@@ -594,9 +595,12 @@ export function Settings() {
 
   function checkUpdate(force = false) {
     setCheckingUpdate(true);
-    updateStore.getLatestVersion(force).then(() => {
-      setCheckingUpdate(false);
-    });
+    updateStore
+      .getLatestVersion(force)
+      .catch((error) => {
+        console.error("[Update] failed to check latest version", error);
+      })
+      .finally(() => setCheckingUpdate(false));
 
     console.log("[Update] local version ", updateStore.version);
     console.log("[Update] remote version ", updateStore.remoteVersion);
@@ -604,6 +608,7 @@ export function Settings() {
 
   const accessStore = useAccessStore();
   const accountStore = useAccountStore();
+  const isCompanyAccount = accountStore.loaded && accountStore.authenticated;
   const shouldHideBalanceQuery = useMemo(() => {
     const isOpenAiUrl = accessStore.openaiUrl.includes(OPENAI_BASE_URL);
 
@@ -645,7 +650,7 @@ export function Settings() {
   const customCount = promptStore.getUserPrompts().length ?? 0;
   const [shouldShowPromptModal, setShowPromptModal] = useState(false);
 
-  const showUsage = accessStore.isAuthorized();
+  const showUsage = !isCompanyAccount && accessStore.isAuthorized();
   useEffect(() => {
     // checks per minutes
     checkUpdate();
@@ -1498,6 +1503,36 @@ export function Settings() {
         </div>
       </div>
       <div className={styles["settings"]}>
+        {isCompanyAccount && accountStore.user && (
+          <List>
+            <ListItem
+              title={`账号：${accountStore.user.username}`}
+              subTitle={`角色：${getRoleDisplayName(accountStore.user.role)}`}
+            >
+              <IconButton
+                text="退出登录"
+                onClick={() => {
+                  void accountStore.logout().then(() => navigate(Path.Auth));
+                }}
+              />
+            </ListItem>
+          </List>
+        )}
+        {accountStore.isAdmin() && (
+          <List>
+            <ListItem
+              title="管理后台"
+              subTitle="管理成员、服务商、模型和使用日志"
+            >
+              <IconButton
+                aria="进入管理后台"
+                icon={<ConfigIcon />}
+                text="进入管理后台"
+                onClick={() => navigate(Path.Admin)}
+              />
+            </ListItem>
+          </List>
+        )}
         <List>
           <ListItem title={Locale.Settings.Avatar}>
             <Popover
@@ -1789,120 +1824,106 @@ export function Settings() {
           </ListItem>
         </List>
 
-        {accountStore.isAdmin() && (
-          <List>
+        {!isCompanyAccount && (
+          <List id={SlotID.CustomModel}>
+            {accessCodeComponent}
+
+            {!accessStore.hideUserApiKey && (
+              <>
+                {useCustomConfigComponent}
+
+                {accessStore.useCustomConfig && (
+                  <>
+                    <ListItem
+                      title={Locale.Settings.Access.Provider.Title}
+                      subTitle={Locale.Settings.Access.Provider.SubTitle}
+                    >
+                      <Select
+                        aria-label={Locale.Settings.Access.Provider.Title}
+                        value={accessStore.provider}
+                        onChange={(e) => {
+                          accessStore.update(
+                            (access) =>
+                              (access.provider = e.target
+                                .value as ServiceProvider),
+                          );
+                        }}
+                      >
+                        {Object.entries(ServiceProvider).map(([k, v]) => (
+                          <option value={v} key={k}>
+                            {k}
+                          </option>
+                        ))}
+                      </Select>
+                    </ListItem>
+
+                    {openAIConfigComponent}
+                    {azureConfigComponent}
+                    {googleConfigComponent}
+                    {anthropicConfigComponent}
+                    {baiduConfigComponent}
+                    {byteDanceConfigComponent}
+                    {alibabaConfigComponent}
+                    {tencentConfigComponent}
+                    {moonshotConfigComponent}
+                    {deepseekConfigComponent}
+                    {stabilityConfigComponent}
+                    {lflytekConfigComponent}
+                    {XAIConfigComponent}
+                    {chatglmConfigComponent}
+                    {siliconflowConfigComponent}
+                    {ai302ConfigComponent}
+                  </>
+                )}
+              </>
+            )}
+
+            {!shouldHideBalanceQuery && !clientConfig?.isApp ? (
+              <ListItem
+                title={Locale.Settings.Usage.Title}
+                subTitle={
+                  showUsage
+                    ? loadingUsage
+                      ? Locale.Settings.Usage.IsChecking
+                      : Locale.Settings.Usage.SubTitle(
+                          usage?.used ?? "[?]",
+                          usage?.subscription ?? "[?]",
+                        )
+                    : Locale.Settings.Usage.NoAccess
+                }
+              >
+                {!showUsage || loadingUsage ? (
+                  <div />
+                ) : (
+                  <IconButton
+                    icon={<ResetIcon></ResetIcon>}
+                    text={Locale.Settings.Usage.Check}
+                    onClick={() => checkUsage(true)}
+                  />
+                )}
+              </ListItem>
+            ) : null}
+
             <ListItem
-              title="Workspace"
-              subTitle="Manage team accounts, credentials, models and usage logs."
+              title={Locale.Settings.Access.CustomModel.Title}
+              subTitle={Locale.Settings.Access.CustomModel.SubTitle}
+              vertical={true}
             >
-              <IconButton
-                aria="Open workspace administration"
-                icon={<ConfigIcon />}
-                text="Admin"
-                onClick={() => navigate(Path.Admin)}
-              />
+              <input
+                aria-label={Locale.Settings.Access.CustomModel.Title}
+                style={{ width: "100%", maxWidth: "unset", textAlign: "left" }}
+                type="text"
+                value={config.customModels}
+                placeholder="model1,model2,model3"
+                onChange={(e) =>
+                  config.update(
+                    (config) => (config.customModels = e.currentTarget.value),
+                  )
+                }
+              ></input>
             </ListItem>
           </List>
         )}
-
-        <List id={SlotID.CustomModel}>
-          {accessCodeComponent}
-
-          {!accessStore.hideUserApiKey && (
-            <>
-              {useCustomConfigComponent}
-
-              {accessStore.useCustomConfig && (
-                <>
-                  <ListItem
-                    title={Locale.Settings.Access.Provider.Title}
-                    subTitle={Locale.Settings.Access.Provider.SubTitle}
-                  >
-                    <Select
-                      aria-label={Locale.Settings.Access.Provider.Title}
-                      value={accessStore.provider}
-                      onChange={(e) => {
-                        accessStore.update(
-                          (access) =>
-                            (access.provider = e.target
-                              .value as ServiceProvider),
-                        );
-                      }}
-                    >
-                      {Object.entries(ServiceProvider).map(([k, v]) => (
-                        <option value={v} key={k}>
-                          {k}
-                        </option>
-                      ))}
-                    </Select>
-                  </ListItem>
-
-                  {openAIConfigComponent}
-                  {azureConfigComponent}
-                  {googleConfigComponent}
-                  {anthropicConfigComponent}
-                  {baiduConfigComponent}
-                  {byteDanceConfigComponent}
-                  {alibabaConfigComponent}
-                  {tencentConfigComponent}
-                  {moonshotConfigComponent}
-                  {deepseekConfigComponent}
-                  {stabilityConfigComponent}
-                  {lflytekConfigComponent}
-                  {XAIConfigComponent}
-                  {chatglmConfigComponent}
-                  {siliconflowConfigComponent}
-                  {ai302ConfigComponent}
-                </>
-              )}
-            </>
-          )}
-
-          {!shouldHideBalanceQuery && !clientConfig?.isApp ? (
-            <ListItem
-              title={Locale.Settings.Usage.Title}
-              subTitle={
-                showUsage
-                  ? loadingUsage
-                    ? Locale.Settings.Usage.IsChecking
-                    : Locale.Settings.Usage.SubTitle(
-                        usage?.used ?? "[?]",
-                        usage?.subscription ?? "[?]",
-                      )
-                  : Locale.Settings.Usage.NoAccess
-              }
-            >
-              {!showUsage || loadingUsage ? (
-                <div />
-              ) : (
-                <IconButton
-                  icon={<ResetIcon></ResetIcon>}
-                  text={Locale.Settings.Usage.Check}
-                  onClick={() => checkUsage(true)}
-                />
-              )}
-            </ListItem>
-          ) : null}
-
-          <ListItem
-            title={Locale.Settings.Access.CustomModel.Title}
-            subTitle={Locale.Settings.Access.CustomModel.SubTitle}
-            vertical={true}
-          >
-            <input
-              aria-label={Locale.Settings.Access.CustomModel.Title}
-              style={{ width: "100%", maxWidth: "unset", textAlign: "left" }}
-              type="text"
-              value={config.customModels}
-              placeholder="model1,model2,model3"
-              onChange={(e) =>
-                config.update(
-                  (config) => (config.customModels = e.currentTarget.value),
-                )
-              }
-            ></input>
-          </ListItem>
-        </List>
 
         <List>
           <ModelConfigList
@@ -1921,7 +1942,7 @@ export function Settings() {
         <List>
           <RealtimeConfigList
             realtimeConfig={config.realtimeConfig}
-            hideApiKey={accessStore.hideUserApiKey}
+            hideApiKey={isCompanyAccount || accessStore.hideUserApiKey}
             updateConfig={(updater) => {
               const realtimeConfig = { ...config.realtimeConfig };
               updater(realtimeConfig);

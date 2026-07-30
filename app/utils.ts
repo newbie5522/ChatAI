@@ -473,10 +473,16 @@ export function clientUpdate() {
 }
 
 // https://gist.github.com/iwill/a83038623ba4fef6abb9efca87ae9ccb
-export function semverCompare(a: string, b: string) {
-  if (a.startsWith(b + "-")) return -1;
-  if (b.startsWith(a + "-")) return 1;
-  return a.localeCompare(b, undefined, {
+function normalizeVersion(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : "0.0.0";
+}
+
+export function semverCompare(a: unknown, b: unknown) {
+  const normalizedA = normalizeVersion(a);
+  const normalizedB = normalizeVersion(b);
+  if (normalizedA.startsWith(normalizedB + "-")) return -1;
+  if (normalizedB.startsWith(normalizedA + "-")) return 1;
+  return normalizedA.localeCompare(normalizedB, undefined, {
     numeric: true,
     sensitivity: "case",
     caseFirst: "upper",

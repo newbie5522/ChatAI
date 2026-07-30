@@ -49,7 +49,7 @@ function getGroupedModels(models: SelectableModel[]) {
   return MODEL_GROUPS.map((group) => ({
     ...group,
     models: sortModels(
-      models.filter((model) => (model.category ?? "chat") === group.category),
+      models.filter((model) => model.category === group.category),
     ),
   }));
 }
@@ -60,8 +60,21 @@ export function ModelConfigList(props: {
 }) {
   const allModels = useAllModels();
   const groupedModels = getGroupedModels(allModels.filter((v) => v.available));
-  const value = `${props.modelConfig.model}@${props.modelConfig?.providerName}`;
-  const compressModelValue = `${props.modelConfig.compressModel}@${props.modelConfig?.compressProviderName}`;
+  const modelValues = new Set(
+    allModels.map((model) => `${model.name}@${model.provider?.providerName}`),
+  );
+  const requestedValue = `${props.modelConfig.model}@${props.modelConfig?.providerName}`;
+  const value = modelValues.has(requestedValue) ? requestedValue : "";
+  const chatModels = sortModels(
+    allModels.filter((model) => model.available && model.category === "chat"),
+  );
+  const compressValues = new Set(
+    chatModels.map((model) => `${model.name}@${model.provider?.providerName}`),
+  );
+  const requestedCompressValue = `${props.modelConfig.compressModel}@${props.modelConfig?.compressProviderName}`;
+  const compressModelValue = compressValues.has(requestedCompressValue)
+    ? requestedCompressValue
+    : "";
 
   return (
     <>
@@ -80,6 +93,11 @@ export function ModelConfigList(props: {
             });
           }}
         >
+          {value === "" && (
+            <option value="" disabled>
+              暂无可用模型
+            </option>
+          )}
           {groupedModels.map((group) => (
             <optgroup label={group.title} key={group.category}>
               {group.models.length === 0 ? (
@@ -91,10 +109,10 @@ export function ModelConfigList(props: {
                   {group.emptyText}
                 </option>
               ) : (
-                group.models.map((v, i) => (
+                group.models.map((v) => (
                   <option
                     value={`${v.name}@${v.provider?.providerName}`}
-                    key={i}
+                    key={`${v.provider?.providerName}:${v.name}`}
                   >
                     {v.displayName || v.name} ({v.provider?.providerName})
                   </option>
@@ -314,13 +332,19 @@ export function ModelConfigList(props: {
             });
           }}
         >
-          {allModels
-            .filter((v) => v.available && (v.category ?? "chat") === "chat")
-            .map((v, i) => (
-              <option value={`${v.name}@${v.provider?.providerName}`} key={i}>
-                {v.displayName}({v.provider?.providerName})
-              </option>
-            ))}
+          {compressModelValue === "" && (
+            <option value="" disabled>
+              暂无可用模型
+            </option>
+          )}
+          {chatModels.map((v) => (
+            <option
+              value={`${v.name}@${v.provider?.providerName}`}
+              key={`${v.provider?.providerName}:${v.name}`}
+            >
+              {v.displayName}({v.provider?.providerName})
+            </option>
+          ))}
         </Select>
       </ListItem>
     </>

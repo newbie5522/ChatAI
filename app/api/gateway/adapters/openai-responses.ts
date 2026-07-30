@@ -42,17 +42,31 @@ function toResponsesPayload(bodyText: string | undefined, model: string) {
         }))
       : textFromContent(parsed.prompt) || "";
 
-  return {
+  const payload: Record<string, unknown> = {
     model,
     input,
     stream: false,
-    temperature: parsed.temperature,
-    top_p: parsed.top_p,
     max_output_tokens:
       parsed.max_output_tokens ??
       parsed.max_completion_tokens ??
       parsed.max_tokens,
   };
+  const supportsSamplingParams = !model.startsWith("gpt-5");
+  if (
+    supportsSamplingParams &&
+    typeof parsed.temperature === "number" &&
+    Number.isFinite(parsed.temperature)
+  ) {
+    payload.temperature = parsed.temperature;
+  }
+  if (
+    supportsSamplingParams &&
+    typeof parsed.top_p === "number" &&
+    Number.isFinite(parsed.top_p)
+  ) {
+    payload.top_p = parsed.top_p;
+  }
+  return payload;
 }
 
 function chatCompletionJson(model: string, content: string) {

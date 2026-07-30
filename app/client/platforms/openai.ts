@@ -43,7 +43,6 @@ import Locale from "../../locales";
 import {
   getMessageTextContent,
   isVisionModel,
-  isDalle3 as _isDalle3,
   getTimeoutMSByModel,
 } from "@/app/utils";
 import { fetch } from "@/app/utils/stream";
@@ -200,11 +199,11 @@ export class ChatGPTApi implements LLMApi {
 
     const requestedModel = options.config.model || "";
     const modelCategory = getModelCategory(
-      [...useAccountStore.getState().models, ...useAppConfig.getState().models],
+      useAccountStore.getState().models,
       options.config.model,
       options.config.providerName,
     );
-    const isImageModel = modelCategory === "image" || _isDalle3(requestedModel);
+    const isImageModel = modelCategory === "image";
     const isO1OrO3 =
       requestedModel.startsWith("o1") ||
       requestedModel.startsWith("o3") ||

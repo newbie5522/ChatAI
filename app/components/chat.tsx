@@ -57,6 +57,7 @@ import {
   SubmitKey,
   Theme,
   useAccessStore,
+  useAccountStore,
   useAppConfig,
   useChatStore,
   usePluginStore,
@@ -550,7 +551,7 @@ export function ChatActions(props: {
         m.name == currentModel &&
         m?.provider?.providerName == currentProviderName,
     );
-    return model?.displayName ?? "";
+    return model?.displayName ?? (models.length === 0 ? "暂无可用模型" : "");
   }, [models, currentModel, currentProviderName]);
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [showPluginSelector, setShowPluginSelector] = useState(false);
@@ -674,7 +675,13 @@ export function ChatActions(props: {
         />
 
         <ChatAction
-          onClick={() => setShowModelSelector(true)}
+          onClick={() => {
+            if (models.length === 0) {
+              showToast("当前账号暂无可用模型，请联系管理员。");
+              return;
+            }
+            setShowModelSelector(true);
+          }}
           text={currentModelName}
           icon={<RobotIcon />}
         />
@@ -990,6 +997,7 @@ function _Chat() {
   type RenderMessage = ChatMessage & { preview?: boolean };
 
   const chatStore = useChatStore();
+  const accountStore = useAccountStore();
   const session = chatStore.currentSession();
   const config = useAppConfig();
   const fontSize = config.fontSize;
@@ -1111,6 +1119,10 @@ function _Chat() {
       matchCommand.invoke();
       return;
     }
+    if (accountStore.models.length === 0) {
+      showToast("当前账号暂无可用模型，请联系管理员。");
+      return;
+    }
     setIsLoading(true);
     chatStore
       .onUserInput(userInput, attachImages)
@@ -1215,6 +1227,10 @@ function _Chat() {
   };
 
   const onResend = (message: ChatMessage) => {
+    if (accountStore.models.length === 0) {
+      showToast("当前账号暂无可用模型，请联系管理员。");
+      return;
+    }
     // when it is resending a message
     // 1. for a user's message, find the next bot response
     // 2. for a bot's message, find the last user's input

@@ -177,6 +177,11 @@ function Screen() {
   const isAuth = location.pathname === Path.Auth;
   const isSd = location.pathname === Path.Sd;
   const isSdNew = location.pathname === Path.SdNew;
+  const currentSessionIndex = chatStore.currentSessionIndex;
+  const currentSession = chatStore.sessions[currentSessionIndex];
+  const currentSessionModel = currentSession?.mask.modelConfig.model ?? "";
+  const currentSessionProvider =
+    currentSession?.mask.modelConfig.providerName ?? "";
 
   const isMobileScreen = useMobileScreen();
   const shouldTightBorder =
@@ -209,36 +214,72 @@ function Screen() {
   ]);
 
   useEffect(() => {
-    if (!accountStore.authenticated || accountStore.models.length === 0) return;
+    if (!accountStore.loaded || !accountStore.authenticated) return;
 
-    const currentModel = config.modelConfig.model;
-    const currentProvider = config.modelConfig.providerName;
-    const currentAllowed = accountStore.models.some(
-      (model) =>
-        model.name === currentModel &&
-        model.provider.providerName === currentProvider,
+    const allowedModels = accountStore.models.filter(
+      (model) => !!model?.name && !!model?.provider?.providerName,
     );
-    if (currentAllowed) return;
+    const session = chatStore.sessions[currentSessionIndex];
+    if (!session) return;
 
-    const nextModel = accountStore.models[0];
-    config.update((config) => {
-      config.modelConfig.model = nextModel.name;
-      config.modelConfig.providerName = nextModel.provider.providerName as any;
-    });
-    chatStore.update((state) => {
-      const session = state.sessions[state.currentSessionIndex];
-      if (!session) return;
-      session.mask.modelConfig.model = nextModel.name;
-      session.mask.modelConfig.providerName = nextModel.provider
-        .providerName as any;
-    });
+    if (allowedModels.length === 0) {
+      if (config.modelConfig.model || config.modelConfig.providerName) {
+        config.update((state) => {
+          state.modelConfig.model = "";
+          state.modelConfig.providerName = "" as any;
+        });
+      }
+      if (
+        session.mask.modelConfig.model ||
+        session.mask.modelConfig.providerName
+      ) {
+        chatStore.updateTargetSession(session, (target) => {
+          target.mask.modelConfig.model = "";
+          target.mask.modelConfig.providerName = "" as any;
+        });
+      }
+      return;
+    }
+
+    const currentAllowed = allowedModels.some(
+      (model) =>
+        model.name === currentSessionModel &&
+        model.provider.providerName === currentSessionProvider,
+    );
+    const nextModel = currentAllowed
+      ? {
+          name: currentSessionModel,
+          provider: { providerName: currentSessionProvider },
+        }
+      : allowedModels[0];
+
+    if (
+      config.modelConfig.model !== nextModel.name ||
+      config.modelConfig.providerName !== nextModel.provider.providerName
+    ) {
+      config.update((state) => {
+        state.modelConfig.model = nextModel.name;
+        state.modelConfig.providerName = nextModel.provider.providerName as any;
+      });
+    }
+    if (!currentAllowed) {
+      chatStore.updateTargetSession(session, (target) => {
+        target.mask.modelConfig.model = nextModel.name;
+        target.mask.modelConfig.providerName = nextModel.provider
+          .providerName as any;
+      });
+    }
   }, [
     accountStore.authenticated,
+    accountStore.loaded,
     accountStore.models,
     chatStore,
     config,
-    config.modelConfig.model,
     config.modelConfig.providerName,
+    config.modelConfig.model,
+    currentSessionIndex,
+    currentSessionModel,
+    currentSessionProvider,
   ]);
 
   if (isArtifact) {

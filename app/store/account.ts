@@ -44,7 +44,7 @@ function applySession(set: (state: Partial<AccountState>) => void) {
       fetching: false,
       authenticated: session.authenticated,
       user: session.user,
-      models: session.models ?? [],
+      models: Array.isArray(session.models) ? session.models : [],
       error: "",
     });
   };
@@ -87,18 +87,26 @@ export const useAccountStore = create<AccountState>((set, get) => ({
 
   async login(username: string, password: string) {
     set({ fetching: true, error: "" });
-    const res = await fetch("/api/account/login", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    const session = (await res.json()) as AccountSessionResponse;
-    if (!res.ok || session.error) {
-      set({ fetching: false, error: session.message ?? "login failed" });
-      throw new Error(session.message ?? "login failed");
+    try {
+      const res = await fetch("/api/account/login", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const session = (await res.json()) as AccountSessionResponse;
+      if (!res.ok || session.error) {
+        set({ fetching: false, error: session.message ?? "login failed" });
+        throw new Error(session.message ?? "login failed");
+      }
+      applySession(set)(session);
+    } catch (error) {
+      set({
+        fetching: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     }
-    applySession(set)(session);
   },
 
   async logout() {

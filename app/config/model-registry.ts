@@ -131,8 +131,8 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     displayName: "Claude Fable 5",
     model: "claude-fable-5",
     endpointType: "anthropic_messages",
-    enabled: true,
-    defaultEnabled: true,
+    enabled: false,
+    defaultEnabled: false,
     adminOnly: true,
     sort: 300,
     capabilities: { reasoning: true, tools: true, vision: true },
@@ -144,8 +144,9 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     displayName: "Claude Opus 5",
     model: "claude-opus-5",
     endpointType: "anthropic_messages",
-    enabled: true,
-    defaultEnabled: true,
+    enabled: false,
+    defaultEnabled: false,
+    adminOnly: true,
     sort: 310,
     capabilities: { reasoning: true, tools: true, vision: true },
   },
@@ -156,8 +157,9 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     displayName: "Claude Sonnet 5",
     model: "claude-sonnet-5",
     endpointType: "anthropic_messages",
-    enabled: true,
-    defaultEnabled: true,
+    enabled: false,
+    defaultEnabled: false,
+    adminOnly: true,
     sort: 320,
     capabilities: { reasoning: true, tools: true, vision: true },
   },
@@ -381,18 +383,19 @@ export function normalizeCompanyModel(
 }
 
 export function mergeCompanyModels(models: Partial<CompanyModel>[] = []) {
-  const modelMap = new Map<string, CompanyModel>();
-  for (const seed of DEFAULT_COMPANY_MODELS) {
-    modelMap.set(seed.id, { ...seed });
-  }
+  const persistedEnabled = new Map(
+    models
+      .filter(
+        (model): model is Partial<CompanyModel> & { id: string } =>
+          typeof model?.id === "string" && typeof model.enabled === "boolean",
+      )
+      .map((model) => [model.id, model.enabled] as const),
+  );
 
-  for (const rawModel of models) {
-    if (!rawModel?.id) continue;
-    const fallback = modelMap.get(rawModel.id);
-    modelMap.set(rawModel.id, normalizeCompanyModel(rawModel, fallback));
-  }
-
-  return Array.from(modelMap.values()).sort((a, b) => a.sort - b.sort);
+  return DEFAULT_COMPANY_MODELS.map((model) => ({
+    ...model,
+    enabled: persistedEnabled.get(model.id) ?? model.enabled,
+  })).sort((a, b) => a.sort - b.sort);
 }
 
 export function toCompanyLLMModel(model: CompanyModel) {
