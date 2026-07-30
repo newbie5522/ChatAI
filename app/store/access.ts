@@ -25,6 +25,7 @@ import { createPersistStore } from "../utils/store";
 import { ensure } from "../utils/clone";
 import { DEFAULT_CONFIG } from "./config";
 import { getModelProvider } from "../utils/model";
+import { useAccountStore } from "./account";
 
 let fetchState = 0; // 0 not fetch, 1 fetching, 2 done
 
@@ -256,6 +257,7 @@ export const useAccessStore = createPersistStore(
 
     isAuthorized() {
       this.fetch();
+      if (useAccountStore.getState().authenticated) return true;
 
       const allowUserProviderKey = !get().hideUserApiKey;
       const hasUserProviderKey =

@@ -5,19 +5,61 @@ import Locale from "../locales";
 import { InputRange } from "./input-range";
 import { ListItem, Select } from "./ui-lib";
 import { useAllModels } from "../utils/hooks";
-import { groupBy } from "lodash-es";
 import styles from "./model-config.module.scss";
 import { getModelProvider } from "../utils/model";
+import type { LLMModel } from "../client/api";
+
+type SelectableModel = Omit<LLMModel, "provider"> & {
+  provider?: LLMModel["provider"];
+};
+
+const MODEL_GROUPS = [
+  {
+    category: "chat",
+    title: "聊天",
+    emptyText: "暂无可用模型",
+  },
+  {
+    category: "search",
+    title: "搜索",
+    emptyText: "暂无可用模型",
+  },
+  {
+    category: "image",
+    title: "生图",
+    emptyText: "暂无可用模型",
+  },
+  {
+    category: "video",
+    title: "视频",
+    emptyText: "待加入",
+  },
+] as const;
+
+function sortModels(models: SelectableModel[]) {
+  return models.slice().sort((a, b) => {
+    const sortDiff = (a.sorted ?? 9999) - (b.sorted ?? 9999);
+    if (sortDiff !== 0) return sortDiff;
+
+    return (a.displayName || a.name).localeCompare(b.displayName || b.name);
+  });
+}
+
+function getGroupedModels(models: SelectableModel[]) {
+  return MODEL_GROUPS.map((group) => ({
+    ...group,
+    models: sortModels(
+      models.filter((model) => (model.category ?? "chat") === group.category),
+    ),
+  }));
+}
 
 export function ModelConfigList(props: {
   modelConfig: ModelConfig;
   updateConfig: (updater: (config: ModelConfig) => void) => void;
 }) {
   const allModels = useAllModels();
-  const groupModels = groupBy(
-    allModels.filter((v) => v.available),
-    "provider.providerName",
-  );
+  const groupedModels = getGroupedModels(allModels.filter((v) => v.available));
   const value = `${props.modelConfig.model}@${props.modelConfig?.providerName}`;
   const compressModelValue = `${props.modelConfig.compressModel}@${props.modelConfig?.compressProviderName}`;
 
@@ -38,13 +80,26 @@ export function ModelConfigList(props: {
             });
           }}
         >
-          {Object.keys(groupModels).map((providerName, index) => (
-            <optgroup label={providerName} key={index}>
-              {groupModels[providerName].map((v, i) => (
-                <option value={`${v.name}@${v.provider?.providerName}`} key={i}>
-                  {v.displayName}
+          {groupedModels.map((group) => (
+            <optgroup label={group.title} key={group.category}>
+              {group.models.length === 0 ? (
+                <option
+                  disabled
+                  value={`__empty_${group.category}`}
+                  key={`${group.category}-empty`}
+                >
+                  {group.emptyText}
                 </option>
-              ))}
+              ) : (
+                group.models.map((v, i) => (
+                  <option
+                    value={`${v.name}@${v.provider?.providerName}`}
+                    key={i}
+                  >
+                    {v.displayName || v.name} ({v.provider?.providerName})
+                  </option>
+                ))
+              )}
             </optgroup>
           ))}
         </Select>
@@ -260,7 +315,7 @@ export function ModelConfigList(props: {
           }}
         >
           {allModels
-            .filter((v) => v.available)
+            .filter((v) => v.available && (v.category ?? "chat") === "chat")
             .map((v, i) => (
               <option value={`${v.name}@${v.provider?.providerName}`} key={i}>
                 {v.displayName}({v.provider?.providerName})

@@ -123,8 +123,12 @@ function getSummarizeModel(
   currentModel: string,
   providerName: string,
 ): string[] {
+  const safeCurrentModel = currentModel || "";
   // if it is using gpt-* models, force to use 4o-mini to summarize
-  if (currentModel.startsWith("gpt") || currentModel.startsWith("chatgpt")) {
+  if (
+    safeCurrentModel.startsWith("gpt") ||
+    safeCurrentModel.startsWith("chatgpt")
+  ) {
     const configStore = useAppConfig.getState();
     const accessStore = useAccessStore.getState();
     const allModel = collectModelsWithDefaultModel(
@@ -142,13 +146,13 @@ function getSummarizeModel(
       ];
     }
   }
-  if (currentModel.startsWith("gemini")) {
+  if (safeCurrentModel.startsWith("gemini")) {
     return [GEMINI_SUMMARIZE_MODEL, ServiceProvider.Google];
-  } else if (currentModel.startsWith("deepseek-")) {
+  } else if (safeCurrentModel.startsWith("deepseek-")) {
     return [DEEPSEEK_SUMMARIZE_MODEL, ServiceProvider.DeepSeek];
   }
 
-  return [currentModel, providerName];
+  return [safeCurrentModel, providerName];
 }
 
 function countMessages(msgs: ChatMessage[]) {
@@ -552,8 +556,8 @@ export const useChatStore = createPersistStore(
         // system prompts, to get close to OpenAI Web ChatGPT
         const shouldInjectSystemPrompts =
           modelConfig.enableInjectSystemPrompts &&
-          (session.mask.modelConfig.model.startsWith("gpt-") ||
-            session.mask.modelConfig.model.startsWith("chatgpt-"));
+          ((session.mask.modelConfig.model || "").startsWith("gpt-") ||
+            (session.mask.modelConfig.model || "").startsWith("chatgpt-"));
 
         const mcpEnabled = await isMcpEnabled();
         const mcpSystemPrompt = mcpEnabled ? await getMcpSystemPrompt() : "";

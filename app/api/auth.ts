@@ -9,6 +9,7 @@ import {
   ValidationOptions,
   validateEmployeeAccessKey,
 } from "../config/employee";
+import { getAccountRecords } from "../config/admin-store";
 
 function getIP(req: NextRequest) {
   let ip = req.ip ?? req.headers.get("x-real-ip");
@@ -38,7 +39,8 @@ export interface AuthResult {
 }
 
 export function blockLegacyProviderApiInEmployeeMode() {
-  if (!hasEmployeeAccessControl()) return null;
+  const accountModeEnabled = getAccountRecords().length > 0;
+  if (!accountModeEnabled && !hasEmployeeAccessControl()) return null;
 
   return NextResponse.json(
     {

@@ -9,12 +9,14 @@ import {
 } from "../api";
 import {
   useAccessStore,
+  useAccountStore,
   useAppConfig,
   useChatStore,
   usePluginStore,
   ChatMessageTool,
 } from "@/app/store";
-import { stream } from "@/app/utils/chat";
+import { stream, base64Image2Blob, uploadImage } from "@/app/utils/chat";
+import { getModelCategory } from "@/app/utils/model";
 
 import {
   getMessageTextContent,
@@ -85,12 +87,75 @@ export class GeminiProApi implements LLMApi {
       ""
     );
   }
+
+  async extractImageMessage(res: any) {
+    if (res?.error) {
+      return res?.message || res?.error?.message || "";
+    }
+
+    let url = res?.data?.at(0)?.url ?? "";
+    const b64Json = res?.data?.at(0)?.b64_json ?? "";
+    if (!url && b64Json) {
+      url = await uploadImage(base64Image2Blob(b64Json, "image/png"));
+    }
+
+    return url
+      ? [
+          {
+            type: "image_url",
+            image_url: {
+              url,
+            },
+          },
+        ]
+      : "";
+  }
+
   speech(options: SpeechOptions): Promise<ArrayBuffer> {
     throw new Error("Method not implemented.");
   }
 
   async chat(options: ChatOptions): Promise<void> {
     const apiClient = this;
+    const modelCategory = getModelCategory(
+      [...useAccountStore.getState().models, ...useAppConfig.getState().models],
+      options.config.model,
+      options.config.providerName,
+    );
+
+    if (modelCategory === "image") {
+      const controller = new AbortController();
+      options.onController?.(controller);
+      try {
+        const prompt = getMessageTextContent(
+          options.messages.slice(-1)?.pop() as any,
+        );
+        const requestPayload = {
+          model: options.config.model,
+          prompt,
+        };
+        const requestTimeoutId = setTimeout(
+          () => controller.abort(),
+          getTimeoutMSByModel(options.config.model),
+        );
+        const res = await fetch(COMPANY_API_PATH.Google, {
+          method: "POST",
+          body: JSON.stringify(requestPayload),
+          signal: controller.signal,
+          headers: getHeaders(),
+        });
+        clearTimeout(requestTimeoutId);
+
+        const resJson = await res.json();
+        const message = await apiClient.extractImageMessage(resJson);
+        options.onFinish(message as any, res);
+      } catch (e) {
+        console.log("[Request] failed to make a google image request", e);
+        options.onError?.(e as Error);
+      }
+      return;
+    }
+
     let multimodal = false;
 
     // try get base64image from local cache image_url
@@ -199,7 +264,7 @@ export class GeminiProApi implements LLMApi {
         headers: getHeaders(),
       };
 
-      const isThinking = options.config.model.includes("-thinking");
+      const isThinking = (options.config.model || "").includes("-thinking");
       // make a fetch request
       const requestTimeoutId = setTimeout(
         () => controller.abort(),

@@ -1,5 +1,5 @@
 import { DEFAULT_MODELS, ServiceProvider } from "../constant";
-import { LLMModel } from "../client/api";
+import type { LLMModel } from "../client/api";
 
 const CustomSeq = {
   val: -1000, //To ensure the custom model located at front, start from -1000, refer to constant.ts
@@ -58,6 +58,7 @@ export function collectModelTable(
       available: boolean;
       name: string;
       displayName: string;
+      category?: LLMModel["category"];
       sorted: number;
       provider?: LLMModel["provider"]; // Marked as optional
       isDefault?: boolean;
@@ -69,7 +70,7 @@ export function collectModelTable(
     // using <modelName>@<providerId> as fullName
     modelTable[`${m.name}@${m?.provider?.id}`] = {
       ...m,
-      displayName: m.name, // 'provider' is copied over if it exists
+      displayName: m.displayName || m.name, // 'provider' is copied over if it exists
     };
   });
 
@@ -124,6 +125,7 @@ export function collectModelTable(
           modelTable[`${customModelName}@${provider?.id}`] = {
             name: customModelName,
             displayName: displayName || customModelName,
+            category: "chat",
             available,
             provider, // Use optional chaining
             sorted: CustomSeq.next(`${customModelName}@${provider?.id}`),
@@ -191,6 +193,22 @@ export function collectModelsWithDefaultModel(
   allModels = sortModelTable(allModels);
 
   return allModels;
+}
+
+export function getModelCategory(
+  models: LLMModel[],
+  modelName: string,
+  providerName?: string,
+) {
+  const model = models.find(
+    (item) =>
+      item.name === modelName &&
+      (!providerName ||
+        item.provider?.providerName === providerName ||
+        item.provider?.id === providerName),
+  );
+
+  return model?.category ?? "chat";
 }
 
 export function isModelAvailableInServer(

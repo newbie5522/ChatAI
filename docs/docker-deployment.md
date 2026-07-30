@@ -1,86 +1,18 @@
 # NewbieChat Docker Deployment
 
-This guide explains how to run NewbieChat as a private company AI workspace with Docker Compose.
+NewbieChat production deployment uses the GHCR prebuilt image. A small VPS should pull the image and run it; it should not build the Next.js image locally.
 
 ## Files
 
-- `Dockerfile`: used by GitHub Actions to build the prebuilt Docker image.
-- `docker-compose.yml`: used for development and local builds.
-- `docker-compose.prod.yml`: used for VPS production deployment. It pulls the GHCR prebuilt image directly.
-- `scripts/deploy-vps.sh`: pulls the prebuilt image and starts the production Compose stack.
-- `.env.template`: copy this file to `.env` and fill in runtime settings.
+- `Dockerfile`: used by GitHub Actions to build the prebuilt image.
+- `docker-compose.yml`: development/local build only.
+- `docker-compose.prod.yml`: production VPS deployment using `ghcr.io/newbie5522/newbiechat:latest`.
+- `scripts/deploy-vps.sh`: pulls the production image and starts the stack.
+- `.env.template`: startup-only configuration.
 
-## Prerequisites
+## VPS Production Deployment
 
-- Docker with Compose V2 must be installed on the deployment host.
-- The deployment host must be able to reach the selected Provider APIs, directly or through `PROXY_URL`.
-
-## Local Docker Build
-
-This path is for development or local verification on a machine that can build the Next.js image.
-
-Clone the official main branch:
-
-```bash
-git clone -b main https://github.com/newbie5522/ChatAI.git newbiechat
-cd newbiechat
-```
-
-Copy the environment template:
-
-```powershell
-Copy-Item .env.template .env
-```
-
-On Linux or macOS:
-
-```bash
-cp .env.template .env
-```
-
-Edit only the required startup settings in `.env` before starting the container:
-
-```dotenv
-HOST_PORT=3000
-ADMIN_PASSWORD=change-this-admin-password
-ADMIN_SECRET=change-this-long-random-secret
-```
-
-Do not put employee keys or Provider API Keys in `.env` for normal use. After deployment, open `/#/admin`, configure Provider Keys in Provider Config, and create employee keys in Employee Keys.
-
-Start NewbieChat:
-
-```bash
-docker compose up -d --build
-```
-
-Open:
-
-```text
-http://localhost:3000
-```
-
-Admin console:
-
-```text
-http://localhost:3000/#/admin
-```
-
-Follow logs:
-
-```bash
-docker compose logs -f newbiechat
-```
-
-Stop:
-
-```bash
-docker compose down
-```
-
-## VPS Deployment
-
-Use `main` for all production and VPS deployments. The VPS should pull the GHCR prebuilt image, not build the Next.js image locally.
+Use `main` for production and VPS deployment:
 
 ```bash
 cd /opt
@@ -92,39 +24,55 @@ nano .env
 sh scripts/deploy-vps.sh
 ```
 
-For a normal VPS deployment, `.env` only needs the startup settings:
+For a normal VPS deployment, `.env` only needs startup settings:
 
 ```dotenv
 HOST_PORT=3100
-ADMIN_PASSWORD=change-this-admin-password
-ADMIN_SECRET=change-this-long-random-secret
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-this-password
+ADMIN_SECRET=change-this-secret
+ADMIN_COOKIE_SECURE=
 ```
 
-Do not put employee keys or Provider API Keys in `.env` for normal use. `EMPLOYEE_ACCESS_KEYS`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `PERPLEXITY_API_KEY`, and `ANTHROPIC_API_KEY` are optional bootstrap or fallback variables only.
+For direct HTTP access such as `http://SERVER_IP:3100`, leave `ADMIN_COOKIE_SECURE` empty. Only set `ADMIN_COOKIE_SECURE=1` when NewbieChat is served through HTTPS.
 
-After deployment, open:
+If admin login succeeds but the page still says admin authentication is required, check whether `ADMIN_COOKIE_SECURE` is incorrectly enabled while using HTTP.
+
+Open NewbieChat:
 
 ```text
-http://YOUR_SERVER:3100/#/admin
+http://SERVER_IP:3100
 ```
 
-Use the admin console as the normal initialization flow:
+Then initialize the workspace in the admin panel:
 
-1. Log in with `ADMIN_PASSWORD`.
-2. Configure OpenAI / Google / Perplexity / Anthropic Provider API Keys in Provider Config.
-3. Create employee keys in Employee Keys.
-4. Give employees only their employee keys for frontend access.
-5. Ordinary employees should not see or enter official Provider API Keys.
+1. Open `http://SERVER_IP:3100/#/auth`.
+2. Log in with `ADMIN_USERNAME` and `ADMIN_PASSWORD`.
+3. Open `http://SERVER_IP:3100/#/admin`.
+4. Add Provider Credentials for OpenAI, Anthropic, Google, and Perplexity.
+5. One Provider Credential applies to chat, search, and image models under that Provider.
+6. Use "Test" only for troubleshooting; it is not required before normal use.
+7. Enable the models that should be available to employees. Per-model verification is not required.
+8. Create employee accounts with username/password.
+9. Assign employee quota, allowed categories, and allowed model IDs.
+10. Employees log in through `/#/auth`.
+11. Employees see Chat, Search, Image, and Video groups in the existing model selector.
+12. Employees can use authorized chat, search, and image models from the existing chat input.
+13. Image generation uses default parameters in this first version; there are no aspect ratio, quality, style, or image count settings.
+14. The Video group is shown as coming soon until video adapters are implemented.
+
+Do not maintain Provider API Keys, employee accounts, quotas, or model permissions in `.env` for normal operations. They belong in `/#/admin`.
 
 ## Production Image
 
-The production image is published by GitHub Actions:
+GitHub Actions publishes:
 
 ```text
 ghcr.io/newbie5522/newbiechat:latest
+ghcr.io/newbie5522/newbiechat:<commit-sha>
 ```
 
-`docker-compose.prod.yml` uses this image directly and does not contain a `build:` section.
+`docker-compose.prod.yml` uses `image:` only and does not contain `build:`.
 
 If the GHCR package is private, log in on the VPS before running the deploy script:
 
@@ -132,7 +80,7 @@ If the GHCR package is private, log in on the VPS before running the deploy scri
 docker login ghcr.io
 ```
 
-For true one-command deployment, set the GHCR package visibility to public.
+For simpler one-command deployment, set the GHCR package visibility to public.
 
 ## Do Not Build On VPS
 
@@ -142,98 +90,64 @@ Do not use this for formal VPS deployment:
 docker compose up -d --build
 ```
 
-A 1GB VPS is not suitable for local Next.js image builds. Formal deployment should use `docker-compose.prod.yml` to pull the GHCR prebuilt image:
+A 1GB VPS is not suitable for local `yarn install`, `yarn build`, or `next build`. Formal deployment should use:
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+or:
 
 ```bash
 sh scripts/deploy-vps.sh
 ```
 
-## Stage 6 VPS Acceptance
+## Release Gate
 
-Use this on a Linux VPS when you need to validate Docker deployment without spending real Provider credits. The acceptance stack starts NewbieChat plus a local mock OpenAI-compatible streaming service.
+Do not use a feature branch directly for internal production. Before opening NewbieChat to employees:
 
-Run from the repository root:
+1. Review the GitHub diff for the feature branch.
+2. Merge to `main` only after approval.
+3. Confirm GitHub Actions builds and publishes the GHCR image successfully.
+4. Pull the new image on the VPS.
+5. Verify real account login, chat, search, image generation, and usage logs.
 
-```bash
-sh scripts/stage6-docker-acceptance.sh
-```
+## Runtime Storage
 
-The acceptance script uses host port `3100` by default to avoid common conflicts with existing chat apps already using `3000`, `80`, or `443`.
-
-To choose another temporary host port:
-
-```bash
-NEWBIECHAT_ACCEPTANCE_HOST_PORT=3310 sh scripts/stage6-docker-acceptance.sh
-```
-
-The script validates:
-
-- Docker Compose can build and start the NewbieChat container.
-- `http://127.0.0.1:3000/api/config` is reachable.
-- `/api/config` does not expose server secrets.
-- `EMPLOYEE_ACCESS_KEYS` works through `/api/employee-auth`.
-- `/api/gateway/openai/v1/chat/completions` accepts `Authorization: Bearer nk-stage6-key`.
-- Gateway streaming returns `pong` and `[DONE]` from the mock Provider.
-
-By default, the script cleans up the acceptance stack after passing. To keep it running for manual inspection:
-
-```bash
-KEEP_STAGE6_ACCEPTANCE_STACK=1 sh scripts/stage6-docker-acceptance.sh
-```
-
-## Runtime Configuration
-
-The Compose files pass these server-only variables into the container:
-
-- `EMPLOYEE_ACCESS_KEYS`
-- `ADMIN_PASSWORD`
-- `ADMIN_SECRET`
-- `OPENAI_API_KEY`
-- `GOOGLE_API_KEY`
-- `PERPLEXITY_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `NEWBIE_ADMIN_CONFIG_PATH`
-- `NEWBIE_USAGE_LOG_PATH`
-
-Only `ADMIN_PASSWORD`, `ADMIN_SECRET`, and `HOST_PORT` are part of the normal first-start setup. `EMPLOYEE_ACCESS_KEYS` and Provider API Key environment variables are optional bootstrap or fallback inputs. For ongoing operations, manage employees and Provider Keys in `/#/admin`.
-
-Default Docker storage paths:
+By default, Docker stores administrator configuration and prompt usage logs in the named volume `newbiechat-data`:
 
 ```dotenv
 NEWBIE_ADMIN_CONFIG_PATH=/app/.data/newbiechat-admin.json
 NEWBIE_USAGE_LOG_PATH=/app/.data/newbiechat-usage.json
 ```
 
-`docker-compose.yml` and `docker-compose.prod.yml` mount the named volume `newbiechat-data` at `/app/.data`, so administrator settings, provider settings, employee records, and usage records survive container restarts.
+The stored admin configuration contains account records, password hashes, Provider Credentials, model catalog overrides, quota settings, and model permissions. Provider Keys are only read server-side and are not returned to employees.
 
-To use a host directory instead of the named volume, replace the volume mount with a writable directory:
+## Vercel Deployment
 
-```yaml
-volumes:
-  - ./data:/app/.data
+Vercel can deploy directly from the GitHub `main` branch.
+
+Set these Environment Variables in Vercel:
+
+```dotenv
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-this-password
+ADMIN_SECRET=change-this-secret
+ADMIN_COOKIE_SECURE=1
+NEWBIE_ADMIN_CONFIG_PATH=
+NEWBIE_USAGE_LOG_PATH=
 ```
 
-On Linux servers, ensure the mounted directory is writable by container user `1001`.
+Do not put real Provider API Keys into source code. Configure Provider Credentials after deployment in `/#/admin`.
+
+Vercel builds in the cloud and does not consume VPS resources.
 
 ## Security Notes
 
-- Do not put provider keys into any `NEXT_PUBLIC_*` variable.
-- Do not commit `.env`; it is ignored by git and Docker build context.
-- Provider keys are managed in the admin console for normal use, read server-side, and injected by Gateway routes.
-- Do not maintain employee keys or Provider API Keys in `.env` long term unless you intentionally need bootstrap or fallback behavior.
-- `/api/config` returns frontend feature flags and model rules only; it does not return provider keys.
-- `ALLOW_USER_PROVIDER_KEYS` is empty by default, so employees cannot use their own provider API keys unless explicitly enabled.
-- `PROXY_URL` is empty by default. Set it only when the container must access providers through a forward proxy.
-
-## Gateway Checks
-
-Employee access keys are accepted by the UI access flow. Direct Gateway API calls must send the employee key with the NewbieChat access-code prefix:
-
-```bash
-curl http://localhost:3000/api/gateway/openai/v1/chat/completions \
-  -H "Authorization: Bearer nk-change-this-employee-key" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.5","messages":[{"role":"user","content":"ping"}],"stream":true}'
-```
-
-The Gateway keeps the upstream response body as a stream, so streaming responses remain available in Docker deployment.
+- Employees log in with username/password through `/#/auth`.
+- Employees do not see official Provider API Keys.
+- Employees only see models that are enabled, implemented, credential-backed, and assigned to their account.
+- Gateway performs login checks, role checks, model permission checks, quota checks, credential selection, and prompt logging.
+- Usage logs record employee prompts only; model output is not stored.
+- The Settings page only contains a lightweight admin entry for admin roles. The actual management UI is isolated in `app/components/admin-panel.tsx`.

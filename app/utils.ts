@@ -281,6 +281,7 @@ export function getMessageImages(message: RequestMessage): string[] {
 }
 
 export function isVisionModel(model: string) {
+  model = model || "";
   const visionModels = useAccessStore.getState().visionModels;
   const envVisionModels = visionModels?.split(",").map((m) => m.trim());
   if (envVisionModels?.includes(model)) {
@@ -293,11 +294,11 @@ export function isVisionModel(model: string) {
 }
 
 export function isDalle3(model: string) {
-  return "dall-e-3" === model;
+  return "dall-e-3" === (model || "");
 }
 
 export function getTimeoutMSByModel(model: string) {
-  model = model.toLowerCase();
+  model = (model || "").toLowerCase();
   if (
     model.startsWith("dall-e") ||
     model.startsWith("dalle") ||
@@ -311,6 +312,7 @@ export function getTimeoutMSByModel(model: string) {
 }
 
 export function getModelSizes(model: string): ModelSize[] {
+  model = model || "";
   if (isDalle3(model)) {
     return ["1024x1024", "1792x1024", "1024x1792"];
   }
@@ -333,6 +335,7 @@ export function supportsCustomSize(model: string): boolean {
 }
 
 export function showPlugins(provider: ServiceProvider, model: string) {
+  model = model || "";
   if (
     provider == ServiceProvider.OpenAI ||
     provider == ServiceProvider.Azure ||
