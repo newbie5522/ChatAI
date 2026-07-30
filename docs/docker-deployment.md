@@ -50,10 +50,16 @@ Then initialize the workspace in the admin panel:
 2. Log in with `ADMIN_USERNAME` and `ADMIN_PASSWORD`.
 3. Open `http://SERVER_IP:3100/#/admin`.
 4. Add Provider Credentials for OpenAI, Anthropic, Google, and Perplexity.
-5. Test each Provider Credential.
-6. Verify and enable the models that should be available to employees.
-7. Create employee accounts with username/password.
-8. Assign employee quota, allowed categories, and allowed model IDs.
+5. One Provider Credential applies to chat, search, and image models under that Provider.
+6. Use "Test" only for troubleshooting; it is not required before normal use.
+7. Enable the models that should be available to employees. Per-model verification is not required.
+8. Create employee accounts with username/password.
+9. Assign employee quota, allowed categories, and allowed model IDs.
+10. Employees log in through `/#/auth`.
+11. Employees see Chat, Search, Image, and Video groups in the existing model selector.
+12. Employees can use authorized chat, search, and image models from the existing chat input.
+13. Image generation uses default parameters in this first version; there are no aspect ratio, quality, style, or image count settings.
+14. The Video group is shown as coming soon until video adapters are implemented.
 
 Do not maintain Provider API Keys, employee accounts, quotas, or model permissions in `.env` for normal operations. They belong in `/#/admin`.
 
@@ -97,6 +103,16 @@ or:
 sh scripts/deploy-vps.sh
 ```
 
+## Release Gate
+
+Do not use a feature branch directly for internal production. Before opening NewbieChat to employees:
+
+1. Review the GitHub diff for the feature branch.
+2. Merge to `main` only after approval.
+3. Confirm GitHub Actions builds and publishes the GHCR image successfully.
+4. Pull the new image on the VPS.
+5. Verify real account login, chat, search, image generation, and usage logs.
+
 ## Runtime Storage
 
 By default, Docker stores administrator configuration and prompt usage logs in the named volume `newbiechat-data`:
@@ -131,7 +147,7 @@ Vercel builds in the cloud and does not consume VPS resources.
 
 - Employees log in with username/password through `/#/auth`.
 - Employees do not see official Provider API Keys.
-- Employees only see models that are enabled, verified, implemented, credential-backed, and assigned to their account.
+- Employees only see models that are enabled, implemented, credential-backed, and assigned to their account.
 - Gateway performs login checks, role checks, model permission checks, quota checks, credential selection, and prompt logging.
 - Usage logs record employee prompts only; model output is not stored.
 - The Settings page only contains a lightweight admin entry for admin roles. The actual management UI is isolated in `app/components/admin-panel.tsx`.

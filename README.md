@@ -67,13 +67,21 @@ yarn build
 2. Open `/#/admin`.
 3. Log in with the bootstrap `ADMIN_USERNAME` and `ADMIN_PASSWORD`.
 4. Configure OpenAI / Google / Perplexity / Anthropic Provider Credentials.
-5. Test Provider Credentials and verify the models that should be available.
-6. Create employee accounts with username/password.
-7. Assign employee quota, allowed categories, and allowed model IDs.
-8. Employees log in through the original-style Auth page and chat with authorized models only.
-9. Ordinary employees do not see or enter official Provider API Keys.
+5. One Provider Credential applies to chat, search, and image models under that Provider.
+6. Use "Test" only for troubleshooting; it is not required before normal use.
+7. Enable the models employees should be able to use. Models do not need per-model verification.
+8. Create employee accounts with username/password.
+9. Assign employee quota, allowed categories, and allowed model IDs.
+10. Employees log in through the original-style Auth page.
+11. Employees see the model selector grouped as Chat, Search, Image, and Video.
+12. Employees can use authorized chat, search, and image models from the existing chat input.
+13. Image generation uses default parameters in this first version; there are no aspect ratio, quality, style, or image count settings.
+14. The Video group is shown as coming soon until video adapters are implemented.
+15. Ordinary employees do not see or enter official Provider API Keys.
 
 `.env` is startup-only configuration. Provider Keys, employee accounts, quotas, and model permissions are managed in `/#/admin`.
+
+Feature branches are not production-ready by themselves. Before internal release, review the GitHub diff, merge to `main` only after approval, confirm the GHCR image builds successfully, pull the new image on the VPS, and verify real account login, chat, search, image generation, and prompt logs.
 
 ## Deployment
 

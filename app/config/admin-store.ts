@@ -623,21 +623,15 @@ export function getCompanyModelForRequest(
 }
 
 export function selectProviderCredentialForModel(model: CompanyModel) {
-  const usable = readAdminStore()
+  return readAdminStore()
     .credentials.filter(
       (credential) =>
         credential.provider === model.provider &&
         credential.enabled &&
-        credential.verified &&
-        !!credential.apiKey,
+        credential.apiKey.trim().length > 0,
     )
-    .sort((a, b) => a.priority - b.priority);
-
-  return (
-    usable.find((credential) => credential.modelIds?.includes(model.id)) ||
-    usable.find((credential) => credential.categoryScope === model.category) ||
-    usable.find((credential) => credential.categoryScope === "all")
-  );
+    .sort((a, b) => a.priority - b.priority)
+    .at(0);
 }
 
 export function hasUsableCredentialForModel(model: CompanyModel) {
@@ -662,7 +656,6 @@ export function getVisibleCompanyModelsForAccount(account?: SafeAccountRecord) {
 
   return listCompanyModels()
     .filter((model) => model.enabled)
-    .filter((model) => model.verified)
     .filter((model) => model.endpointType !== "not_implemented")
     .filter((model) => hasUsableCredentialForModel(model))
     .filter((model) => account.role !== "employee" || !model.adminOnly)
@@ -764,8 +757,7 @@ function firstCredentialValue(
       (credential) =>
         credential.provider === id &&
         credential.enabled &&
-        credential.verified &&
-        (field !== "apiKey" || !!credential.apiKey),
+        (field !== "apiKey" || credential.apiKey.trim().length > 0),
     )
     .sort((a, b) => a.priority - b.priority)
     .map((credential) => String(credential[field] ?? ""))

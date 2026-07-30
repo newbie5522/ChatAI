@@ -94,6 +94,7 @@ export interface LLMUsage {
 export interface LLMModel {
   name: string;
   displayName?: string;
+  category?: "chat" | "search" | "image" | "video";
   available: boolean;
   provider: LLMModelProvider;
   sorted: number;

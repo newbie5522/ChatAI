@@ -72,7 +72,6 @@ function accountCanUseModel(account: SafeAccountRecord, model: CompanyModel) {
 function modelBlockedReason(model?: CompanyModel) {
   if (!model) return "model is not in NewbieChat company catalog";
   if (!model.enabled) return "model is disabled";
-  if (!model.verified) return "model is not verified";
   if (model.endpointType === "not_implemented") {
     return "model adapter is not implemented";
   }
@@ -87,7 +86,7 @@ function adapterFor(
     case "openai_responses":
       return callOpenAIResponses;
     case "openai_images":
-      return async () => callOpenAIImages();
+      return callOpenAIImages;
     case "anthropic_messages":
       return callAnthropicMessages;
     case "google_interactions":
@@ -95,7 +94,7 @@ function adapterFor(
     case "google_generate_content":
       return callGoogleGenerateContent;
     case "google_image":
-      return async () => callGoogleImage();
+      return callGoogleImage;
     case "perplexity_sonar":
       return callPerplexitySonar;
     case "not_implemented":
@@ -157,15 +156,27 @@ async function handle(
   }
 
   const path = params.path?.join("/") ?? "";
-  if (!path) {
-    return gatewayError(provider, 400, "missing provider api path");
-  }
 
   const bodyText = await getRequestBody(req);
   const modelName = extractModelFromGatewayRequest(provider, path, bodyText);
   const inputTokens = estimateTokensFromBody(bodyText);
   const requestPath = path;
   const { account, response } = requireAccount(req);
+
+  if (!modelName) {
+    await recordUsageSafely(account ?? null, undefined, {
+      provider,
+      modelName: "",
+      bodyText,
+      inputTokens,
+      quotaUnits: 0,
+      status: "blocked",
+      httpStatus: 400,
+      errorMessage: "model is required",
+      requestPath,
+    });
+    return gatewayError(provider, 400, "model is required");
+  }
 
   if (response) {
     await recordUsageSafely(null, undefined, {
@@ -235,14 +246,10 @@ async function handle(
       quotaUnits: 0,
       status: "blocked",
       httpStatus: 403,
-      errorMessage: "no verified provider credential is available",
+      errorMessage: "no provider credential is available",
       requestPath,
     });
-    return gatewayError(
-      provider,
-      403,
-      "no verified provider credential is available",
-    );
+    return gatewayError(provider, 403, "no provider credential is available");
   }
 
   const quotaUnits = inputTokens;

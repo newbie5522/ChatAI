@@ -27,10 +27,7 @@ import {
   toSafeAccount,
 } from "@/app/config/admin-store";
 import { canManageRole, requireAdminAccount } from "@/app/config/account-auth";
-import {
-  verifyCompanyModel,
-  verifyProviderCredentialConnection,
-} from "@/app/config/model-verification";
+import { verifyProviderCredentialConnection } from "@/app/config/model-verification";
 import {
   getAccountUsageSummary,
   getMonthKey,
@@ -268,11 +265,10 @@ async function createCredential(req: NextRequest) {
     apiVersion:
       typeof body.apiVersion === "string" ? body.apiVersion : undefined,
     orgId: typeof body.orgId === "string" ? body.orgId : undefined,
-    categoryScope: body.categoryScope as never,
-    modelIds: toList(body.modelIds),
+    categoryScope: "all",
+    modelIds: [],
     enabled:
       typeof body.enabled === "boolean" ? body.enabled : body.enabled !== false,
-    verified: body.verified === true,
     priority: toNumber(body.priority) ?? 100,
   });
   return NextResponse.json({
@@ -295,10 +291,7 @@ async function updateCredential(req: NextRequest, id: string) {
     apiVersion:
       typeof body.apiVersion === "string" ? body.apiVersion : undefined,
     orgId: typeof body.orgId === "string" ? body.orgId : undefined,
-    categoryScope: body.categoryScope as never,
-    modelIds: toList(body.modelIds),
     enabled: typeof body.enabled === "boolean" ? body.enabled : undefined,
-    verified: typeof body.verified === "boolean" ? body.verified : undefined,
     priority: toNumber(body.priority),
   });
   return NextResponse.json({
@@ -345,7 +338,6 @@ async function updateModel(req: NextRequest, id: string) {
     model: typeof body.model === "string" ? body.model : undefined,
     endpointType: body.endpointType as never,
     enabled: typeof body.enabled === "boolean" ? body.enabled : undefined,
-    verified: typeof body.verified === "boolean" ? body.verified : undefined,
     adminOnly: typeof body.adminOnly === "boolean" ? body.adminOnly : undefined,
     legacy: typeof body.legacy === "boolean" ? body.legacy : undefined,
     deprecated:
@@ -353,20 +345,6 @@ async function updateModel(req: NextRequest, id: string) {
     sort: toNumber(body.sort),
   });
   return NextResponse.json({ error: false, model });
-}
-
-async function verifyModel(id: string) {
-  const result = await verifyCompanyModel(id);
-  const model = saveCompanyModel(id, {
-    verified: result.ok,
-    enabled: result.ok,
-  });
-  return NextResponse.json({
-    error: false,
-    ok: result.ok,
-    message: result.message,
-    model,
-  });
 }
 
 async function usageLogs(req: NextRequest) {
@@ -426,9 +404,6 @@ async function dispatch(
   if (resource === "models") {
     if (!id && req.method === "GET") return listModels();
     if (id && req.method === "PUT") return updateModel(req, id);
-    if (id && req.method === "POST" && action === "verify") {
-      return verifyModel(id);
-    }
   }
 
   if (

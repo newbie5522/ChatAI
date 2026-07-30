@@ -12,11 +12,15 @@ import {
 import {
   ChatMessageTool,
   useAccessStore,
+  useAccountStore,
   useAppConfig,
   useChatStore,
   usePluginStore,
 } from "@/app/store";
-import { collectModelsWithDefaultModel } from "@/app/utils/model";
+import {
+  collectModelsWithDefaultModel,
+  getModelCategory,
+} from "@/app/utils/model";
 import {
   preProcessImageContent,
   uploadImage,
@@ -71,11 +75,11 @@ export interface RequestPayload {
 export interface DalleRequestPayload {
   model: string;
   prompt: string;
-  response_format: "url" | "b64_json";
+  response_format?: "url" | "b64_json";
   n: number;
   size: ModelSize;
-  quality: DalleQuality;
-  style: DalleStyle;
+  quality?: DalleQuality;
+  style?: DalleStyle;
 }
 
 export class ChatGPTApi implements LLMApi {
@@ -194,26 +198,27 @@ export class ChatGPTApi implements LLMApi {
 
     let requestPayload: RequestPayload | DalleRequestPayload;
 
-    const isDalle3 = _isDalle3(options.config.model);
     const requestedModel = options.config.model || "";
+    const modelCategory = getModelCategory(
+      [...useAccountStore.getState().models, ...useAppConfig.getState().models],
+      options.config.model,
+      options.config.providerName,
+    );
+    const isImageModel = modelCategory === "image" || _isDalle3(requestedModel);
     const isO1OrO3 =
       requestedModel.startsWith("o1") ||
       requestedModel.startsWith("o3") ||
       requestedModel.startsWith("o4-mini");
     const isGpt5 = requestedModel.startsWith("gpt-5");
-    if (isDalle3) {
+    if (isImageModel) {
       const prompt = getMessageTextContent(
         options.messages.slice(-1)?.pop() as any,
       );
       requestPayload = {
         model: options.config.model,
         prompt,
-        // URLs are only valid for 60 minutes after the image has been generated.
-        response_format: "b64_json", // using b64_json, and save image in CacheStorage
         n: 1,
-        size: options.config?.size ?? "1024x1024",
-        quality: options.config?.quality ?? "standard",
-        style: options.config?.style ?? "vivid",
+        size: "1024x1024",
       };
     } else {
       const visionModel = isVisionModel(options.config.model);
@@ -265,7 +270,7 @@ export class ChatGPTApi implements LLMApi {
 
     console.log("[Request] openai payload: ", requestPayload);
 
-    const shouldStream = !isDalle3 && !!options.config.stream;
+    const shouldStream = !isImageModel && !!options.config.stream;
     const controller = new AbortController();
     options.onController?.(controller);
 
@@ -291,14 +296,14 @@ export class ChatGPTApi implements LLMApi {
             model?.provider?.providerName === ServiceProvider.Azure,
         );
         chatPath = this.path(
-          (isDalle3 ? Azure.ImagePath : Azure.ChatPath)(
+          (isImageModel ? Azure.ImagePath : Azure.ChatPath)(
             (model?.displayName ?? model?.name) as string,
             useCustomConfig ? useAccessStore.getState().azureApiVersion : "",
           ),
         );
       } else {
         chatPath = this.path(
-          isDalle3 ? OpenaiPath.ImagePath : OpenaiPath.ChatPath,
+          isImageModel ? OpenaiPath.ImagePath : OpenaiPath.ChatPath,
         );
       }
       if (shouldStream) {

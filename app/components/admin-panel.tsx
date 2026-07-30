@@ -37,8 +37,6 @@ interface AdminCredential {
   baseUrl?: string;
   apiVersion?: string;
   orgId?: string;
-  categoryScope: ModelCategory | "all";
-  modelIds?: string[];
   enabled: boolean;
   verified: boolean;
   priority: number;
@@ -55,7 +53,6 @@ interface AdminModel {
   model: string;
   endpointType: string;
   enabled: boolean;
-  verified: boolean;
   adminOnly?: boolean;
   legacy?: boolean;
   deprecated?: boolean;
@@ -100,13 +97,6 @@ const PROVIDERS: ModelProvider[] = [
   "anthropic",
   "google",
   "perplexity",
-];
-const CATEGORIES: Array<ModelCategory | "all"> = [
-  "all",
-  "chat",
-  "image",
-  "search",
-  "video",
 ];
 
 async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -171,12 +161,11 @@ export function AdminPanel() {
     provider: "openai" as ModelProvider,
     name: "",
     apiKey: "",
-    categoryScope: "all" as ModelCategory | "all",
-    modelIds: "",
     baseUrl: "",
     apiVersion: "",
     orgId: "",
     priority: "100",
+    enabled: true,
   });
 
   const activeAccounts = useMemo(
@@ -188,7 +177,6 @@ export function AdminPanel() {
       models.filter(
         (model) =>
           model.enabled &&
-          model.verified &&
           model.hasUsableCredential &&
           model.endpointType !== "not_implemented",
       ).length,
@@ -327,19 +315,17 @@ export function AdminPanel() {
         body: JSON.stringify({
           ...credentialForm,
           priority: credentialForm.priority || 100,
-          modelIds: parseCsv(credentialForm.modelIds),
         }),
       });
       setCredentialForm({
         provider: "openai",
         name: "",
         apiKey: "",
-        categoryScope: "all",
-        modelIds: "",
         baseUrl: "",
         apiVersion: "",
         orgId: "",
         priority: "100",
+        enabled: true,
       });
       await loadDashboard();
     } catch (error) {
@@ -358,7 +344,6 @@ export function AdminPanel() {
         body: JSON.stringify({
           ...credential,
           apiKey: credential.apiKey || undefined,
-          modelIds: parseCsv(credential.modelIds),
         }),
       });
       await loadDashboard();
@@ -406,22 +391,6 @@ export function AdminPanel() {
         method: "PUT",
         body: JSON.stringify(model),
       });
-      await loadDashboard();
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const verifyModel = async (model: AdminModel) => {
-    setLoading(true);
-    try {
-      const result = await adminFetch<{ ok: boolean; message: string }>(
-        `models/${encodeURIComponent(model.id)}/verify`,
-        { method: "POST" },
-      );
-      showToast(result.message);
       await loadDashboard();
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error));
@@ -508,7 +477,7 @@ export function AdminPanel() {
         </div>
         <div>
           <strong>{credentials.filter((item) => item.verified).length}</strong>
-          <span>Verified credentials</span>
+          <span>Tested credentials</span>
         </div>
         <div>
           <strong>{usableModels}</strong>
@@ -773,33 +742,6 @@ export function AdminPanel() {
               })
             }
           />
-          <select
-            value={credentialForm.categoryScope}
-            onChange={(event) =>
-              setCredentialForm({
-                ...credentialForm,
-                categoryScope: event.currentTarget.value as
-                  | ModelCategory
-                  | "all",
-              })
-            }
-          >
-            {CATEGORIES.map((category) => (
-              <option value={category} key={category}>
-                {category}
-              </option>
-            ))}
-          </select>
-          <input
-            value={credentialForm.modelIds}
-            placeholder="Scoped model IDs"
-            onChange={(event) =>
-              setCredentialForm({
-                ...credentialForm,
-                modelIds: event.currentTarget.value,
-              })
-            }
-          />
           <input
             value={credentialForm.priority}
             type="number"
@@ -821,6 +763,39 @@ export function AdminPanel() {
               })
             }
           />
+          <input
+            value={credentialForm.apiVersion}
+            placeholder="API Version"
+            onChange={(event) =>
+              setCredentialForm({
+                ...credentialForm,
+                apiVersion: event.currentTarget.value,
+              })
+            }
+          />
+          <input
+            value={credentialForm.orgId}
+            placeholder="Organization ID"
+            onChange={(event) =>
+              setCredentialForm({
+                ...credentialForm,
+                orgId: event.currentTarget.value,
+              })
+            }
+          />
+          <label>
+            <input
+              type="checkbox"
+              checked={credentialForm.enabled}
+              onChange={(event) =>
+                setCredentialForm({
+                  ...credentialForm,
+                  enabled: event.currentTarget.checked,
+                })
+              }
+            />
+            Enabled
+          </label>
           <IconButton
             text="Add credential"
             type="primary"
@@ -836,11 +811,12 @@ export function AdminPanel() {
                 <th>Name</th>
                 <th>Provider</th>
                 <th>Key</th>
-                <th>Scope</th>
-                <th>Model IDs</th>
+                <th>Base URL</th>
+                <th>API Version</th>
+                <th>Org ID</th>
                 <th>Priority</th>
                 <th>Enabled</th>
-                <th>Verified</th>
+                <th>Last test</th>
                 <th>New key</th>
                 <th>Actions</th>
               </tr>
@@ -865,29 +841,31 @@ export function AdminPanel() {
                       : "not set"}
                   </td>
                   <td>
-                    <select
-                      value={credential.categoryScope}
+                    <input
+                      value={credential.baseUrl ?? ""}
                       onChange={(event) =>
                         updateCredential(index, {
-                          categoryScope: event.currentTarget.value as
-                            | ModelCategory
-                            | "all",
+                          baseUrl: event.currentTarget.value,
                         })
                       }
-                    >
-                      {CATEGORIES.map((category) => (
-                        <option value={category} key={category}>
-                          {category}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </td>
                   <td>
                     <input
-                      value={csv(credential.modelIds)}
+                      value={credential.apiVersion ?? ""}
                       onChange={(event) =>
                         updateCredential(index, {
-                          modelIds: parseCsv(event.currentTarget.value),
+                          apiVersion: event.currentTarget.value,
+                        })
+                      }
+                    />
+                  </td>
+                  <td>
+                    <input
+                      value={credential.orgId ?? ""}
+                      onChange={(event) =>
+                        updateCredential(index, {
+                          orgId: event.currentTarget.value,
                         })
                       }
                     />
@@ -966,8 +944,8 @@ export function AdminPanel() {
                 <th>Category</th>
                 <th>API model</th>
                 <th>Endpoint</th>
+                <th>Sort</th>
                 <th>Enabled</th>
-                <th>Verified</th>
                 <th>Credential</th>
                 <th>Admin only</th>
                 <th>Actions</th>
@@ -1000,6 +978,17 @@ export function AdminPanel() {
                   <td>{model.endpointType}</td>
                   <td>
                     <input
+                      value={model.sort}
+                      type="number"
+                      onChange={(event) =>
+                        updateModel(index, {
+                          sort: event.currentTarget.valueAsNumber,
+                        })
+                      }
+                    />
+                  </td>
+                  <td>
+                    <input
                       type="checkbox"
                       checked={model.enabled}
                       onChange={(event) =>
@@ -1009,7 +998,6 @@ export function AdminPanel() {
                       }
                     />
                   </td>
-                  <td>{model.verified ? "yes" : "no"}</td>
                   <td>{model.hasUsableCredential ? "yes" : "no"}</td>
                   <td>
                     <input
@@ -1025,12 +1013,6 @@ export function AdminPanel() {
                   <td className={styles["row-actions"]}>
                     <button disabled={loading} onClick={() => saveModel(model)}>
                       Save
-                    </button>
-                    <button
-                      disabled={loading}
-                      onClick={() => verifyModel(model)}
-                    >
-                      Verify
                     </button>
                   </td>
                 </tr>

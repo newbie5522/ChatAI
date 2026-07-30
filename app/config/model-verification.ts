@@ -4,12 +4,8 @@ import {
   OPENAI_BASE_URL,
   PERPLEXITY_BASE_URL,
 } from "../constant";
-import type { CompanyModel, ModelProvider } from "./model-registry";
+import type { ModelProvider } from "./model-registry";
 import type { ProviderCredential } from "./admin-store";
-import {
-  getCompanyModelById,
-  selectProviderCredentialForModel,
-} from "./admin-store";
 
 const DEFAULT_BASE_URL: Record<ModelProvider, string> = {
   openai: OPENAI_BASE_URL,
@@ -115,86 +111,4 @@ export async function verifyProviderCredentialConnection(
       message: error instanceof Error ? error.message : String(error),
     };
   }
-}
-
-async function verifyWithCredential(
-  model: CompanyModel,
-  credential: ProviderCredential,
-) {
-  const baseUrl = normalizeBaseUrl(
-    credential.baseUrl,
-    credential.provider || model.provider,
-  );
-
-  if (model.endpointType === "not_implemented") {
-    return { ok: false, message: "model adapter is not implemented" };
-  }
-
-  let url = "";
-  let body: Record<string, unknown> = {};
-
-  if (model.endpointType === "openai_responses") {
-    url = `${baseUrl}/v1/responses`;
-    body = {
-      model: model.model,
-      input: "ping",
-      max_output_tokens: 1,
-      stream: false,
-    };
-  } else if (model.endpointType === "anthropic_messages") {
-    url = `${baseUrl}/v1/messages`;
-    body = {
-      model: model.model,
-      max_tokens: 1,
-      messages: [{ role: "user", content: "ping" }],
-    };
-  } else if (
-    model.endpointType === "google_generate_content" ||
-    model.endpointType === "google_interactions"
-  ) {
-    url = `${baseUrl}/v1beta/models/${model.model}:generateContent`;
-    body = {
-      contents: [{ role: "user", parts: [{ text: "ping" }] }],
-      generationConfig: { maxOutputTokens: 1 },
-    };
-  } else if (model.endpointType === "perplexity_sonar") {
-    url = `${baseUrl}/chat/completions`;
-    body = {
-      model: model.model,
-      max_tokens: 1,
-      messages: [{ role: "user", content: "ping" }],
-    };
-  } else {
-    return { ok: false, message: "model adapter is not implemented" };
-  }
-
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: credentialHeaders(credential),
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) return { ok: false, message: await readErrorMessage(res) };
-    return { ok: true, message: "model verified" };
-  } catch (error) {
-    return {
-      ok: false,
-      message: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-export async function verifyCompanyModel(modelId: string) {
-  const model = getCompanyModelById(modelId);
-  if (!model) return { ok: false, message: "model not found" };
-
-  const credential = selectProviderCredentialForModel(model);
-  if (!credential) {
-    return {
-      ok: false,
-      message: "no enabled and verified credential matches this model",
-    };
-  }
-
-  return verifyWithCredential(model, credential);
 }

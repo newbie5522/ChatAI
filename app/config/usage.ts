@@ -205,6 +205,12 @@ export function extractPromptFromBody(bodyText?: string) {
 
   try {
     const parsed = JSON.parse(bodyText) as Record<string, unknown>;
+    const prompt = textFromContent(parsed.prompt);
+    if (prompt) return prompt;
+
+    const input = textFromContent(parsed.input);
+    if (input) return input;
+
     if (Array.isArray(parsed.messages)) {
       const userMessages = parsed.messages
         .filter(
@@ -234,8 +240,7 @@ export function extractPromptFromBody(bodyText?: string) {
         .filter(Boolean);
       return userContents.at(-1) ?? "";
     }
-
-    return textFromContent(parsed.prompt);
+    return "";
   } catch {
     return bodyText.slice(0, 12000);
   }
@@ -246,23 +251,23 @@ export function extractModelFromGatewayRequest(
   requestPath: string,
   bodyText?: string,
 ) {
+  if (bodyText) {
+    try {
+      const parsed = JSON.parse(bodyText) as { model?: unknown };
+      if (typeof parsed.model === "string" && parsed.model.trim()) {
+        return parsed.model.trim();
+      }
+    } catch {
+      // Keep usage logging resilient for malformed requests.
+    }
+  }
+
   if (provider === "google") {
     const match = requestPath.match(/models\/([^/:]+)(?::|\/|$)/);
     if (match?.[1]) return decodeURIComponent(match[1]);
   }
 
-  if (!bodyText) return "unknown";
-
-  try {
-    const parsed = JSON.parse(bodyText) as { model?: unknown };
-    if (typeof parsed.model === "string" && parsed.model.trim()) {
-      return parsed.model.trim();
-    }
-  } catch {
-    // Keep usage logging resilient for malformed requests.
-  }
-
-  return "unknown";
+  return "";
 }
 
 function quotaSeed(account?: SafeAccountRecord) {
