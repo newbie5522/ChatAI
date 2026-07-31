@@ -579,11 +579,11 @@ export function ChatActions(props: {
         session.mask.modelConfig.providerName = nextModel?.provider
           ?.providerName as ServiceProvider;
       });
-      showToast(
-        nextModel?.provider?.providerName == "ByteDance"
-          ? nextModel.displayName
-          : nextModel.name,
-      );
+      const nextModelLabel =
+        nextModel.provider.providerName === "ByteDance"
+          ? nextModel.displayName ?? nextModel.name
+          : nextModel.name;
+      showToast(nextModelLabel);
     }
   }, [chatStore, currentModel, models, session]);
 
