@@ -12,6 +12,10 @@ const DEFAULT_BASE_URL: Record<ModelProvider, string> = {
   anthropic: ANTHROPIC_BASE_URL,
   google: GEMINI_BASE_URL,
   perplexity: PERPLEXITY_BASE_URL,
+  xai: "",
+  deepseek: "",
+  qwen: "",
+  mistral: "",
 };
 
 function normalizeBaseUrl(url?: string, provider?: ModelProvider) {

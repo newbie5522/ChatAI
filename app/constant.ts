@@ -134,6 +134,8 @@ export enum ServiceProvider {
   XAI = "XAI",
   ChatGLM = "ChatGLM",
   DeepSeek = "DeepSeek",
+  Qwen = "Qwen",
+  Mistral = "Mistral",
   SiliconFlow = "SiliconFlow",
   "302.AI" = "302.AI",
 }
@@ -162,6 +164,7 @@ export enum ModelProvider {
   XAI = "XAI",
   ChatGLM = "ChatGLM",
   DeepSeek = "DeepSeek",
+  Mistral = "Mistral",
   SiliconFlow = "SiliconFlow",
   "302.AI" = "302.AI",
 }
@@ -937,6 +940,10 @@ export enum CompanyProvider {
   Google = "Google",
   Perplexity = "Perplexity",
   Anthropic = "Anthropic",
+  XAI = "xAI",
+  DeepSeek = "DeepSeek",
+  Qwen = "Qwen",
+  Mistral = "Mistral",
 }
 
 export const COMPANY_ENABLED_PROVIDERS = [
@@ -944,6 +951,10 @@ export const COMPANY_ENABLED_PROVIDERS = [
   ServiceProvider.Google,
   ServiceProvider.Perplexity,
   ServiceProvider.Anthropic,
+  ServiceProvider.XAI,
+  ServiceProvider.DeepSeek,
+  ServiceProvider.Qwen,
+  ServiceProvider.Mistral,
 ] as const;
 
 export const COMPANY_GATEWAY_BASE = "/api/gateway";
@@ -953,6 +964,10 @@ export const COMPANY_API_PATH = {
   Google: "/api/gateway/google",
   Perplexity: "/api/gateway/perplexity",
   Anthropic: "/api/gateway/anthropic",
+  XAI: "/api/gateway/xai",
+  DeepSeek: "/api/gateway/deepseek",
+  Qwen: "/api/gateway/qwen",
+  Mistral: "/api/gateway/mistral",
 };
 
 export const PERPLEXITY_BASE_URL = "https://api.perplexity.ai";

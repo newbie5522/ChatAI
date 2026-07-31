@@ -112,9 +112,13 @@ export interface AccountSessionUser {
 
 const PROVIDER_NAMES: Record<AdminProviderId, string> = {
   openai: "OpenAI",
-  google: "Google Gemini",
+  anthropic: "Anthropic",
+  google: "Google",
   perplexity: "Perplexity",
-  anthropic: "Anthropic Claude",
+  xai: "xAI",
+  deepseek: "DeepSeek",
+  qwen: "Qwen",
+  mistral: "Mistral",
 };
 
 const PROVIDER_ENV: Record<
@@ -144,13 +148,21 @@ const PROVIDER_ENV: Record<
     baseUrl: "ANTHROPIC_URL",
     apiVersion: "ANTHROPIC_API_VERSION",
   },
+  xai: {},
+  deepseek: {},
+  qwen: {},
+  mistral: {},
 };
 
 export const ADMIN_PROVIDER_IDS: AdminProviderId[] = [
   "openai",
+  "anthropic",
   "google",
   "perplexity",
-  "anthropic",
+  "xai",
+  "deepseek",
+  "qwen",
+  "mistral",
 ];
 
 const MODEL_CATEGORY_IDS: ModelCategory[] = [

@@ -9,6 +9,7 @@ import {
   ChatMessage,
   ModelType,
   useAccessStore,
+  useAccountStore,
   useChatStore,
 } from "../store";
 import { ChatGPTApi, DalleRequestPayload } from "./platforms/openai";
@@ -26,6 +27,7 @@ import { XAIApi } from "./platforms/xai";
 import { ChatGLMApi } from "./platforms/glm";
 import { SiliconflowApi } from "./platforms/siliconflow";
 import { Ai302Api } from "./platforms/ai302";
+import { CompanyOpenAICompatibleApi } from "./platforms/company-openai-compatible";
 
 export const ROLES = ["system", "user", "assistant"] as const;
 export type MessageRole = (typeof ROLES)[number];
@@ -138,7 +140,15 @@ interface ChatProvider {
 export class ClientApi {
   public llm: LLMApi;
 
-  constructor(provider: ModelProvider = ModelProvider.GPT) {
+  constructor(
+    provider: ModelProvider = ModelProvider.GPT,
+    companyApi?: LLMApi,
+  ) {
+    if (companyApi) {
+      this.llm = companyApi;
+      return;
+    }
+
     switch (provider) {
       case ModelProvider.GeminiPro:
         this.llm = new GeminiProApi();
@@ -172,6 +182,9 @@ export class ClientApi {
         break;
       case ModelProvider.XAI:
         this.llm = new XAIApi();
+        break;
+      case ModelProvider.Mistral:
+        this.llm = new CompanyOpenAICompatibleApi("mistral");
         break;
       case ModelProvider.ChatGLM:
         this.llm = new ChatGLMApi();
@@ -376,7 +389,7 @@ export function getHeaders(ignoreHeaders: boolean = false) {
   return headers;
 }
 
-export function getClientApi(provider: ServiceProvider): ClientApi {
+export function getClientApi(provider: ServiceProvider | string): ClientApi {
   switch (provider) {
     case ServiceProvider.Google:
       return new ClientApi(ModelProvider.GeminiPro);
@@ -390,6 +403,11 @@ export function getClientApi(provider: ServiceProvider): ClientApi {
       return new ClientApi(ModelProvider.Doubao);
     case ServiceProvider.Alibaba:
       return new ClientApi(ModelProvider.Qwen);
+    case ServiceProvider.Qwen:
+      return new ClientApi(
+        ModelProvider.Qwen,
+        new CompanyOpenAICompatibleApi("qwen"),
+      );
     case ServiceProvider.Tencent:
       return new ClientApi(ModelProvider.Hunyuan);
     case ServiceProvider.Moonshot:
@@ -397,9 +415,26 @@ export function getClientApi(provider: ServiceProvider): ClientApi {
     case ServiceProvider.Iflytek:
       return new ClientApi(ModelProvider.Iflytek);
     case ServiceProvider.DeepSeek:
-      return new ClientApi(ModelProvider.DeepSeek);
+      return useAccountStore.getState().authenticated
+        ? new ClientApi(
+            ModelProvider.DeepSeek,
+            new CompanyOpenAICompatibleApi("deepseek"),
+          )
+        : new ClientApi(ModelProvider.DeepSeek);
+    case "xAI":
+      return new ClientApi(
+        ModelProvider.XAI,
+        new CompanyOpenAICompatibleApi("xai"),
+      );
     case ServiceProvider.XAI:
-      return new ClientApi(ModelProvider.XAI);
+      return useAccountStore.getState().authenticated
+        ? new ClientApi(
+            ModelProvider.XAI,
+            new CompanyOpenAICompatibleApi("xai"),
+          )
+        : new ClientApi(ModelProvider.XAI);
+    case ServiceProvider.Mistral:
+      return new ClientApi(ModelProvider.Mistral);
     case ServiceProvider.ChatGLM:
       return new ClientApi(ModelProvider.ChatGLM);
     case ServiceProvider.SiliconFlow:

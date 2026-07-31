@@ -11,6 +11,7 @@ import {
   verifyAdminPassword,
 } from "@/app/config/admin-auth";
 import {
+  ADMIN_PROVIDER_IDS,
   AccountRole,
   AccountStatus,
   SafeAccountRecord,
@@ -350,12 +351,12 @@ function removeAccount(id: string, actor: SafeAccountRecord) {
 function listCredentials() {
   return NextResponse.json({
     error: false,
-    credentials: (["openai", "anthropic", "google", "perplexity"] as const)
-      .map(getPrimaryProviderCredentialPublic)
-      .filter(
-        (credential): credential is NonNullable<typeof credential> =>
-          !!credential,
-      ),
+    credentials: ADMIN_PROVIDER_IDS.map(
+      getPrimaryProviderCredentialPublic,
+    ).filter(
+      (credential): credential is NonNullable<typeof credential> =>
+        !!credential,
+    ),
   });
 }
 
@@ -363,9 +364,7 @@ async function createCredential(req: NextRequest) {
   const body = await readBody(req);
   const provider =
     typeof body.provider === "string" &&
-    (
-      ["openai", "anthropic", "google", "perplexity"] as readonly string[]
-    ).includes(body.provider)
+    (ADMIN_PROVIDER_IDS as readonly string[]).includes(body.provider)
       ? (body.provider as ModelProvider)
       : undefined;
   if (!provider) {

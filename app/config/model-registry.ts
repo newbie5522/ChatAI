@@ -1,4 +1,12 @@
-export type ModelProvider = "openai" | "anthropic" | "google" | "perplexity";
+export type ModelProvider =
+  | "openai"
+  | "anthropic"
+  | "google"
+  | "perplexity"
+  | "xai"
+  | "deepseek"
+  | "qwen"
+  | "mistral";
 
 export type ModelCategory = "chat" | "image" | "search" | "video";
 
@@ -10,6 +18,8 @@ export type ModelEndpointType =
   | "google_generate_content"
   | "google_image"
   | "perplexity_sonar"
+  | "openai_compatible_chat"
+  | "xai_images"
   | "not_implemented";
 
 export interface CompanyModel {
@@ -40,6 +50,10 @@ export const MODEL_PROVIDER_LABELS: Record<ModelProvider, string> = {
   anthropic: "Anthropic",
   google: "Google",
   perplexity: "Perplexity",
+  xai: "xAI",
+  deepseek: "DeepSeek",
+  qwen: "Qwen",
+  mistral: "Mistral",
 };
 
 export const MODEL_PROVIDER_SORT: Record<ModelProvider, number> = {
@@ -47,6 +61,10 @@ export const MODEL_PROVIDER_SORT: Record<ModelProvider, number> = {
   anthropic: 2,
   google: 3,
   perplexity: 4,
+  xai: 5,
+  deepseek: 6,
+  qwen: 7,
+  mistral: 8,
 };
 
 export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
@@ -123,19 +141,6 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     defaultEnabled: true,
     sort: 610,
     capabilities: { imageGeneration: true },
-  },
-  {
-    id: "anthropic:claude-fable-5",
-    provider: "anthropic",
-    category: "chat",
-    displayName: "Claude Fable 5",
-    model: "claude-fable-5",
-    endpointType: "anthropic_messages",
-    enabled: false,
-    defaultEnabled: false,
-    adminOnly: true,
-    sort: 300,
-    capabilities: { reasoning: true, tools: true, vision: true },
   },
   {
     id: "anthropic:claude-opus-5",
@@ -347,6 +352,119 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     defaultEnabled: true,
     sort: 630,
     capabilities: { reasoning: true, webSearch: true },
+  },
+  {
+    id: "xai:grok-4.5",
+    provider: "xai",
+    category: "chat",
+    displayName: "Grok 4.5",
+    model: "grok-4.5",
+    endpointType: "openai_compatible_chat",
+    enabled: true,
+    defaultEnabled: true,
+    sort: 700,
+    capabilities: { vision: true, reasoning: true, tools: true },
+  },
+  {
+    id: "xai:grok-imagine-image",
+    provider: "xai",
+    category: "image",
+    displayName: "Grok Imagine Image",
+    model: "grok-imagine-image",
+    endpointType: "xai_images",
+    enabled: true,
+    defaultEnabled: true,
+    sort: 710,
+    capabilities: { imageGeneration: true },
+  },
+  {
+    id: "deepseek:deepseek-v4-pro",
+    provider: "deepseek",
+    category: "chat",
+    displayName: "DeepSeek V4 Pro",
+    model: "deepseek-v4-pro",
+    endpointType: "openai_compatible_chat",
+    enabled: true,
+    defaultEnabled: true,
+    sort: 800,
+  },
+  {
+    id: "deepseek:deepseek-v4-flash",
+    provider: "deepseek",
+    category: "chat",
+    displayName: "DeepSeek V4 Flash",
+    model: "deepseek-v4-flash",
+    endpointType: "openai_compatible_chat",
+    enabled: true,
+    defaultEnabled: true,
+    sort: 810,
+  },
+  {
+    id: "qwen:qwen3.7-max",
+    provider: "qwen",
+    category: "chat",
+    displayName: "Qwen 3.7 Max",
+    model: "qwen3.7-max",
+    endpointType: "openai_compatible_chat",
+    enabled: true,
+    defaultEnabled: true,
+    sort: 900,
+  },
+  {
+    id: "qwen:qwen3.7-plus",
+    provider: "qwen",
+    category: "chat",
+    displayName: "Qwen 3.7 Plus",
+    model: "qwen3.7-plus",
+    endpointType: "openai_compatible_chat",
+    enabled: true,
+    defaultEnabled: true,
+    sort: 910,
+    capabilities: { vision: true, reasoning: true, tools: true },
+  },
+  {
+    id: "qwen:qwen3.7-flash",
+    provider: "qwen",
+    category: "chat",
+    displayName: "Qwen 3.7 Flash",
+    model: "qwen3.7-flash",
+    endpointType: "openai_compatible_chat",
+    enabled: true,
+    defaultEnabled: true,
+    sort: 920,
+  },
+  {
+    id: "mistral:mistral-medium-3-5",
+    provider: "mistral",
+    category: "chat",
+    displayName: "Mistral Medium 3.5",
+    model: "mistral-medium-3-5",
+    endpointType: "openai_compatible_chat",
+    enabled: true,
+    defaultEnabled: true,
+    sort: 1000,
+  },
+  {
+    id: "mistral:mistral-small-2603",
+    provider: "mistral",
+    category: "chat",
+    displayName: "Mistral Small 4",
+    model: "mistral-small-2603",
+    endpointType: "openai_compatible_chat",
+    enabled: true,
+    defaultEnabled: true,
+    sort: 1010,
+  },
+  {
+    id: "mistral:mistral-large-2512",
+    provider: "mistral",
+    category: "chat",
+    displayName: "Mistral Large 3",
+    model: "mistral-large-2512",
+    endpointType: "openai_compatible_chat",
+    enabled: true,
+    defaultEnabled: true,
+    sort: 1020,
   },
 ];
 

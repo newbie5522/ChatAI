@@ -91,6 +91,10 @@ const PROVIDERS: ModelProvider[] = [
   "anthropic",
   "google",
   "perplexity",
+  "xai",
+  "deepseek",
+  "qwen",
+  "mistral",
 ];
 
 const PROVIDER_NAMES: Record<ModelProvider, string> = {
@@ -98,6 +102,10 @@ const PROVIDER_NAMES: Record<ModelProvider, string> = {
   anthropic: "Anthropic",
   google: "Google",
   perplexity: "Perplexity",
+  xai: "xAI",
+  deepseek: "DeepSeek",
+  qwen: "Qwen",
+  mistral: "Mistral",
 };
 
 const CATEGORIES: ModelCategory[] = ["chat", "search", "image", "video"];

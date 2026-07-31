@@ -24,17 +24,23 @@ import { callGoogleGenerateContent } from "../../adapters/google-generate-conten
 import { callGoogleImage } from "../../adapters/google-image";
 import { callGoogleInteractions } from "../../adapters/google-interactions";
 import { callOpenAIImages } from "../../adapters/openai-images";
+import { callOpenAICompatibleChat } from "../../adapters/openai-compatible-chat";
 import { callOpenAIResponses } from "../../adapters/openai-responses";
 import { callPerplexitySonar } from "../../adapters/perplexity-sonar";
 import type { GatewayAdapterContext } from "../../adapters/types";
+import { callXAIImages } from "../../adapters/xai-images";
 
-type GatewayProvider = "openai" | "google" | "perplexity" | "anthropic";
+type GatewayProvider = ModelProvider;
 
 const SUPPORTED_PROVIDERS: GatewayProvider[] = [
   "openai",
   "google",
   "perplexity",
   "anthropic",
+  "xai",
+  "deepseek",
+  "qwen",
+  "mistral",
 ];
 
 function gatewayError(
@@ -97,6 +103,10 @@ function adapterFor(
       return callGoogleImage;
     case "perplexity_sonar":
       return callPerplexitySonar;
+    case "openai_compatible_chat":
+      return callOpenAICompatibleChat;
+    case "xai_images":
+      return callXAIImages;
     case "not_implemented":
     default:
       return undefined;
