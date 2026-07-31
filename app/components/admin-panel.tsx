@@ -165,6 +165,7 @@ function toggleValue<T>(values: T[], value: T) {
 export function AdminPanel() {
   const navigate = useNavigate();
   const accountStore = useAccountStore();
+  const isSuperAdmin = accountStore.user?.role === "super_admin";
   const [activeTab, setActiveTab] = useState<AdminTab>("members");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -203,6 +204,10 @@ export function AdminPanel() {
   );
 
   const loadUsageLogs = async (month = logMonth, accountId = logAccountId) => {
+    if (!isSuperAdmin) {
+      setUsageRecords([]);
+      return;
+    }
     const params = new URLSearchParams({ month });
     if (accountId) params.set("accountId", accountId);
     const usage = await adminFetch<{ records: UsageRecord[] }>(
@@ -215,15 +220,24 @@ export function AdminPanel() {
     setLoading(true);
     setMessage("");
     try {
-      const [accountResult, credentialResult, modelResult] = await Promise.all([
-        adminFetch<{ accounts: AdminAccount[] }>("accounts"),
-        adminFetch<{ credentials: AdminCredential[] }>("credentials"),
-        adminFetch<{ models: AdminModel[] }>("models"),
-      ]);
+      const accountResult = await adminFetch<{ accounts: AdminAccount[] }>(
+        "accounts",
+      );
       setAccounts(accountResult.accounts);
-      setCredentials(credentialResult.credentials);
-      setModels(modelResult.models);
-      await loadUsageLogs();
+      if (isSuperAdmin) {
+        const [credentialResult, modelResult] = await Promise.all([
+          adminFetch<{ credentials: AdminCredential[] }>("credentials"),
+          adminFetch<{ models: AdminModel[] }>("models"),
+        ]);
+        setCredentials(credentialResult.credentials);
+        setModels(modelResult.models);
+        await loadUsageLogs();
+      } else {
+        setActiveTab("members");
+        setCredentials([]);
+        setModels([]);
+        setUsageRecords([]);
+      }
       await accountStore.fetchSession();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "加载管理后台失败");
@@ -247,6 +261,12 @@ export function AdminPanel() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountStore.authenticated, accountStore.loaded]);
+
+  useEffect(() => {
+    if (!isSuperAdmin && activeTab !== "members") {
+      setActiveTab("members");
+    }
+  }, [activeTab, isSuperAdmin]);
 
   const canManageAccount = (account: AdminAccount) => {
     if (account.id === accountStore.user?.userId) return false;
@@ -457,7 +477,7 @@ export function AdminPanel() {
       </header>
 
       <nav className={styles.tabs} aria-label="管理后台栏目">
-        {TABS.map((tab) => (
+        {(isSuperAdmin ? TABS : TABS.slice(0, 1)).map((tab) => (
           <button
             type="button"
             key={tab.id}
@@ -564,7 +584,7 @@ export function AdminPanel() {
         </section>
       )}
 
-      {activeTab === "providers" && (
+      {isSuperAdmin && activeTab === "providers" && (
         <section className={styles.panel}>
           <h2>服务商</h2>
           <div className={styles["provider-grid"]}>
@@ -597,7 +617,7 @@ export function AdminPanel() {
         </section>
       )}
 
-      {activeTab === "models" && (
+      {isSuperAdmin && activeTab === "models" && (
         <section className={styles.panel}>
           <h2>模型</h2>
           {modelsByCategory.map((group) => (
@@ -653,7 +673,7 @@ export function AdminPanel() {
         </section>
       )}
 
-      {activeTab === "logs" && (
+      {isSuperAdmin && activeTab === "logs" && (
         <section className={styles.panel}>
           <div className={styles["panel-title"]}>
             <h2>使用日志</h2>

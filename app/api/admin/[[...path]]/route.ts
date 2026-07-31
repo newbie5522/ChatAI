@@ -22,7 +22,6 @@ import {
   getAllCompanyModelsForAdmin,
   getPrimaryProviderCredential,
   getPrimaryProviderCredentialPublic,
-  isProviderEnabled,
   listProviderCredentials,
   listProviderCredentialsPublic,
   saveAccountRecord,
@@ -80,6 +79,10 @@ function toNumber(value: unknown) {
 
 function forbidden(message: string) {
   return NextResponse.json({ error: true, message }, { status: 403 });
+}
+
+function requireSuperAdmin(actor: SafeAccountRecord) {
+  return actor.role === "super_admin" ? null : forbidden("需要超级管理员权限");
 }
 
 function notFound(message: string) {
@@ -243,6 +246,27 @@ async function updateAccount(
       { status: 400 },
     );
   }
+  const activeSuperAdminCount = getAccountRecords().filter(
+    (account) => account.role === "super_admin" && account.status === "active",
+  ).length;
+  if (
+    existing.role === "super_admin" &&
+    existing.status === "active" &&
+    activeSuperAdminCount <= 1
+  ) {
+    if (payload.role !== "super_admin") {
+      return NextResponse.json(
+        { error: true, message: "不能修改最后一个超级管理员的角色" },
+        { status: 400 },
+      );
+    }
+    if (payload.status !== "active") {
+      return NextResponse.json(
+        { error: true, message: "不能禁用最后一个超级管理员" },
+        { status: 400 },
+      );
+    }
+  }
   if (actor.id === existing.id) {
     if (payload.status !== "active") {
       return forbidden("当前账号不能禁用自己");
@@ -254,21 +278,6 @@ async function updateAccount(
   if (!canManageRole(actor, payload.role)) {
     return forbidden("没有权限修改为该角色");
   }
-  if (
-    existing.role === "super_admin" &&
-    existing.status === "active" &&
-    payload.role !== "super_admin" &&
-    getAccountRecords().filter(
-      (account) =>
-        account.role === "super_admin" && account.status === "active",
-    ).length <= 1
-  ) {
-    return NextResponse.json(
-      { error: true, message: "不能修改最后一个超级管理员的角色" },
-      { status: 400 },
-    );
-  }
-
   const account = saveAccountRecord(payload);
   return NextResponse.json({ error: false, account: toSafeAccount(account) });
 }
@@ -346,11 +355,7 @@ function listCredentials() {
       .filter(
         (credential): credential is NonNullable<typeof credential> =>
           !!credential,
-      )
-      .map((credential) => ({
-        ...credential,
-        enabled: isProviderEnabled(credential.provider),
-      })),
+      ),
   });
 }
 
@@ -374,19 +379,25 @@ async function createCredential(req: NextRequest) {
     typeof body.apiKey === "string" && body.apiKey.trim()
       ? body.apiKey
       : undefined;
+  const enabled =
+    typeof body.enabled === "boolean"
+      ? body.enabled
+      : existing?.enabled ?? true;
   const credential = saveProviderCredential({
     id: existing?.id,
     provider,
-    name: existing?.name ?? `${String(body.provider)} 主配置`,
     apiKey,
-    categoryScope: "all",
-    modelIds: [],
-    enabled: existing?.enabled ?? true,
-    priority: existing?.priority ?? 100,
+    enabled,
+    ...(existing
+      ? {}
+      : {
+          name: `${String(body.provider)} 主配置`,
+          categoryScope: "all" as const,
+          modelIds: [],
+          priority: 100,
+        }),
   });
-  saveAdminProviderConfig(credential.provider, {
-    enabled: typeof body.enabled === "boolean" ? body.enabled : true,
-  });
+  saveAdminProviderConfig(provider, { enabled });
   return NextResponse.json({
     error: false,
     credential: listProviderCredentialsPublic().find(
@@ -401,18 +412,23 @@ async function updateCredential(req: NextRequest, id: string) {
     (credential) => credential.id === id,
   );
   if (!existing) return notFound("服务商配置不存在");
+  const primary = getPrimaryProviderCredential(existing.provider);
+  if (primary?.id !== existing.id) {
+    return forbidden("只能修改服务商主配置");
+  }
   const apiKey =
     typeof body.apiKey === "string" && body.apiKey.trim()
       ? body.apiKey
       : undefined;
+  const enabled =
+    typeof body.enabled === "boolean" ? body.enabled : existing.enabled;
   const credential = saveProviderCredential({
     id,
     provider: existing.provider,
     apiKey,
+    enabled,
   });
-  if (typeof body.enabled === "boolean") {
-    saveAdminProviderConfig(existing.provider, { enabled: body.enabled });
-  }
+  saveAdminProviderConfig(existing.provider, { enabled });
   return NextResponse.json({
     error: false,
     credential: listProviderCredentialsPublic().find(
@@ -509,6 +525,8 @@ async function dispatch(
   }
 
   if (resource === "credentials" || resource === "providers") {
+    const denied = requireSuperAdmin(actor);
+    if (denied) return denied;
     if (!id && req.method === "GET") return listCredentials();
     if (!id && req.method === "POST") return createCredential(req);
     if (id && req.method === "PUT") return updateCredential(req, id);
@@ -519,6 +537,8 @@ async function dispatch(
   }
 
   if (resource === "models") {
+    const denied = requireSuperAdmin(actor);
+    if (denied) return denied;
     if (!id && req.method === "GET") return listModels();
     if (id && req.method === "PUT") return updateModel(req, id);
   }
@@ -527,6 +547,8 @@ async function dispatch(
     (resource === "usage-logs" || resource === "usage") &&
     req.method === "GET"
   ) {
+    const denied = requireSuperAdmin(actor);
+    if (denied) return denied;
     return usageLogs(req);
   }
 

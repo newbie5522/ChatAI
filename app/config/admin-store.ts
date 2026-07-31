@@ -539,11 +539,12 @@ export function listProviderCredentialsPublic(): PublicProviderCredential[] {
 export function getPrimaryProviderCredential(provider: ModelProvider) {
   return listProviderCredentials(true)
     .filter((credential) => credential.provider === provider)
-    .sort((a, b) => {
-      const aUsable = a.enabled && a.apiKey.trim().length > 0 ? 0 : 1;
-      const bUsable = b.enabled && b.apiKey.trim().length > 0 ? 0 : 1;
-      return aUsable - bUsable || a.priority - b.priority;
-    })
+    .sort(
+      (a, b) =>
+        a.priority - b.priority ||
+        a.createdAt.localeCompare(b.createdAt) ||
+        a.id.localeCompare(b.id),
+    )
     .at(0);
 }
 
