@@ -12,7 +12,8 @@ function promptFromBody(bodyText?: string) {
   try {
     const value: unknown = JSON.parse(bodyText);
     if (!value || typeof value !== "object") return "";
-    const prompt = (value as Record<string, unknown>).prompt;
+    const body = value as Record<string, unknown>;
+    const prompt = body.prompt;
     return typeof prompt === "string" ? prompt.trim() : "";
   } catch {
     return "";

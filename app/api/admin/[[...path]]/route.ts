@@ -14,13 +14,16 @@ import {
   ADMIN_PROVIDER_IDS,
   AccountRole,
   AccountStatus,
+  type ProviderCredential,
   SafeAccountRecord,
   deleteAccountRecord,
   deleteProviderCredential,
   findAccountById,
   findAccountByUsername,
   getAccountRecords,
-  getAllCompanyModelsForAdmin,
+  getCompanyModelById,
+  getCompanyModelForRequest,
+  getManageableCompanyModelsForAdmin,
   getPrimaryProviderCredential,
   getPrimaryProviderCredentialPublic,
   listProviderCredentials,
@@ -37,6 +40,7 @@ import {
   getAccountUsageSummary,
   getMonthKey,
   listAccountUsageRecords,
+  sanitizePromptForLog,
 } from "@/app/config/usage";
 import type { ModelCategory, ModelProvider } from "@/app/config/model-registry";
 
@@ -115,10 +119,7 @@ function accountPayload(
       body.monthlyQuota === undefined
         ? existing?.monthlyQuota
         : toNumber(body.monthlyQuota),
-    usedQuota:
-      body.usedQuota === undefined
-        ? existing?.usedQuota
-        : toNumber(body.usedQuota),
+    usedQuota: existing?.usedQuota,
     allowedModelIds:
       allowedModelIds === undefined
         ? existing?.allowedModelIds
@@ -169,10 +170,21 @@ function handleSession(req: NextRequest) {
   });
 }
 
-function listAccounts() {
+async function listAccounts() {
+  const month = getMonthKey();
+  const accounts = getAccountRecords().map(toSafeAccount);
+  const summaries = await Promise.all(
+    accounts.map((account) => getAccountUsageSummary(account, month)),
+  );
+  const usedQuotaByAccount = new Map(
+    summaries.map((summary) => [summary.accountId, summary.usedQuota]),
+  );
   return NextResponse.json({
     error: false,
-    accounts: getAccountRecords().map(toSafeAccount),
+    accounts: accounts.map((account) => ({
+      ...account,
+      usedQuota: usedQuotaByAccount.get(account.id) ?? 0,
+    })),
   });
 }
 
@@ -376,27 +388,44 @@ async function createCredential(req: NextRequest) {
   const existing = getPrimaryProviderCredential(provider);
   const apiKey =
     typeof body.apiKey === "string" && body.apiKey.trim()
-      ? body.apiKey
+      ? body.apiKey.trim()
       : undefined;
+  if ((!existing || !existing.apiKey.trim()) && !apiKey) {
+    return NextResponse.json(
+      { error: true, message: "请先填写 API Key" },
+      { status: 400 },
+    );
+  }
   const enabled =
     typeof body.enabled === "boolean"
       ? body.enabled
-      : existing?.enabled ?? true;
-  const credential = saveProviderCredential({
-    id: existing?.id,
-    provider,
-    apiKey,
-    enabled,
-    ...(existing
-      ? {}
-      : {
-          name: `${String(body.provider)} 主配置`,
-          categoryScope: "all" as const,
-          modelIds: [],
-          priority: 100,
-        }),
-  });
-  saveAdminProviderConfig(provider, { enabled });
+      : existing?.enabled ?? false;
+  let credential: ProviderCredential;
+  try {
+    credential = saveProviderCredential({
+      id: existing?.id,
+      provider,
+      apiKey,
+      enabled,
+      ...(existing
+        ? {}
+        : {
+            name: `${String(body.provider)} 主配置`,
+            categoryScope: "all" as const,
+            modelIds: [],
+            priority: 100,
+          }),
+    });
+    saveAdminProviderConfig(provider, { enabled });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: true,
+        message: error instanceof Error ? error.message : String(error),
+      },
+      { status: 400 },
+    );
+  }
   return NextResponse.json({
     error: false,
     credential: listProviderCredentialsPublic().find(
@@ -421,13 +450,24 @@ async function updateCredential(req: NextRequest, id: string) {
       : undefined;
   const enabled =
     typeof body.enabled === "boolean" ? body.enabled : existing.enabled;
-  const credential = saveProviderCredential({
-    id,
-    provider: existing.provider,
-    apiKey,
-    enabled,
-  });
-  saveAdminProviderConfig(existing.provider, { enabled });
+  let credential: ProviderCredential;
+  try {
+    credential = saveProviderCredential({
+      id,
+      provider: existing.provider,
+      apiKey,
+      enabled,
+    });
+    saveAdminProviderConfig(existing.provider, { enabled });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: true,
+        message: error instanceof Error ? error.message : String(error),
+      },
+      { status: 400 },
+    );
+  }
   return NextResponse.json({
     error: false,
     credential: listProviderCredentialsPublic().find(
@@ -460,7 +500,7 @@ function removeCredential(id: string) {
 function listModels() {
   return NextResponse.json({
     error: false,
-    models: getAllCompanyModelsForAdmin(),
+    models: getManageableCompanyModelsForAdmin(),
   });
 }
 
@@ -472,6 +512,10 @@ async function updateModel(req: NextRequest, id: string) {
       { status: 400 },
     );
   }
+  const manageable = getManageableCompanyModelsForAdmin().some(
+    (model) => model.id === id,
+  );
+  if (!manageable) return notFound("模型不可管理或服务商尚未配置");
   const model = saveCompanyModel(id, { enabled: body.enabled });
   return NextResponse.json({ error: false, model });
 }
@@ -484,12 +528,30 @@ async function usageLogs(req: NextRequest) {
     accounts.map((account) => getAccountUsageSummary(account, month)),
   );
   const records = await listAccountUsageRecords(accountId, month, 500);
+  const safeRecords = records.map((record) => {
+    const provider = ADMIN_PROVIDER_IDS.includes(
+      record.provider as ModelProvider,
+    )
+      ? (record.provider as ModelProvider)
+      : undefined;
+    const model =
+      getCompanyModelById(record.modelId) ||
+      (provider
+        ? getCompanyModelForRequest(provider, record.model)
+        : undefined);
+    return {
+      ...record,
+      modelDisplayName: model?.displayName ?? "未知模型",
+      promptContent: sanitizePromptForLog(record.promptContent ?? ""),
+      promptPreview: sanitizePromptForLog(record.promptPreview),
+    };
+  });
 
   return NextResponse.json({
     error: false,
     month,
     summaries,
-    records,
+    records: safeRecords,
   });
 }
 

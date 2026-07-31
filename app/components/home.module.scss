@@ -21,6 +21,29 @@
   @include container();
 }
 
+.auth-container {
+  --window-width: 432px;
+  --window-height: 420px;
+
+  min-width: 432px;
+  min-height: 420px;
+  max-width: 432px;
+  max-height: 420px;
+  border-radius: 12px;
+}
+
+.admin-container {
+  --window-content-width: 100%;
+
+  width: min(1600px, calc(100vw - 24px));
+  height: calc(100vh - 24px);
+  min-width: 0;
+  min-height: 0;
+  max-width: 1600px;
+  max-height: calc(100vh - 24px);
+  border-radius: 8px;
+}
+
 @media only screen and (min-width: 600px) {
   .tight-container {
     --window-width: 100vw;
@@ -112,6 +135,17 @@
     max-height: unset;
     min-width: unset;
     border: 0;
+    border-radius: 0;
+  }
+
+  .auth-container,
+  .admin-container {
+    width: 100vw;
+    height: 100vh;
+    min-width: 0;
+    min-height: 0;
+    max-width: 100vw;
+    max-height: 100vh;
     border-radius: 0;
   }
 

@@ -8,6 +8,7 @@ import {
 } from "@/app/config/admin-store";
 import {
   createAccountSessionToken,
+  isAccountSessionConfigured,
   setAccountCookie,
 } from "@/app/config/account-auth";
 
@@ -20,6 +21,13 @@ async function readBody(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!isAccountSessionConfigured()) {
+    return NextResponse.json(
+      { error: true, message: "登录服务尚未配置会话密钥" },
+      { status: 503 },
+    );
+  }
+
   const body = await readBody(req);
   const username =
     typeof body.username === "string" ? body.username.trim() : "";
@@ -27,7 +35,7 @@ export async function POST(req: NextRequest) {
 
   if (!username || !password) {
     return NextResponse.json(
-      { error: true, message: "username and password are required" },
+      { error: true, message: "请输入账号和密码" },
       { status: 400 },
     );
   }
@@ -35,19 +43,27 @@ export async function POST(req: NextRequest) {
   const account = authenticateAccount(username, password);
   if (!account) {
     return NextResponse.json(
-      { error: true, message: "invalid username or password" },
+      { error: true, message: "账号或密码错误" },
       { status: 401 },
     );
   }
 
   const safeAccount = toSafeAccount(account);
+  const token = createAccountSessionToken(account.id);
+  if (!token) {
+    return NextResponse.json(
+      { error: true, message: "登录服务尚未配置会话密钥" },
+      { status: 503 },
+    );
+  }
+
   const res = NextResponse.json({
     error: false,
     authenticated: true,
     user: toSessionUser(safeAccount),
     models: getVisibleCompanyModelsForAccount(safeAccount),
   });
-  setAccountCookie(res, createAccountSessionToken(account.id));
+  setAccountCookie(res, token);
   return res;
 }
 

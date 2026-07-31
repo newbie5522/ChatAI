@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireAccount } from "@/app/config/account-auth";
 import {
+  accountCanUseCompanyModel,
   getCompanyModelForRequest,
   selectProviderCredentialForModel,
 } from "@/app/config/admin-store";
@@ -17,6 +18,7 @@ import {
   estimateTokensFromBody,
   extractModelFromGatewayRequest,
   extractPromptFromBody,
+  sanitizePromptForLog,
 } from "@/app/config/usage";
 
 import { callAnthropicMessages } from "../../adapters/anthropic-messages";
@@ -65,22 +67,13 @@ async function getRequestBody(req: NextRequest) {
   return req.text();
 }
 
-function accountCanUseModel(account: SafeAccountRecord, model: CompanyModel) {
-  if (account.role === "admin" || account.role === "super_admin") return true;
-  if (model.adminOnly || model.legacy || model.deprecated) return false;
-
-  return (
-    account.allowedModelIds.includes(model.id) ||
-    account.allowedCategories.includes(model.category)
-  );
-}
-
 function modelBlockedReason(model?: CompanyModel) {
   if (!model) return "model is not in NewbieChat company catalog";
   if (!model.enabled) return "model is disabled";
   if (model.endpointType === "not_implemented") {
     return "model adapter is not implemented";
   }
+  if (model.legacy) return "model is legacy";
   if (model.deprecated) return "model is deprecated";
   return "";
 }
@@ -114,7 +107,7 @@ function adapterFor(
 }
 
 async function recordUsageSafely(
-  account: SafeAccountRecord | null,
+  account: SafeAccountRecord,
   model: CompanyModel | undefined,
   input: {
     provider: string;
@@ -129,11 +122,13 @@ async function recordUsageSafely(
   },
 ) {
   try {
-    const promptContent = extractPromptFromBody(input.bodyText);
+    const promptContent = sanitizePromptForLog(
+      extractPromptFromBody(input.bodyText),
+    );
     await appendUsageRecord({
-      accountId: account?.id ?? "unknown",
-      username: account?.username ?? "unknown",
-      role: account?.role ?? "anonymous",
+      accountId: account.id,
+      username: account.username,
+      role: account.role,
       provider: model?.provider ?? input.provider,
       modelId: model?.id ?? "",
       model: model?.model ?? input.modelName,
@@ -166,15 +161,18 @@ async function handle(
   }
 
   const path = params.path?.join("/") ?? "";
+  const { account, response } = requireAccount(req);
+  if (response) return response;
+  if (!account) {
+    return gatewayError(provider, 401, "account login required");
+  }
 
   const bodyText = await getRequestBody(req);
   const modelName = extractModelFromGatewayRequest(provider, path, bodyText);
   const inputTokens = estimateTokensFromBody(bodyText);
   const requestPath = path;
-  const { account, response } = requireAccount(req);
-
   if (!modelName) {
-    await recordUsageSafely(account ?? null, undefined, {
+    await recordUsageSafely(account, undefined, {
       provider,
       modelName: "",
       bodyText,
@@ -186,24 +184,6 @@ async function handle(
       requestPath,
     });
     return gatewayError(provider, 400, "model is required");
-  }
-
-  if (response) {
-    await recordUsageSafely(null, undefined, {
-      provider,
-      modelName,
-      bodyText,
-      inputTokens,
-      quotaUnits: 0,
-      status: "blocked",
-      httpStatus: 401,
-      errorMessage: "account login required",
-      requestPath,
-    });
-    return response;
-  }
-  if (!account) {
-    return gatewayError(provider, 401, "account login required");
   }
 
   const companyModel = getCompanyModelForRequest(
@@ -227,7 +207,7 @@ async function handle(
     return gatewayError(provider, 403, blockedReason);
   }
 
-  if (!accountCanUseModel(account, companyModel)) {
+  if (!accountCanUseCompanyModel(account, companyModel)) {
     await recordUsageSafely(account, companyModel, {
       provider,
       modelName,

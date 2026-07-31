@@ -1521,8 +1521,16 @@ export function Settings() {
         {accountStore.isAdmin() && (
           <List>
             <ListItem
-              title="管理后台"
-              subTitle="管理成员、服务商、模型和使用日志"
+              title={
+                accountStore.user?.role === "super_admin"
+                  ? "管理后台"
+                  : "成员管理"
+              }
+              subTitle={
+                accountStore.user?.role === "super_admin"
+                  ? "管理成员、服务商、模型和使用日志"
+                  : "创建和管理成员账号"
+              }
             >
               <IconButton
                 aria="进入管理后台"
@@ -1939,29 +1947,33 @@ export function Settings() {
         {shouldShowPromptModal && (
           <UserPromptModal onClose={() => setShowPromptModal(false)} />
         )}
-        <List>
-          <RealtimeConfigList
-            realtimeConfig={config.realtimeConfig}
-            hideApiKey={isCompanyAccount || accessStore.hideUserApiKey}
-            updateConfig={(updater) => {
-              const realtimeConfig = { ...config.realtimeConfig };
-              updater(realtimeConfig);
-              config.update(
-                (config) => (config.realtimeConfig = realtimeConfig),
-              );
-            }}
-          />
-        </List>
-        <List>
-          <TTSConfigList
-            ttsConfig={config.ttsConfig}
-            updateConfig={(updater) => {
-              const ttsConfig = { ...config.ttsConfig };
-              updater(ttsConfig);
-              config.update((config) => (config.ttsConfig = ttsConfig));
-            }}
-          />
-        </List>
+        {!isCompanyAccount && (
+          <>
+            <List>
+              <RealtimeConfigList
+                realtimeConfig={config.realtimeConfig}
+                hideApiKey={accessStore.hideUserApiKey}
+                updateConfig={(updater) => {
+                  const realtimeConfig = { ...config.realtimeConfig };
+                  updater(realtimeConfig);
+                  config.update(
+                    (config) => (config.realtimeConfig = realtimeConfig),
+                  );
+                }}
+              />
+            </List>
+            <List>
+              <TTSConfigList
+                ttsConfig={config.ttsConfig}
+                updateConfig={(updater) => {
+                  const ttsConfig = { ...config.ttsConfig };
+                  updater(ttsConfig);
+                  config.update((config) => (config.ttsConfig = ttsConfig));
+                }}
+              />
+            </List>
+          </>
+        )}
 
         <DangerItems />
       </div>

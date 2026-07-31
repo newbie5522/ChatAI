@@ -14,6 +14,7 @@ import {
 } from "../api";
 import {
   useAccessStore,
+  useAccountStore,
   useAppConfig,
   useChatStore,
   usePluginStore,
@@ -373,7 +374,11 @@ export class ClaudeApi implements LLMApi {
 
     let baseUrl: string = "";
 
-    if (accessStore.useCustomConfig && !accessStore.hideUserApiKey) {
+    if (
+      !useAccountStore.getState().authenticated &&
+      accessStore.useCustomConfig &&
+      !accessStore.hideUserApiKey
+    ) {
       baseUrl = accessStore.anthropicUrl;
     }
 

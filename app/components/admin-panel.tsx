@@ -48,6 +48,7 @@ interface AdminModel {
   model: string;
   endpointType: string;
   enabled: boolean;
+  adminOnly?: boolean;
   sort: number;
   hasUsableCredential: boolean;
 }
@@ -60,6 +61,7 @@ interface UsageRecord {
   provider: string;
   modelId: string;
   model: string;
+  modelDisplayName?: string;
   category: ModelCategory;
   promptPreview: string;
   promptContent?: string;
@@ -83,6 +85,7 @@ interface ProviderForm {
   id?: string;
   provider: ModelProvider;
   apiKey: string;
+  keyConfigured: boolean;
   enabled: boolean;
 }
 
@@ -175,8 +178,16 @@ export function AdminPanel() {
   const accountStore = useAccountStore();
   const isSuperAdmin = accountStore.user?.role === "super_admin";
   const [activeTab, setActiveTab] = useState<AdminTab>("members");
-  const [loading, setLoading] = useState(false);
+  const [loadingInitial, setLoadingInitial] = useState(false);
+  const [savingAccount, setSavingAccount] = useState(false);
+  const [processingAccountId, setProcessingAccountId] = useState("");
+  const [savingProvider, setSavingProvider] = useState(false);
+  const [savingModelIds, setSavingModelIds] = useState<string[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
   const [message, setMessage] = useState("");
+  const [accountFormError, setAccountFormError] = useState("");
+  const [providerFormError, setProviderFormError] = useState("");
+  const [resetPasswordError, setResetPasswordError] = useState("");
   const [accounts, setAccounts] = useState<AdminAccount[]>([]);
   const [credentials, setCredentials] = useState<AdminCredential[]>([]);
   const [models, setModels] = useState<AdminModel[]>([]);
@@ -205,7 +216,10 @@ export function AdminPanel() {
     () =>
       models
         .filter(
-          (model) => model.endpointType !== "not_implemented" && model.enabled,
+          (model) =>
+            model.endpointType !== "not_implemented" &&
+            model.enabled &&
+            !model.adminOnly,
         )
         .sort((a, b) => a.sort - b.sort),
     [models],
@@ -216,29 +230,40 @@ export function AdminPanel() {
       setUsageRecords([]);
       return;
     }
-    const params = new URLSearchParams({ month });
-    if (accountId) params.set("accountId", accountId);
-    const usage = await adminFetch<{ records: UsageRecord[] }>(
-      `usage-logs?${params.toString()}`,
-    );
-    setUsageRecords(usage.records);
+    setLoadingLogs(true);
+    try {
+      const params = new URLSearchParams({ month });
+      if (accountId) params.set("accountId", accountId);
+      const usage = await adminFetch<{ records: UsageRecord[] }>(
+        `usage-logs?${params.toString()}`,
+      );
+      setUsageRecords(usage.records);
+    } finally {
+      setLoadingLogs(false);
+    }
   };
 
-  const loadAdminData = async () => {
-    setLoading(true);
+  const loadAccounts = async () => {
+    const result = await adminFetch<{ accounts: AdminAccount[] }>("accounts");
+    setAccounts(result.accounts);
+  };
+
+  const loadProviderData = async () => {
+    const [credentialResult, modelResult] = await Promise.all([
+      adminFetch<{ credentials: AdminCredential[] }>("credentials"),
+      adminFetch<{ models: AdminModel[] }>("models"),
+    ]);
+    setCredentials(credentialResult.credentials);
+    setModels(modelResult.models);
+  };
+
+  const loadAdminData = async (initial = false) => {
+    if (initial) setLoadingInitial(true);
     setMessage("");
     try {
-      const accountResult = await adminFetch<{ accounts: AdminAccount[] }>(
-        "accounts",
-      );
-      setAccounts(accountResult.accounts);
+      await loadAccounts();
       if (isSuperAdmin) {
-        const [credentialResult, modelResult] = await Promise.all([
-          adminFetch<{ credentials: AdminCredential[] }>("credentials"),
-          adminFetch<{ models: AdminModel[] }>("models"),
-        ]);
-        setCredentials(credentialResult.credentials);
-        setModels(modelResult.models);
+        await loadProviderData();
         await loadUsageLogs();
       } else {
         setActiveTab("members");
@@ -250,7 +275,7 @@ export function AdminPanel() {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "加载管理后台失败");
     } finally {
-      setLoading(false);
+      if (initial) setLoadingInitial(false);
     }
   };
 
@@ -265,7 +290,7 @@ export function AdminPanel() {
       return;
     }
     if (accountStore.authenticated && accountStore.isAdmin()) {
-      void loadAdminData();
+      void loadAdminData(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountStore.authenticated, accountStore.loaded]);
@@ -289,9 +314,13 @@ export function AdminPanel() {
       ? (["admin", "employee"] as AccountRole[])
       : (["employee"] as AccountRole[]);
 
-  const openNewAccount = () => setAccountForm(emptyAccountForm());
+  const openNewAccount = () => {
+    setAccountFormError("");
+    setAccountForm(emptyAccountForm());
+  };
 
   const openEditAccount = (account: AdminAccount) => {
+    setAccountFormError("");
     setAccountForm({
       id: account.id,
       username: account.username,
@@ -306,8 +335,9 @@ export function AdminPanel() {
   };
 
   const saveAccount = async () => {
-    if (!accountForm || loading) return;
-    setLoading(true);
+    if (!accountForm || savingAccount) return;
+    setSavingAccount(true);
+    setAccountFormError("");
     try {
       const path = accountForm.id
         ? `accounts/${encodeURIComponent(accountForm.id)}`
@@ -327,11 +357,13 @@ export function AdminPanel() {
       });
       setAccountForm(null);
       showToast(accountForm.id ? "成员信息已保存" : "成员已创建");
-      await loadAdminData();
+      await loadAccounts();
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "保存成员失败");
+      setAccountFormError(
+        error instanceof Error ? error.message : "保存成员失败",
+      );
     } finally {
-      setLoading(false);
+      setSavingAccount(false);
     }
   };
 
@@ -339,43 +371,44 @@ export function AdminPanel() {
     account: AdminAccount,
     action: "enable" | "disable",
   ) => {
-    setLoading(true);
+    setProcessingAccountId(account.id);
     try {
       await adminFetch(`accounts/${encodeURIComponent(account.id)}/${action}`, {
         method: "POST",
       });
       showToast(action === "enable" ? "账号已启用" : "账号已禁用");
-      await loadAdminData();
+      await loadAccounts();
     } catch (error) {
       showToast(error instanceof Error ? error.message : "更新账号状态失败");
     } finally {
-      setLoading(false);
+      setProcessingAccountId("");
     }
   };
 
   const deleteAccount = async (account: AdminAccount) => {
     if (!window.confirm(`确定删除成员“${account.name}”吗？`)) return;
-    setLoading(true);
+    setProcessingAccountId(account.id);
     try {
       await adminFetch(`accounts/${encodeURIComponent(account.id)}`, {
         method: "DELETE",
       });
       showToast("成员已删除");
-      await loadAdminData();
+      await loadAccounts();
     } catch (error) {
       showToast(error instanceof Error ? error.message : "删除成员失败");
     } finally {
-      setLoading(false);
+      setProcessingAccountId("");
     }
   };
 
   const saveResetPassword = async () => {
-    if (!resetAccount || loading) return;
+    if (!resetAccount || processingAccountId === resetAccount.id) return;
     if (resetPassword.length < 8) {
-      showToast("密码至少需要 8 位");
+      setResetPasswordError("密码至少需要 8 位");
       return;
     }
-    setLoading(true);
+    setProcessingAccountId(resetAccount.id);
+    setResetPasswordError("");
     try {
       await adminFetch(`accounts/${encodeURIComponent(resetAccount.id)}`, {
         method: "PUT",
@@ -385,9 +418,11 @@ export function AdminPanel() {
       setResetPassword("");
       showToast("密码已重置");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "重置密码失败");
+      setResetPasswordError(
+        error instanceof Error ? error.message : "重置密码失败",
+      );
     } finally {
-      setLoading(false);
+      setProcessingAccountId("");
     }
   };
 
@@ -396,17 +431,24 @@ export function AdminPanel() {
 
   const openProvider = (provider: ModelProvider) => {
     const credential = primaryCredential(provider);
+    setProviderFormError("");
     setProviderForm({
       id: credential?.id,
       provider,
       apiKey: "",
-      enabled: credential?.enabled ?? true,
+      keyConfigured: credential?.keyConfigured ?? false,
+      enabled: credential?.enabled ?? false,
     });
   };
 
   const saveProvider = async () => {
-    if (!providerForm || loading) return;
-    setLoading(true);
+    if (!providerForm || savingProvider) return;
+    if (!providerForm.keyConfigured && !providerForm.apiKey.trim()) {
+      setProviderFormError("请先填写 API Key");
+      return;
+    }
+    setSavingProvider(true);
+    setProviderFormError("");
     try {
       await adminFetch(
         providerForm.id
@@ -421,46 +463,83 @@ export function AdminPanel() {
           }),
         },
       );
+      await Promise.all([loadProviderData(), accountStore.fetchSession()]);
       setProviderForm(null);
       showToast("服务商配置已保存");
-      await loadAdminData();
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "保存服务商失败");
+      setProviderFormError(
+        error instanceof Error ? error.message : "保存服务商失败",
+      );
     } finally {
-      setLoading(false);
+      setSavingProvider(false);
     }
   };
 
   const toggleModel = async (model: AdminModel) => {
-    setLoading(true);
+    if (savingModelIds.includes(model.id)) return;
+    setSavingModelIds((current) => [...current, model.id]);
     try {
-      await adminFetch(`models/${encodeURIComponent(model.id)}`, {
-        method: "PUT",
-        body: JSON.stringify({ enabled: !model.enabled }),
-      });
+      const result = await adminFetch<{ model: AdminModel }>(
+        `models/${encodeURIComponent(model.id)}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ enabled: !model.enabled }),
+        },
+      );
+      setModels((current) =>
+        current.map((item) =>
+          item.id === model.id
+            ? {
+                ...item,
+                ...result.model,
+                hasUsableCredential: item.hasUsableCredential,
+              }
+            : item,
+        ),
+      );
+      await accountStore.fetchSession();
       showToast(model.enabled ? "模型已停用" : "模型已启用");
-      await loadAdminData();
     } catch (error) {
       showToast(error instanceof Error ? error.message : "更新模型失败");
     } finally {
-      setLoading(false);
+      setSavingModelIds((current) =>
+        current.filter((modelId) => modelId !== model.id),
+      );
     }
   };
 
   const getModelStatus = (model: AdminModel) => {
-    if (model.endpointType === "not_implemented") return "接口待校准";
-    if (!model.hasUsableCredential) return "未配置服务商密钥";
     return model.enabled ? "已启用" : "已停用";
   };
 
+  const getPermissionSummary = (account: AdminAccount) => {
+    if (account.role === "admin" || account.role === "super_admin") {
+      return {
+        categories: "全部分类",
+        models: "全部可用模型",
+      };
+    }
+
+    const allowedCategories = account.allowedCategories ?? [];
+    const allowedModelIds = account.allowedModelIds ?? [];
+    const authorizedModels = visiblePermissionModels.filter((model) =>
+      allowedModelIds.includes(model.id),
+    );
+    return {
+      categories:
+        allowedCategories.map(getCategoryDisplayName).join("、") || "无",
+      models: `额外模型 ${authorizedModels.length} 个`,
+    };
+  };
+
   const getLogModelName = (record: UsageRecord) =>
+    record.modelDisplayName ??
     models.find(
       (model) =>
         model.id === record.modelId ||
         (model.provider === record.provider && model.model === record.model),
     )?.displayName ??
-    record.model ??
-    "-";
+    "未知模型";
 
   if (accountStore.loaded && !accountStore.isAdmin()) {
     return (
@@ -498,6 +577,9 @@ export function AdminPanel() {
       </nav>
 
       {message && <div className={styles.message}>{message}</div>}
+      {loadingInitial && accounts.length === 0 && (
+        <div className={styles.message}>正在加载管理数据…</div>
+      )}
 
       {activeTab === "members" && (
         <section className={styles.panel}>
@@ -506,22 +588,18 @@ export function AdminPanel() {
             <IconButton
               text="新增成员"
               type="primary"
-              disabled={loading}
+              disabled={loadingInitial || savingAccount}
               onClick={openNewAccount}
             />
           </div>
           <div className={styles["table-wrap"]}>
-            <table>
+            <table className={styles["members-table"]}>
               <thead>
                 <tr>
-                  <th>成员名称</th>
-                  <th>登录账号</th>
-                  <th>角色</th>
-                  <th>状态</th>
-                  <th>月度额度</th>
-                  <th>已使用</th>
-                  <th>授权分类</th>
-                  <th>授权模型数</th>
+                  <th>成员</th>
+                  <th>角色与状态</th>
+                  <th>额度</th>
+                  <th>权限</th>
                   <th>最后登录</th>
                   <th>操作</th>
                 </tr>
@@ -529,39 +607,53 @@ export function AdminPanel() {
               <tbody>
                 {accounts.map((account) => (
                   <tr key={account.id}>
-                    <td>{account.name}</td>
-                    <td>{account.username}</td>
-                    <td>{getRoleDisplayName(account.role)}</td>
-                    <td>{getAccountStatusDisplayName(account.status)}</td>
-                    <td>{formatQuota(account.monthlyQuota)}</td>
-                    <td>{formatQuota(account.usedQuota ?? 0)}</td>
                     <td>
-                      {(account.allowedCategories ?? [])
-                        .map(getCategoryDisplayName)
-                        .join("、") || "无"}
+                      <strong>{account.name}</strong>
+                      <span className={styles.subtle}>{account.username}</span>
                     </td>
-                    <td>{account.allowedModelIds?.length ?? 0}</td>
+                    <td>
+                      <span>{getRoleDisplayName(account.role)}</span>
+                      <span className={styles.subtle}>
+                        {getAccountStatusDisplayName(account.status)}
+                      </span>
+                    </td>
+                    <td>
+                      <span>已用：{formatQuota(account.usedQuota ?? 0)}</span>
+                      <span className={styles.subtle}>
+                        月度：{formatQuota(account.monthlyQuota)}
+                      </span>
+                    </td>
+                    <td>
+                      <span>{getPermissionSummary(account).categories}</span>
+                      <span className={styles.subtle}>
+                        {getPermissionSummary(account).models}
+                      </span>
+                    </td>
                     <td>{formatDate(account.lastLoginAt)}</td>
                     <td>
                       {canManageAccount(account) ? (
                         <div className={styles["row-actions"]}>
                           <button
                             type="button"
+                            disabled={processingAccountId === account.id}
                             onClick={() => openEditAccount(account)}
                           >
                             编辑
                           </button>
                           <button
                             type="button"
+                            disabled={processingAccountId === account.id}
                             onClick={() => {
                               setResetAccount(account);
                               setResetPassword("");
+                              setResetPasswordError("");
                             }}
                           >
                             重置密码
                           </button>
                           <button
                             type="button"
+                            disabled={processingAccountId === account.id}
                             onClick={() =>
                               void updateAccountStatus(
                                 account,
@@ -571,10 +663,15 @@ export function AdminPanel() {
                               )
                             }
                           >
-                            {account.status === "disabled" ? "启用" : "禁用"}
+                            {processingAccountId === account.id
+                              ? "处理中…"
+                              : account.status === "disabled"
+                              ? "启用"
+                              : "禁用"}
                           </button>
                           <button
                             type="button"
+                            disabled={processingAccountId === account.id}
                             onClick={() => void deleteAccount(account)}
                           >
                             删除
@@ -586,6 +683,11 @@ export function AdminPanel() {
                     </td>
                   </tr>
                 ))}
+                {accounts.length === 0 && !loadingInitial && (
+                  <tr>
+                    <td colSpan={6}>暂无成员</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -598,24 +700,28 @@ export function AdminPanel() {
           <div className={styles["provider-grid"]}>
             {PROVIDERS.map((provider) => {
               const credential = primaryCredential(provider);
-              const providerEnabled = credential?.enabled ?? true;
+              const configured = credential?.keyConfigured ?? false;
+              const providerEnabled = credential?.enabled ?? false;
+              const providerStatus = !configured
+                ? "未配置"
+                : providerEnabled
+                ? "已启用"
+                : "已停用";
               return (
                 <article className={styles.provider} key={provider}>
                   <div className={styles["provider-header"]}>
                     <strong>{PROVIDER_NAMES[provider]}</strong>
-                    <span>
-                      {!credential
-                        ? "未配置"
-                        : providerEnabled
-                        ? "已启用"
-                        : "已停用"}
-                    </span>
+                    <span>{providerStatus}</span>
                   </div>
-                  <div>API Key：{credential?.keyPreview || "未配置"}</div>
-                  <div>启用状态：{providerEnabled ? "启用" : "停用"}</div>
+                  <div>密钥：{configured ? "已配置" : "未配置"}</div>
+                  <div>状态：{providerStatus}</div>
+                  <div>
+                    模型状态：
+                    {configured && providerEnabled ? "可使用" : "暂不可用"}
+                  </div>
                   <IconButton
                     text="配置"
-                    disabled={loading}
+                    disabled={savingProvider}
                     onClick={() => openProvider(provider)}
                   />
                 </article>
@@ -628,56 +734,56 @@ export function AdminPanel() {
       {isSuperAdmin && activeTab === "models" && (
         <section className={styles.panel}>
           <h2>模型</h2>
-          {modelsByCategory.map((group) => (
-            <div className={styles["model-group"]} key={group.category}>
-              <h3>{getCategoryDisplayName(group.category)}</h3>
-              <div className={styles["table-wrap"]}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>模型名称</th>
-                      <th>Provider</th>
-                      <th>分类</th>
-                      <th>状态</th>
-                      <th>启用开关</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.models.length === 0 ? (
-                      <tr>
-                        <td colSpan={5}>
-                          {group.category === "video"
-                            ? "待加入"
-                            : "暂无可用模型"}
-                        </td>
-                      </tr>
-                    ) : (
-                      group.models.map((model) => (
-                        <tr key={model.id}>
-                          <td>{model.displayName}</td>
-                          <td>{PROVIDER_NAMES[model.provider]}</td>
-                          <td>{getCategoryDisplayName(model.category)}</td>
-                          <td>{getModelStatus(model)}</td>
-                          <td>
-                            <button
-                              type="button"
-                              disabled={
-                                loading ||
-                                model.endpointType === "not_implemented"
-                              }
-                              onClick={() => void toggleModel(model)}
-                            >
-                              {model.enabled ? "停用" : "启用"}
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+          {models.length === 0 ? (
+            <div className={styles["empty-state"]}>
+              请先在“服务商”中配置并启用服务商。
             </div>
-          ))}
+          ) : (
+            modelsByCategory.map((group) =>
+              group.models.length === 0 ? null : (
+                <div className={styles["model-group"]} key={group.category}>
+                  <h3>{getCategoryDisplayName(group.category)}</h3>
+                  <div className={styles["table-wrap"]}>
+                    <table className={styles["models-table"]}>
+                      <thead>
+                        <tr>
+                          <th>模型名称</th>
+                          <th>Provider</th>
+                          <th>分类</th>
+                          <th>状态</th>
+                          <th>启用开关</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.models.map((model) => (
+                          <tr key={model.id}>
+                            <td>{model.displayName}</td>
+                            <td>{PROVIDER_NAMES[model.provider]}</td>
+                            <td>{getCategoryDisplayName(model.category)}</td>
+                            <td>{getModelStatus(model)}</td>
+                            <td>
+                              <button
+                                type="button"
+                                className={styles["model-toggle"]}
+                                disabled={savingModelIds.includes(model.id)}
+                                onClick={() => void toggleModel(model)}
+                              >
+                                {savingModelIds.includes(model.id)
+                                  ? "保存中…"
+                                  : model.enabled
+                                  ? "停用"
+                                  : "启用"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ),
+            )
+          )}
         </section>
       )}
 
@@ -705,23 +811,28 @@ export function AdminPanel() {
                 ))}
               </select>
               <IconButton
-                text="查询"
-                disabled={loading}
-                onClick={() => void loadUsageLogs()}
+                text={loadingLogs ? "查询中…" : "查询"}
+                disabled={loadingLogs}
+                onClick={() =>
+                  void loadUsageLogs().catch((error) =>
+                    setMessage(
+                      error instanceof Error
+                        ? error.message
+                        : "查询使用日志失败",
+                    ),
+                  )
+                }
               />
             </div>
           </div>
           <div className={styles["table-wrap"]}>
-            <table>
+            <table className={styles["logs-table"]}>
               <thead>
                 <tr>
                   <th>时间</th>
-                  <th>账号</th>
-                  <th>角色</th>
-                  <th>Provider</th>
-                  <th>模型</th>
-                  <th>分类</th>
-                  <th>状态</th>
+                  <th>账号与角色</th>
+                  <th>服务商与模型</th>
+                  <th>分类与状态</th>
                   <th>成员输入</th>
                   <th>错误</th>
                 </tr>
@@ -730,15 +841,27 @@ export function AdminPanel() {
                 {usageRecords.map((record) => (
                   <tr key={record.id}>
                     <td>{formatDate(record.createdAt)}</td>
-                    <td>{record.username}</td>
-                    <td>{getRoleDisplayName(record.role)}</td>
                     <td>
-                      {PROVIDER_NAMES[record.provider as ModelProvider] ??
-                        record.provider}
+                      <span>{record.username}</span>
+                      <span className={styles.subtle}>
+                        {getRoleDisplayName(record.role)}
+                      </span>
                     </td>
-                    <td>{getLogModelName(record)}</td>
-                    <td>{getCategoryDisplayName(record.category)}</td>
-                    <td>{getLogStatus(record.status)}</td>
+                    <td>
+                      <span>
+                        {PROVIDER_NAMES[record.provider as ModelProvider] ??
+                          "未知服务商"}
+                      </span>
+                      <span className={styles.subtle}>
+                        {getLogModelName(record)}
+                      </span>
+                    </td>
+                    <td>
+                      <span>{getCategoryDisplayName(record.category)}</span>
+                      <span className={styles.subtle}>
+                        {getLogStatus(record.status)}
+                      </span>
+                    </td>
                     <td className={styles.preview}>
                       {record.promptContent || record.promptPreview || "-"}
                     </td>
@@ -749,7 +872,9 @@ export function AdminPanel() {
                 ))}
                 {usageRecords.length === 0 && (
                   <tr>
-                    <td colSpan={9}>暂无日志</td>
+                    <td colSpan={6}>
+                      {loadingLogs ? "正在查询日志…" : "暂无日志"}
+                    </td>
                   </tr>
                 )}
               </tbody>
@@ -761,18 +886,24 @@ export function AdminPanel() {
       {accountForm && (
         <Modal
           title={accountForm.id ? "编辑成员" : "新增成员"}
-          onClose={() => setAccountForm(null)}
+          onClose={() => {
+            setAccountForm(null);
+            setAccountFormError("");
+          }}
           actions={[
             <IconButton
               key="cancel"
               text="取消"
-              onClick={() => setAccountForm(null)}
+              onClick={() => {
+                setAccountForm(null);
+                setAccountFormError("");
+              }}
             />,
             <IconButton
               key="save"
               type="primary"
-              text="保存"
-              disabled={loading}
+              text={savingAccount ? "保存中…" : "保存"}
+              disabled={savingAccount}
               onClick={() => void saveAccount()}
             />,
           ]}
@@ -853,52 +984,73 @@ export function AdminPanel() {
                 }
               />
             </label>
-            <fieldset>
-              <legend>分类权限</legend>
-              <div className={styles.checkboxes}>
-                {CATEGORIES.map((category) => (
-                  <label key={category}>
-                    <input
-                      type="checkbox"
-                      checked={accountForm.allowedCategories.includes(category)}
-                      onChange={() =>
-                        setAccountForm({
-                          ...accountForm,
-                          allowedCategories: toggleValue(
-                            accountForm.allowedCategories,
+            {accountForm.role === "employee" ? (
+              <>
+                <fieldset>
+                  <legend>分类权限</legend>
+                  <div className={styles.checkboxes}>
+                    {CATEGORIES.map((category) => (
+                      <label key={category}>
+                        <input
+                          type="checkbox"
+                          checked={accountForm.allowedCategories.includes(
                             category,
-                          ),
-                        })
-                      }
-                    />
-                    {getCategoryDisplayName(category)}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>额外模型权限</legend>
-              <div className={styles.checkboxes}>
-                {visiblePermissionModels.map((model) => (
-                  <label key={model.id}>
-                    <input
-                      type="checkbox"
-                      checked={accountForm.allowedModelIds.includes(model.id)}
-                      onChange={() =>
-                        setAccountForm({
-                          ...accountForm,
-                          allowedModelIds: toggleValue(
-                            accountForm.allowedModelIds,
+                          )}
+                          onChange={() =>
+                            setAccountForm({
+                              ...accountForm,
+                              allowedCategories: toggleValue(
+                                accountForm.allowedCategories,
+                                category,
+                              ),
+                            })
+                          }
+                        />
+                        {getCategoryDisplayName(category)}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <fieldset>
+                  <legend>额外模型权限</legend>
+                  <div className={styles.checkboxes}>
+                    {visiblePermissionModels.map((model) => (
+                      <label key={model.id}>
+                        <input
+                          type="checkbox"
+                          checked={accountForm.allowedModelIds.includes(
                             model.id,
-                          ),
-                        })
-                      }
-                    />
-                    {model.displayName}（{PROVIDER_NAMES[model.provider]}）
-                  </label>
-                ))}
+                          )}
+                          onChange={() =>
+                            setAccountForm({
+                              ...accountForm,
+                              allowedModelIds: toggleValue(
+                                accountForm.allowedModelIds,
+                                model.id,
+                              ),
+                            })
+                          }
+                        />
+                        {model.displayName}（{PROVIDER_NAMES[model.provider]}）
+                      </label>
+                    ))}
+                    {visiblePermissionModels.length === 0 && (
+                      <span className={styles.subtle}>
+                        暂无可授权模型，请先配置服务商并启用模型
+                      </span>
+                    )}
+                  </div>
+                </fieldset>
+              </>
+            ) : (
+              <div className={styles["permission-summary"]}>
+                <strong>全部分类</strong>
+                <span>全部可用模型</span>
               </div>
-            </fieldset>
+            )}
+            {accountFormError && (
+              <div className={styles["form-error"]}>{accountFormError}</div>
+            )}
           </div>
         </Modal>
       )}
@@ -906,18 +1058,26 @@ export function AdminPanel() {
       {resetAccount && (
         <Modal
           title={`重置 ${resetAccount.username} 的密码`}
-          onClose={() => setResetAccount(null)}
+          onClose={() => {
+            setResetAccount(null);
+            setResetPasswordError("");
+          }}
           actions={[
             <IconButton
               key="cancel"
               text="取消"
-              onClick={() => setResetAccount(null)}
+              onClick={() => {
+                setResetAccount(null);
+                setResetPasswordError("");
+              }}
             />,
             <IconButton
               key="save"
               type="primary"
-              text="保存"
-              disabled={loading}
+              text={
+                processingAccountId === resetAccount.id ? "保存中…" : "保存"
+              }
+              disabled={processingAccountId === resetAccount.id}
               onClick={() => void saveResetPassword()}
             />,
           ]}
@@ -934,6 +1094,9 @@ export function AdminPanel() {
                 }
               />
             </label>
+            {resetPasswordError && (
+              <div className={styles["form-error"]}>{resetPasswordError}</div>
+            )}
           </div>
         </Modal>
       )}
@@ -941,23 +1104,32 @@ export function AdminPanel() {
       {providerForm && (
         <Modal
           title={`配置 ${PROVIDER_NAMES[providerForm.provider]}`}
-          onClose={() => setProviderForm(null)}
+          onClose={() => {
+            setProviderForm(null);
+            setProviderFormError("");
+          }}
           actions={[
             <IconButton
               key="cancel"
               text="取消"
-              onClick={() => setProviderForm(null)}
+              onClick={() => {
+                setProviderForm(null);
+                setProviderFormError("");
+              }}
             />,
             <IconButton
               key="save"
               type="primary"
-              text="保存"
-              disabled={loading}
+              text={savingProvider ? "保存中…" : "保存"}
+              disabled={
+                savingProvider ||
+                (!providerForm.keyConfigured && !providerForm.apiKey.trim())
+              }
               onClick={() => void saveProvider()}
             />,
           ]}
         >
-          <div className={styles["modal-form"]}>
+          <div className={`${styles["modal-form"]} ${styles["provider-form"]}`}>
             <label>
               API Key
               <input
@@ -975,19 +1147,29 @@ export function AdminPanel() {
                 }
               />
             </label>
-            <label className={styles["inline-check"]}>
-              <input
-                type="checkbox"
-                checked={providerForm.enabled}
-                onChange={(event) =>
+            <div className={styles["switch-row"]}>
+              <span>启用状态</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={providerForm.enabled}
+                aria-label={`${providerForm.enabled ? "停用" : "启用"} ${
+                  PROVIDER_NAMES[providerForm.provider]
+                }`}
+                className={styles.switch}
+                onClick={() =>
                   setProviderForm({
                     ...providerForm,
-                    enabled: event.currentTarget.checked,
+                    enabled: !providerForm.enabled,
                   })
                 }
-              />
-              启用
-            </label>
+              >
+                <span />
+              </button>
+            </div>
+            {providerFormError && (
+              <div className={styles["form-error"]}>{providerFormError}</div>
+            )}
           </div>
         </Modal>
       )}

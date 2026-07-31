@@ -13,7 +13,7 @@ type SelectableModel = Omit<LLMModel, "provider"> & {
   provider?: LLMModel["provider"];
 };
 
-const MODEL_GROUPS = [
+export const MODEL_GROUPS = [
   {
     category: "chat",
     title: "聊天",
@@ -36,7 +36,7 @@ const MODEL_GROUPS = [
   },
 ] as const;
 
-function sortModels(models: SelectableModel[]) {
+export function sortModels(models: SelectableModel[]) {
   return models.slice().sort((a, b) => {
     const sortDiff = (a.sorted ?? 9999) - (b.sorted ?? 9999);
     if (sortDiff !== 0) return sortDiff;
@@ -45,7 +45,7 @@ function sortModels(models: SelectableModel[]) {
   });
 }
 
-function getGroupedModels(models: SelectableModel[]) {
+export function getGroupedModels(models: SelectableModel[]) {
   return MODEL_GROUPS.map((group) => ({
     ...group,
     models: sortModels(

@@ -123,6 +123,7 @@ import { MsEdgeTTS, OUTPUT_FORMAT } from "../utils/ms_edge_tts";
 
 import { isEmpty } from "lodash-es";
 import { getModelProvider } from "../utils/model";
+import { getGroupedModels } from "./model-config";
 import { RealtimeChat } from "@/app/components/realtime-chat";
 import clsx from "clsx";
 import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
@@ -535,15 +536,15 @@ export function ChatActions(props: {
     () => allModels.filter((model) => model.available),
     [allModels],
   );
+  const groupedModels = useMemo(() => getGroupedModels(models), [models]);
   const currentModelName = useMemo(() => {
     const model = models.find(
       (m) =>
         m.name == currentModel &&
         m?.provider?.providerName == currentProviderName,
     );
-    return model?.displayName ?? (models.length === 0 ? "暂无可用模型" : "");
+    return model?.displayName ?? model?.name ?? "暂无可用模型";
   }, [models, currentModel, currentProviderName]);
-  const [showModelSelector, setShowModelSelector] = useState(false);
   const [showPluginSelector, setShowPluginSelector] = useState(false);
   const [showUploadImage, setShowUploadImage] = useState(false);
 
@@ -570,7 +571,11 @@ export function ChatActions(props: {
 
     // if current model is not available
     // switch to first available model
-    const isUnavailableModel = !models.some((m) => m.name === currentModel);
+    const isUnavailableModel = !models.some(
+      (model) =>
+        model.name === currentModel &&
+        model.provider.providerName === currentProviderName,
+    );
     if (isUnavailableModel && models.length > 0) {
       // switch to the first available company model
       const nextModel = models[0];
@@ -579,13 +584,9 @@ export function ChatActions(props: {
         session.mask.modelConfig.providerName = nextModel?.provider
           ?.providerName as ServiceProvider;
       });
-      const nextModelLabel =
-        nextModel.provider.providerName === "ByteDance"
-          ? nextModel.displayName ?? nextModel.name
-          : nextModel.name;
-      showToast(nextModelLabel);
+      showToast(nextModel.displayName ?? nextModel.name);
     }
-  }, [chatStore, currentModel, models, session]);
+  }, [chatStore, currentModel, currentProviderName, models, session]);
 
   return (
     <div className={styles["chat-input-actions"]}>
@@ -664,52 +665,78 @@ export function ChatActions(props: {
           }}
         />
 
-        <ChatAction
-          onClick={() => {
+        <label
+          className={styles["model-select"]}
+          title={currentModelName}
+          aria-label="选择模型"
+          onMouseDown={(event) => {
             if (models.length === 0) {
+              event.preventDefault();
               showToast("当前账号暂无可用模型，请联系管理员。");
-              return;
             }
-            setShowModelSelector(true);
           }}
-          text={currentModelName}
-          icon={<RobotIcon />}
-        />
-
-        {showModelSelector && (
-          <Selector
-            defaultSelectedValue={`${currentModel}@${currentProviderName}`}
-            items={models.map((m) => ({
-              title: `${m.displayName}${
-                m?.provider?.providerName
-                  ? " (" + m?.provider?.providerName + ")"
-                  : ""
-              }`,
-              value: `${m.name}@${m?.provider?.providerName}`,
-            }))}
-            onClose={() => setShowModelSelector(false)}
-            onSelection={(s) => {
-              if (s.length === 0) return;
-              const [model, providerName] = getModelProvider(s[0]);
-              chatStore.updateTargetSession(session, (session) => {
-                session.mask.modelConfig.model = model as ModelType;
-                session.mask.modelConfig.providerName =
+        >
+          <RobotIcon />
+          <select
+            value={
+              models.some(
+                (model) =>
+                  model.name === currentModel &&
+                  model.provider.providerName === currentProviderName,
+              )
+                ? `${currentModel}@${currentProviderName}`
+                : ""
+            }
+            disabled={models.length === 0}
+            onChange={(event) => {
+              const [model, providerName] = getModelProvider(
+                event.currentTarget.value,
+              );
+              const selectedModel = models.find(
+                (item) =>
+                  item.name === model &&
+                  item.provider.providerName === providerName,
+              );
+              if (!selectedModel) return;
+              chatStore.updateTargetSession(session, (target) => {
+                target.mask.modelConfig.model = model as ModelType;
+                target.mask.modelConfig.providerName =
                   providerName as ServiceProvider;
-                session.mask.syncGlobalConfig = false;
+                target.mask.syncGlobalConfig = false;
               });
-              if (providerName == "ByteDance") {
-                const selectedModel = models.find(
-                  (m) =>
-                    m.name == model &&
-                    m?.provider?.providerName == providerName,
-                );
-                showToast(selectedModel?.displayName ?? "");
-              } else {
-                showToast(model);
-              }
+              showToast(selectedModel.displayName ?? selectedModel.name);
             }}
-          />
-        )}
+          >
+            {!models.some(
+              (model) =>
+                model.name === currentModel &&
+                model.provider.providerName === currentProviderName,
+            ) && (
+              <option value="" disabled>
+                暂无可用模型
+              </option>
+            )}
+            {groupedModels.map((group) => (
+              <optgroup label={group.title} key={group.category}>
+                {group.models.length === 0 ? (
+                  <option disabled value={`__empty_${group.category}`}>
+                    {group.emptyText}
+                  </option>
+                ) : (
+                  group.models.map((model) => (
+                    <option
+                      value={`${model.name}@${model.provider?.providerName}`}
+                      key={`${model.provider?.providerName}:${model.name}`}
+                    >
+                      {model.displayName || model.name} (
+                      {model.provider?.providerName})
+                    </option>
+                  ))
+                )}
+              </optgroup>
+            ))}
+          </select>
+        </label>
 
         {supportsCustomSize(currentModel) && (
           <ChatAction

@@ -242,8 +242,15 @@ export function extractPromptFromBody(bodyText?: string) {
     }
     return "";
   } catch {
-    return bodyText.slice(0, 12000);
+    return "";
   }
+}
+
+export function sanitizePromptForLog(prompt: string) {
+  return prompt
+    .replace(/data:image\/[^;]+;base64,[a-z0-9+/_=-]+/gi, "[图片数据已省略]")
+    .replace(/(?:https?|blob):\/\/[^\s"'<>]+/gi, "[链接已省略]")
+    .slice(0, 12000);
 }
 
 export function extractModelFromGatewayRequest(
@@ -271,6 +278,7 @@ export function extractModelFromGatewayRequest(
 }
 
 function quotaSeed(account?: SafeAccountRecord) {
+  // Persisted usedQuota is a one-time migration seed; live usage stays in logs.
   const usedQuota = Number(account?.usedQuota ?? 0);
   return Number.isFinite(usedQuota) && usedQuota > 0 ? usedQuota : 0;
 }

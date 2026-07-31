@@ -98,6 +98,40 @@
       justify-content: center;
     }
   }
+
+  .model-select {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    margin-bottom: 10px;
+    padding: 0 8px;
+    box-sizing: border-box;
+    border: var(--border-in-light);
+    border-radius: 6px;
+    background: var(--white);
+    box-shadow: var(--card-shadow);
+
+    svg {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 16px;
+    }
+
+    select {
+      width: min(220px, 42vw);
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--black);
+      font-size: 12px;
+    }
+
+    &:has(select:disabled) {
+      opacity: 0.65;
+    }
+  }
 }
 
 .prompt-toast {

@@ -293,7 +293,7 @@ function normalizeCredentialRecord(
     orgId: String(record.orgId ?? "").trim(),
     categoryScope: normalizeCategoryScope(record.categoryScope),
     modelIds: cleanList(record.modelIds),
-    enabled: record.enabled ?? true,
+    enabled: record.enabled ?? false,
     verified: record.verified ?? false,
     priority: Number.isFinite(priority) ? priority : 100,
     createdAt: record.createdAt || now(),
@@ -417,7 +417,7 @@ export function ensureBootstrapSuperAdmin() {
     monthlyQuota: undefined,
     usedQuota: 0,
     allowedModelIds: [],
-    allowedCategories: ["chat", "search"],
+    allowedCategories: ["chat", "search", "image", "video"],
     createdAt: timestamp,
     updatedAt: timestamp,
   });
@@ -581,8 +581,8 @@ export function saveProviderCredential(
   const apiKey =
     record.clearApiKey === true
       ? ""
-      : record.apiKey !== undefined
-      ? record.apiKey
+      : typeof record.apiKey === "string" && record.apiKey.trim()
+      ? record.apiKey.trim()
       : existing?.apiKey ?? "";
   const normalized = normalizeCredentialRecord({
     ...existing,
@@ -592,6 +592,9 @@ export function saveProviderCredential(
     createdAt: existing?.createdAt || record.createdAt || now(),
     updatedAt: now(),
   });
+  if (!normalized.apiKey) {
+    throw new Error("请先填写 API Key");
+  }
 
   if (existingIndex >= 0) {
     store.credentials[existingIndex] = normalized;
@@ -599,6 +602,13 @@ export function saveProviderCredential(
     store.credentials.push(normalized);
   }
 
+  const providerConfig = store.providers[normalized.provider];
+  store.providers[normalized.provider] = {
+    ...providerConfig,
+    id: normalized.provider,
+    enabled: normalized.enabled,
+    updatedAt: now(),
+  };
   writeAdminStore(store);
   return normalized;
 }
@@ -610,7 +620,27 @@ export function deleteProviderCredential(id: string) {
   );
   const deleted = nextCredentials.length !== store.credentials.length;
   if (deleted) {
-    writeAdminStore({ ...store, credentials: nextCredentials });
+    const provider = store.credentials.find(
+      (credential) => credential.id === id,
+    )?.provider;
+    const providers = { ...store.providers };
+    if (
+      provider &&
+      !nextCredentials.some(
+        (credential) =>
+          credential.provider === provider &&
+          credential.enabled &&
+          credential.apiKey,
+      )
+    ) {
+      providers[provider] = {
+        ...providers[provider],
+        id: provider,
+        enabled: false,
+        updatedAt: now(),
+      };
+    }
+    writeAdminStore({ ...store, credentials: nextCredentials, providers });
   }
   return deleted;
 }
@@ -685,25 +715,41 @@ function isAccountAuthorizedForModel(
   );
 }
 
+function isSupportedCompanyModel(model: CompanyModel) {
+  return (
+    !model.legacy &&
+    !model.deprecated &&
+    model.endpointType !== "not_implemented"
+  );
+}
+
+export function accountCanUseCompanyModel(
+  account: SafeAccountRecord | undefined,
+  model: CompanyModel | undefined,
+) {
+  if (!account || account.status !== "active" || !model) return false;
+  if (!model.enabled || !isSupportedCompanyModel(model)) return false;
+  if (!hasUsableCredentialForModel(model)) return false;
+  if (account.role === "employee" && model.adminOnly) return false;
+  return isAccountAuthorizedForModel(account, model);
+}
+
 export function getVisibleCompanyModelsForAccount(account?: SafeAccountRecord) {
   if (!account || account.status !== "active") return [];
 
   return listCompanyModels()
-    .filter((model) => model.enabled)
-    .filter((model) => model.endpointType !== "not_implemented")
-    .filter((model) => hasUsableCredentialForModel(model))
-    .filter((model) => account.role !== "employee" || !model.adminOnly)
-    .filter((model) => account.role !== "employee" || !model.legacy)
-    .filter((model) => account.role !== "employee" || !model.deprecated)
-    .filter((model) => isAccountAuthorizedForModel(account, model))
+    .filter((model) => accountCanUseCompanyModel(account, model))
     .map(toCompanyLLMModel);
 }
 
-export function getAllCompanyModelsForAdmin() {
-  return listCompanyModels().map((model) => ({
-    ...model,
-    hasUsableCredential: hasUsableCredentialForModel(model),
-  }));
+export function getManageableCompanyModelsForAdmin() {
+  return listCompanyModels()
+    .filter(isSupportedCompanyModel)
+    .filter((model) => hasUsableCredentialForModel(model))
+    .map((model) => ({
+      ...model,
+      hasUsableCredential: true,
+    }));
 }
 
 export function getAdminEmployeeRecords() {
@@ -763,16 +809,28 @@ export function saveAdminProviderConfig(
   const store = readAdminStore();
   const current = store.providers[id] ?? {
     id,
-    enabled: true,
+    enabled: false,
   };
+  const enabled = config.enabled ?? current.enabled ?? false;
+  const credential = store.credentials
+    .filter((item) => item.provider === id)
+    .sort((a, b) => a.priority - b.priority)
+    .at(0);
+  if (enabled && !credential?.apiKey.trim()) {
+    throw new Error("启用服务商前必须填写 API Key");
+  }
 
   store.providers[id] = {
     ...current,
     ...config,
     id,
-    enabled: config.enabled ?? current.enabled ?? true,
+    enabled,
     updatedAt: now(),
   };
+  if (credential) {
+    credential.enabled = enabled;
+    credential.updatedAt = now();
+  }
 
   writeAdminStore(store);
   return store.providers[id] as AdminProviderConfig;
@@ -840,7 +898,7 @@ export function getEffectiveProviderOrgId(id: AdminProviderId) {
 
 export function isProviderEnabled(id: AdminProviderId) {
   const adminConfig = getAdminProviderConfig(id);
-  return adminConfig?.enabled !== false;
+  return adminConfig?.enabled === true;
 }
 
 export function getProviderEnabledModels(id: AdminProviderId) {
@@ -863,7 +921,7 @@ export function listProviderPublicConfigs(): ProviderPublicConfig[] {
     return {
       id,
       name: PROVIDER_NAMES[id],
-      enabled: adminConfig?.enabled !== false,
+      enabled: adminConfig?.enabled === true,
       keyConfigured: !!secret,
       keyPreview: previewSecret(secret),
       baseUrl: getEffectiveProviderBaseUrl(id),

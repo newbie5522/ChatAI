@@ -18,7 +18,9 @@ interface AccountSessionPayload {
 }
 
 function getSessionSecret() {
-  return process.env.ADMIN_SECRET || process.env.ADMIN_PASSWORD || "newbiechat";
+  const secret =
+    process.env.ADMIN_SECRET?.trim() || process.env.ADMIN_PASSWORD?.trim();
+  return secret || undefined;
 }
 
 function base64Url(value: string) {
@@ -29,8 +31,8 @@ function fromBase64Url(value: string) {
   return Buffer.from(value, "base64url").toString("utf8");
 }
 
-function sign(value: string) {
-  return createHmac("sha256", getSessionSecret()).update(value).digest("hex");
+function sign(value: string, secret: string) {
+  return createHmac("sha256", secret).update(value).digest("hex");
 }
 
 function safeEqual(a: string, b: string) {
@@ -43,23 +45,31 @@ export function shouldUseSecureSessionCookie() {
   return process.env.ADMIN_COOKIE_SECURE === "1";
 }
 
+export function isAccountSessionConfigured() {
+  return Boolean(getSessionSecret());
+}
+
 export function createAccountSessionToken(accountId: string) {
+  const secret = getSessionSecret();
+  if (!secret) return null;
+
   const payload: AccountSessionPayload = {
     accountId,
     exp: Date.now() + SESSION_TTL_MS,
   };
   const encodedPayload = base64Url(JSON.stringify(payload));
-  return `${encodedPayload}.${sign(encodedPayload)}`;
+  return `${encodedPayload}.${sign(encodedPayload, secret)}`;
 }
 
 export function verifyAccountSessionToken(token?: string) {
-  if (!token) return null;
+  const secret = getSessionSecret();
+  if (!token || !secret) return null;
 
   const [encodedPayload, signature] = token.split(".");
   if (
     !encodedPayload ||
     !signature ||
-    !safeEqual(signature, sign(encodedPayload))
+    !safeEqual(signature, sign(encodedPayload, secret))
   ) {
     return null;
   }

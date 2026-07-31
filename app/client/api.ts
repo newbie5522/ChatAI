@@ -268,6 +268,9 @@ export function getHeaders(ignoreHeaders: boolean = false) {
       Accept: "application/json",
     };
   }
+  if (useAccountStore.getState().authenticated) {
+    return headers;
+  }
 
   const clientConfig = getClientConfig();
 

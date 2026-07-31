@@ -34,7 +34,11 @@ export class GeminiProApi implements LLMApi {
     const accessStore = useAccessStore.getState();
 
     let baseUrl = "";
-    if (accessStore.useCustomConfig && !accessStore.hideUserApiKey) {
+    if (
+      !useAccountStore.getState().authenticated &&
+      accessStore.useCustomConfig &&
+      !accessStore.hideUserApiKey
+    ) {
       baseUrl = accessStore.googleUrl;
     }
 

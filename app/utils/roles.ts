@@ -11,11 +11,12 @@ export function getAccountStatusDisplayName(status?: AccountStatus | string) {
   return status === "disabled" ? "已禁用" : "正常";
 }
 
-export function getCategoryDisplayName(category: ModelCategory) {
-  return {
+export function getCategoryDisplayName(category?: ModelCategory | string) {
+  const names: Record<ModelCategory, string> = {
     chat: "聊天",
     search: "搜索",
     image: "生图",
     video: "视频",
-  }[category];
+  };
+  return names[category as ModelCategory] ?? "未知分类";
 }

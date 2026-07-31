@@ -175,6 +175,7 @@ function Screen() {
   const isArtifact = location.pathname.includes(Path.Artifacts);
   const isHome = location.pathname === Path.Home;
   const isAuth = location.pathname === Path.Auth;
+  const isAdmin = location.pathname === Path.Admin;
   const isSd = location.pathname === Path.Sd;
   const isSdNew = location.pathname === Path.SdNew;
   const currentSessionIndex = chatStore.currentSessionIndex;
@@ -295,11 +296,13 @@ function Screen() {
     if (isSdNew) return <Sd />;
     return (
       <>
-        <SideBar
-          className={clsx({
-            [styles["sidebar-show"]]: isHome,
-          })}
-        />
+        {!isAdmin && (
+          <SideBar
+            className={clsx({
+              [styles["sidebar-show"]]: isHome,
+            })}
+          />
+        )}
         <WindowContent>
           <Routes>
             <Route path={Path.Home} element={<Chat />} />
@@ -320,7 +323,9 @@ function Screen() {
   return (
     <div
       className={clsx(styles.container, {
-        [styles["tight-container"]]: shouldTightBorder,
+        [styles["tight-container"]]: shouldTightBorder && !isAuth && !isAdmin,
+        [styles["auth-container"]]: isAuth,
+        [styles["admin-container"]]: isAdmin,
         [styles["rtl-screen"]]: getLang() === "ar",
       })}
     >

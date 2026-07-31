@@ -2,7 +2,8 @@
   min-height: 100%;
   padding: 24px;
   box-sizing: border-box;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--gray);
   color: var(--black);
 }
@@ -12,7 +13,7 @@
 .panel,
 .message,
 .login-panel {
-  width: min(1280px, 100%);
+  width: min(1500px, 100%);
   margin: 0 auto 16px;
 }
 
@@ -90,20 +91,23 @@
 }
 
 .subtle {
+  display: block;
+  margin-top: 3px;
   font-size: 12px;
   opacity: 0.62;
+  overflow-wrap: anywhere;
 }
 
 .table-wrap {
   width: 100%;
   margin-top: 14px;
-  overflow: auto;
+  overflow: visible;
 }
 
 .table-wrap table {
   width: 100%;
-  min-width: 880px;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .table-wrap th,
@@ -112,7 +116,8 @@
   border-bottom: var(--border-in-light);
   text-align: left;
   vertical-align: middle;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .table-wrap th {
@@ -120,8 +125,74 @@
   opacity: 0.72;
 }
 
+.members-table th:nth-child(1) {
+  width: 14%;
+}
+
+.members-table th:nth-child(2) {
+  width: 12%;
+}
+
+.members-table th:nth-child(3) {
+  width: 13%;
+}
+
+.members-table th:nth-child(4) {
+  width: 24%;
+}
+
+.members-table th:nth-child(5) {
+  width: 15%;
+}
+
+.members-table th:nth-child(6) {
+  width: 22%;
+}
+
+.models-table th:nth-child(1) {
+  width: 30%;
+}
+
+.models-table th:nth-child(2) {
+  width: 18%;
+}
+
+.models-table th:nth-child(3),
+.models-table th:nth-child(4) {
+  width: 16%;
+}
+
+.models-table th:nth-child(5) {
+  width: 20%;
+}
+
+.logs-table th:nth-child(1) {
+  width: 14%;
+}
+
+.logs-table th:nth-child(2) {
+  width: 13%;
+}
+
+.logs-table th:nth-child(3) {
+  width: 16%;
+}
+
+.logs-table th:nth-child(4) {
+  width: 12%;
+}
+
+.logs-table th:nth-child(5) {
+  width: 29%;
+}
+
+.logs-table th:nth-child(6) {
+  width: 16%;
+}
+
 .row-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -170,6 +241,15 @@
   margin-top: 20px;
 }
 
+.empty-state {
+  margin-top: 14px;
+  padding: 20px 12px;
+  border: var(--border-in-light);
+  border-radius: 6px;
+  text-align: center;
+  opacity: 0.72;
+}
+
 .model-group h3 {
   font-size: 15px;
 }
@@ -196,15 +276,22 @@
 
 .preview {
   max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .modal-form {
   display: flex;
-  min-width: min(520px, calc(100vw - 64px));
+  width: min(520px, calc(100vw - 64px));
+  min-width: 0;
+  max-width: 100%;
   flex-direction: column;
   gap: 14px;
+  overflow-x: hidden;
+}
+
+.provider-form {
+  width: min(420px, calc(100vw - 64px));
 }
 
 .modal-form > label {
@@ -248,6 +335,67 @@
   min-height: auto;
 }
 
+.permission-summary {
+  display: flex;
+  padding: 10px 12px;
+  border: var(--border-in-light);
+  border-radius: 6px;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.form-error {
+  color: #c2410c;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.switch-row {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.switch {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: #9ca3af;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.switch span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform 0.2s ease;
+}
+
+.switch[aria-checked="true"] {
+  background: var(--primary);
+}
+
+.switch[aria-checked="true"] span {
+  transform: translateX(18px);
+}
+
+.model-toggle {
+  min-width: 72px;
+}
+
 @media screen and (max-width: 920px) {
   .admin {
     padding: 14px;
@@ -263,6 +411,120 @@
   }
 }
 
+@media screen and (max-width: 720px) {
+  .table-wrap table,
+  .table-wrap tbody,
+  .table-wrap tr,
+  .table-wrap td {
+    display: block;
+    width: 100%;
+  }
+
+  .table-wrap thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .table-wrap tbody tr {
+    padding: 8px 0;
+    border-bottom: var(--border-in-light);
+  }
+
+  .table-wrap tbody td {
+    display: grid;
+    padding: 6px 0;
+    border: 0;
+    grid-template-columns: 108px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .table-wrap tbody td::before {
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.68;
+  }
+
+  .table-wrap tbody td[colspan] {
+    display: block;
+    text-align: center;
+  }
+
+  .table-wrap tbody td[colspan]::before {
+    content: none;
+  }
+
+  .members-table td:nth-child(1)::before {
+    content: "成员";
+  }
+
+  .members-table td:nth-child(2)::before {
+    content: "角色与状态";
+  }
+
+  .members-table td:nth-child(3)::before {
+    content: "额度";
+  }
+
+  .members-table td:nth-child(4)::before {
+    content: "权限";
+  }
+
+  .members-table td:nth-child(5)::before {
+    content: "最后登录";
+  }
+
+  .members-table td:nth-child(6)::before {
+    content: "操作";
+  }
+
+  .models-table td:nth-child(1)::before {
+    content: "模型名称";
+  }
+
+  .models-table td:nth-child(2)::before {
+    content: "Provider";
+  }
+
+  .models-table td:nth-child(3)::before {
+    content: "分类";
+  }
+
+  .models-table td:nth-child(4)::before {
+    content: "状态";
+  }
+
+  .models-table td:nth-child(5)::before {
+    content: "启用开关";
+  }
+
+  .logs-table td:nth-child(1)::before {
+    content: "时间";
+  }
+
+  .logs-table td:nth-child(2)::before {
+    content: "账号与角色";
+  }
+
+  .logs-table td:nth-child(3)::before {
+    content: "服务商与模型";
+  }
+
+  .logs-table td:nth-child(4)::before {
+    content: "分类与状态";
+  }
+
+  .logs-table td:nth-child(5)::before {
+    content: "成员输入";
+  }
+
+  .logs-table td:nth-child(6)::before {
+    content: "错误";
+  }
+}
+
 @media screen and (max-width: 560px) {
   .header {
     align-items: flex-start;
@@ -270,7 +532,7 @@
   }
 
   .tabs {
-    overflow-x: auto;
+    flex-wrap: wrap;
   }
 
   .provider-grid,

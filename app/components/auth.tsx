@@ -33,7 +33,11 @@ export function AuthPage() {
       goChat();
     } catch (loginError) {
       setError(
-        loginError instanceof TypeError ? "网络连接失败" : "账号或密码错误",
+        loginError instanceof TypeError
+          ? "网络连接失败"
+          : loginError instanceof Error
+          ? loginError.message
+          : "账号或密码错误",
       );
     } finally {
       setChecking(false);
