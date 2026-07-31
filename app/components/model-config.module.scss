@@ -5,3 +5,19 @@
     white-space: normal;
   }
 }
+
+.number-with-unit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  input {
+    width: 130px;
+    max-width: 130px;
+  }
+
+  span {
+    color: var(--newbie-text-secondary, var(--black));
+    font-size: 12px;
+  }
+}

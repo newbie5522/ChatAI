@@ -33,7 +33,7 @@ import PinIcon from "../icons/pin.svg";
 import ConfirmIcon from "../icons/confirm.svg";
 import CloseIcon from "../icons/close.svg";
 import CancelIcon from "../icons/cancel.svg";
-import ImageIcon from "../icons/image.svg";
+import UploadIcon from "../icons/upload.svg";
 
 import LightIcon from "../icons/light.svg";
 import DarkIcon from "../icons/dark.svg";
@@ -69,7 +69,6 @@ import {
   getMessageImages,
   getMessageTextContent,
   isDalle3,
-  isVisionModel,
   safeLocalStorage,
   getModelSizes,
   supportsCustomSize,
@@ -77,8 +76,6 @@ import {
   selectOrCopy,
   showPlugins,
 } from "../utils";
-
-import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
 
 import dynamic from "next/dynamic";
 
@@ -121,12 +118,16 @@ import { ClientApi, MultimodalContent } from "../client/api";
 import { createTTSPlayer } from "../utils/audio";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "../utils/ms_edge_tts";
 
-import { isEmpty } from "lodash-es";
 import { getModelProvider } from "../utils/model";
 import { getGroupedModels } from "./model-config";
 import { RealtimeChat } from "@/app/components/realtime-chat";
 import clsx from "clsx";
 import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
+import type {
+  AttachmentUploadResponse,
+  ChatAttachment,
+} from "../types/attachment";
+import { formatAttachmentSize } from "../utils/attachments";
 
 const localStorage = safeLocalStorage();
 
@@ -494,9 +495,7 @@ function useScrollToBottom(
 }
 
 export function ChatActions(props: {
-  uploadImage: () => void;
-  setAttachImages: (images: string[]) => void;
-  setUploading: (uploading: boolean) => void;
+  uploadAttachments: () => void;
   showPromptModal: () => void;
   scrollToBottom: () => void;
   showPromptHints: () => void;
@@ -546,8 +545,6 @@ export function ChatActions(props: {
     return model?.displayName ?? model?.name ?? "暂无可用模型";
   }, [models, currentModel, currentProviderName]);
   const [showPluginSelector, setShowPluginSelector] = useState(false);
-  const [showUploadImage, setShowUploadImage] = useState(false);
-
   const [showSizeSelector, setShowSizeSelector] = useState(false);
   const [showQualitySelector, setShowQualitySelector] = useState(false);
   const [showStyleSelector, setShowStyleSelector] = useState(false);
@@ -562,13 +559,6 @@ export function ChatActions(props: {
   const isMobileScreen = useMobileScreen();
 
   useEffect(() => {
-    const show = isVisionModel(currentModel);
-    setShowUploadImage(show);
-    if (!show) {
-      props.setAttachImages([]);
-      props.setUploading(false);
-    }
-
     // if current model is not available
     // switch to first available model
     const isUnavailableModel = !models.some(
@@ -613,13 +603,11 @@ export function ChatActions(props: {
           />
         )}
 
-        {showUploadImage && (
-          <ChatAction
-            onClick={props.uploadImage}
-            text={Locale.Chat.InputActions.UploadImage}
-            icon={props.uploading ? <LoadingButtonIcon /> : <ImageIcon />}
-          />
-        )}
+        <ChatAction
+          onClick={props.uploadAttachments}
+          text="附件"
+          icon={props.uploading ? <LoadingButtonIcon /> : <UploadIcon />}
+        />
         <ChatAction
           onClick={nextTheme}
           text={Locale.Chat.InputActions.Theme[theme]}
@@ -935,14 +923,6 @@ export function EditMessageModal(props: { onClose: () => void }) {
   );
 }
 
-export function DeleteImageButton(props: { deleteImage: () => void }) {
-  return (
-    <div className={styles["delete-image"]} onClick={props.deleteImage}>
-      <DeleteIcon />
-    </div>
-  );
-}
-
 export function ShortcutKeyModal(props: { onClose: () => void }) {
   const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
   const shortcuts = [
@@ -1056,7 +1036,7 @@ function _Chat() {
   const [hitBottom, setHitBottom] = useState(true);
   const isMobileScreen = useMobileScreen();
   const navigate = useNavigate();
-  const [attachImages, setAttachImages] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
 
   // prompt hints
@@ -1128,7 +1108,7 @@ function _Chat() {
   };
 
   const doSubmit = (userInput: string) => {
-    if (userInput.trim() === "" && isEmpty(attachImages)) return;
+    if (userInput.trim() === "" && attachments.length === 0) return;
     const matchCommand = chatCommands.match(userInput);
     if (matchCommand.matched) {
       setUserInput("");
@@ -1140,11 +1120,34 @@ function _Chat() {
       showToast("当前账号暂无可用模型，请联系管理员。");
       return;
     }
+    if (uploading) {
+      showToast("附件正在解析，请稍候。");
+      return;
+    }
+    const selectedModel = accountStore.models.find(
+      (model) =>
+        model.name === session.mask.modelConfig.model &&
+        model.provider.providerName === session.mask.modelConfig.providerName,
+    );
+    const imageAttachments = attachments.filter(
+      (attachment) => attachment.kind === "image",
+    );
+    if (selectedModel?.category === "image" && imageAttachments.length > 0) {
+      showToast("当前生图接口暂不支持参考图片。");
+      return;
+    }
+    if (
+      imageAttachments.length > 0 &&
+      selectedModel?.capabilities?.vision !== true
+    ) {
+      showToast("当前模型不支持图片输入，请更换支持图片的模型。");
+      return;
+    }
     setIsLoading(true);
     chatStore
-      .onUserInput(userInput, attachImages)
+      .onUserInput(userInput, attachments)
       .then(() => setIsLoading(false));
-    setAttachImages([]);
+    setAttachments([]);
     chatStore.setLastInput(userInput);
     setUserInput("");
     setPromptHints([]);
@@ -1298,8 +1301,9 @@ function _Chat() {
     // resend the message
     setIsLoading(true);
     const textContent = getMessageTextContent(userMessage);
-    const images = getMessageImages(userMessage);
-    chatStore.onUserInput(textContent, images).then(() => setIsLoading(false));
+    chatStore
+      .onUserInput(textContent, userMessage.attachments)
+      .then(() => setIsLoading(false));
     inputRef.current?.focus();
   };
 
@@ -1537,93 +1541,77 @@ function _Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handlePaste = useCallback(
-    async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const currentModel = chatStore.currentSession().mask.modelConfig.model;
-      if (!isVisionModel(currentModel)) {
+  const uploadFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return;
+      if (attachments.length + files.length > 4) {
+        showToast("单次最多选择 4 个文件。");
         return;
       }
-      const items = (event.clipboardData || window.clipboardData).items;
-      for (const item of items) {
-        if (item.kind === "file" && item.type.startsWith("image/")) {
-          event.preventDefault();
-          const file = item.getAsFile();
-          if (file) {
-            const images: string[] = [];
-            images.push(...attachImages);
-            images.push(
-              ...(await new Promise<string[]>((res, rej) => {
-                setUploading(true);
-                const imagesData: string[] = [];
-                uploadImageRemote(file)
-                  .then((dataUrl) => {
-                    imagesData.push(dataUrl);
-                    setUploading(false);
-                    res(imagesData);
-                  })
-                  .catch((e) => {
-                    setUploading(false);
-                    rej(e);
-                  });
-              })),
-            );
-            const imagesLength = images.length;
+      if (files.some((file) => file.size > 10 * 1024 * 1024)) {
+        showToast("单个文件不能超过 10 MB。");
+        return;
+      }
+      const totalSize =
+        attachments.reduce((sum, attachment) => sum + attachment.size, 0) +
+        files.reduce((sum, file) => sum + file.size, 0);
+      if (totalSize > 20 * 1024 * 1024) {
+        showToast("单次附件总大小不能超过 20 MB。");
+        return;
+      }
 
-            if (imagesLength > 3) {
-              images.splice(3, imagesLength - 3);
-            }
-            setAttachImages(images);
-          }
+      const formData = new FormData();
+      files.forEach((file) => formData.append("files", file));
+      setUploading(true);
+      try {
+        const response = await fetch("/api/account/attachments", {
+          method: "POST",
+          credentials: "same-origin",
+          body: formData,
+        });
+        const body = (await response.json()) as AttachmentUploadResponse;
+        if (!response.ok || body.error || !body.attachments) {
+          throw new Error(body.message || "附件解析失败。");
         }
+        setAttachments((current) => [...current, ...body.attachments!]);
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : "附件解析失败。");
+      } finally {
+        setUploading(false);
       }
     },
-    [attachImages, chatStore],
+    [attachments],
   );
 
-  async function uploadImage() {
-    const images: string[] = [];
-    images.push(...attachImages);
+  const handlePaste = useCallback(
+    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const files = Array.from(event.clipboardData.items)
+        .filter((item) => item.kind === "file")
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => !!file);
+      if (files.length === 0) return;
+      event.preventDefault();
+      void uploadFiles(files);
+    },
+    [uploadFiles],
+  );
 
-    images.push(
-      ...(await new Promise<string[]>((res, rej) => {
-        const fileInput = document.createElement("input");
-        fileInput.type = "file";
-        fileInput.accept =
-          "image/png, image/jpeg, image/webp, image/heic, image/heif";
-        fileInput.multiple = true;
-        fileInput.onchange = (event: any) => {
-          setUploading(true);
-          const files = event.target.files;
-          const imagesData: string[] = [];
-          for (let i = 0; i < files.length; i++) {
-            const file = event.target.files[i];
-            uploadImageRemote(file)
-              .then((dataUrl) => {
-                imagesData.push(dataUrl);
-                if (
-                  imagesData.length === 3 ||
-                  imagesData.length === files.length
-                ) {
-                  setUploading(false);
-                  res(imagesData);
-                }
-              })
-              .catch((e) => {
-                setUploading(false);
-                rej(e);
-              });
-          }
-        };
-        fileInput.click();
-      })),
-    );
-
-    const imagesLength = images.length;
-    if (imagesLength > 3) {
-      images.splice(3, imagesLength - 3);
-    }
-    setAttachImages(images);
+  function uploadAttachments() {
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept =
+      ".png,.jpg,.jpeg,.webp,.txt,.md,.csv,.json,.log,.js,.jsx,.ts,.tsx,.py,.html,.css,.xml,.yaml,.yml,.pdf,.docx,.xls,.xlsx";
+    fileInput.multiple = true;
+    fileInput.onchange = () => {
+      void uploadFiles(Array.from(fileInput.files ?? []));
+    };
+    fileInput.click();
   }
+
+  useEffect(() => {
+    setAttachments([]);
+    setUploading(false);
+  }, [session.id]);
 
   // 快捷键 shortcut keys
   const [showShortcutKeyModal, setShowShortcutKeyModal] = useState(false);
@@ -2074,9 +2062,7 @@ function _Chat() {
               />
 
               <ChatActions
-                uploadImage={uploadImage}
-                setAttachImages={setAttachImages}
-                setUploading={setUploading}
+                uploadAttachments={uploadAttachments}
                 showPromptModal={() => setShowPromptModal(true)}
                 scrollToBottom={scrollToBottom}
                 hitBottom={hitBottom}
@@ -2099,10 +2085,53 @@ function _Chat() {
               <label
                 className={clsx(styles["chat-input-panel-inner"], {
                   [styles["chat-input-panel-inner-attach"]]:
-                    attachImages.length !== 0,
+                    attachments.length !== 0,
                 })}
                 htmlFor="chat-input"
               >
+                {attachments.length > 0 && (
+                  <div className={styles.attachments}>
+                    {attachments.map((attachment) => (
+                      <div className={styles.attachment} key={attachment.id}>
+                        {attachment.kind === "image" && attachment.dataUrl ? (
+                          <img
+                            className={styles["attachment-thumbnail"]}
+                            src={attachment.dataUrl}
+                            alt=""
+                          />
+                        ) : (
+                          <div className={styles["attachment-file-icon"]}>
+                            <UploadIcon />
+                          </div>
+                        )}
+                        <div className={styles["attachment-meta"]}>
+                          <strong title={attachment.name}>
+                            {attachment.name}
+                          </strong>
+                          <span>
+                            {formatAttachmentSize(attachment.size)}
+                            {attachment.truncated ? " · 已截断" : ""}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className={styles["attachment-delete"]}
+                          aria-label={`删除附件 ${attachment.name}`}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            setAttachments((current) =>
+                              current.filter(
+                                (item) => item.id !== attachment.id,
+                              ),
+                            );
+                          }}
+                        >
+                          <DeleteIcon />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <textarea
                   id="chat-input"
                   ref={inputRef}
@@ -2121,29 +2150,6 @@ function _Chat() {
                     fontFamily: config.fontFamily,
                   }}
                 />
-                {attachImages.length != 0 && (
-                  <div className={styles["attach-images"]}>
-                    {attachImages.map((image, index) => {
-                      return (
-                        <div
-                          key={index}
-                          className={styles["attach-image"]}
-                          style={{ backgroundImage: `url("${image}")` }}
-                        >
-                          <div className={styles["attach-image-mask"]}>
-                            <DeleteImageButton
-                              deleteImage={() => {
-                                setAttachImages(
-                                  attachImages.filter((_, i) => i !== index),
-                                );
-                              }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
                 <IconButton
                   icon={<SendWhiteIcon />}
                   text={Locale.Chat.Send}

@@ -1481,12 +1481,15 @@ export function Settings() {
   return (
     <ErrorBoundary>
       <div className="window-header" data-tauri-drag-region>
-        <div className="window-header-title">
-          <div className="window-header-main-title">
-            {Locale.Settings.Title}
-          </div>
-          <div className="window-header-sub-title">
-            {Locale.Settings.SubTitle}
+        <div className={`window-header-title ${styles["settings-brand"]}`}>
+          <img src="/newbiechat-logo.svg" alt="" />
+          <div>
+            <div className="window-header-main-title">
+              {Locale.Settings.Title}
+            </div>
+            <div className="window-header-sub-title">
+              {Locale.Settings.SubTitle}
+            </div>
           </div>
         </div>
         <div className="window-actions">

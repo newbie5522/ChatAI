@@ -1,6 +1,19 @@
 .settings {
   padding: 20px;
   overflow: auto;
+  background: var(--newbie-bg, var(--gray));
+}
+
+.settings-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  img {
+    width: 38px;
+    height: 38px;
+    object-fit: contain;
+  }
 }
 
 .avatar {

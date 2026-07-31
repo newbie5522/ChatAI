@@ -24,8 +24,15 @@ interface AdminAccount {
   name: string;
   role: AccountRole;
   status: "active" | "disabled";
-  monthlyQuota?: number;
-  usedQuota?: number;
+  quotaUnlimited: boolean;
+  monthlyChatTurns?: number;
+  monthlySearchTurns?: number;
+  monthlyImageCount?: number;
+  monthlyVideoCount?: number;
+  usedChatTurns: number;
+  usedSearchTurns: number;
+  usedImageCount: number;
+  usedVideoCount: number;
   allowedModelIds: string[];
   allowedCategories: ModelCategory[];
   lastLoginAt?: string;
@@ -76,7 +83,11 @@ interface AccountForm {
   name: string;
   password: string;
   role: AccountRole;
-  monthlyQuota: string;
+  quotaUnlimited: boolean;
+  monthlyChatTurns: string;
+  monthlySearchTurns: string;
+  monthlyImageCount: string;
+  monthlyVideoCount: string;
   allowedModelIds: string[];
   allowedCategories: ModelCategory[];
 }
@@ -89,6 +100,23 @@ interface ProviderForm {
   enabled: boolean;
 }
 
+type QuotaFormField =
+  | "monthlyChatTurns"
+  | "monthlySearchTurns"
+  | "monthlyImageCount"
+  | "monthlyVideoCount";
+
+const QUOTA_FORM_FIELDS: Array<{
+  label: string;
+  field: QuotaFormField;
+  unit: string;
+}> = [
+  { label: "聊天额度", field: "monthlyChatTurns", unit: "轮/月" },
+  { label: "搜索额度", field: "monthlySearchTurns", unit: "轮/月" },
+  { label: "生图额度", field: "monthlyImageCount", unit: "张/月" },
+  { label: "视频额度", field: "monthlyVideoCount", unit: "个/月" },
+];
+
 const PROVIDERS: ModelProvider[] = [
   "openai",
   "anthropic",
@@ -98,17 +126,19 @@ const PROVIDERS: ModelProvider[] = [
   "deepseek",
   "qwen",
   "mistral",
+  "zhipu",
 ];
 
 const PROVIDER_NAMES: Record<ModelProvider, string> = {
   openai: "OpenAI",
-  anthropic: "Anthropic",
+  anthropic: "Claude",
   google: "Google",
   perplexity: "Perplexity",
   xai: "xAI",
   deepseek: "DeepSeek",
   qwen: "Qwen",
   mistral: "Mistral",
+  zhipu: "智谱 GLM",
 };
 
 const CATEGORIES: ModelCategory[] = ["chat", "search", "image", "video"];
@@ -126,7 +156,11 @@ function emptyAccountForm(): AccountForm {
     name: "",
     password: "",
     role: "employee",
-    monthlyQuota: "100000",
+    quotaUnlimited: true,
+    monthlyChatTurns: "500",
+    monthlySearchTurns: "100",
+    monthlyImageCount: "50",
+    monthlyVideoCount: "10",
     allowedModelIds: [],
     allowedCategories: ["chat"],
   };
@@ -154,10 +188,6 @@ function formatDate(value?: string) {
   return Number.isNaN(date.getTime())
     ? "从未登录"
     : date.toLocaleString("zh-CN");
-}
-
-function formatQuota(value?: number) {
-  return value === undefined ? "不限" : value.toLocaleString("zh-CN");
 }
 
 function getLogStatus(status: string) {
@@ -327,8 +357,11 @@ export function AdminPanel() {
       name: account.name,
       password: "",
       role: account.role,
-      monthlyQuota:
-        account.monthlyQuota === undefined ? "" : String(account.monthlyQuota),
+      quotaUnlimited: account.quotaUnlimited,
+      monthlyChatTurns: String(account.monthlyChatTurns ?? 500),
+      monthlySearchTurns: String(account.monthlySearchTurns ?? 100),
+      monthlyImageCount: String(account.monthlyImageCount ?? 50),
+      monthlyVideoCount: String(account.monthlyVideoCount ?? 10),
       allowedModelIds: account.allowedModelIds ?? [],
       allowedCategories: account.allowedCategories ?? [],
     });
@@ -336,6 +369,22 @@ export function AdminPanel() {
 
   const saveAccount = async () => {
     if (!accountForm || savingAccount) return;
+    if (!accountForm.quotaUnlimited && accountForm.role === "employee") {
+      const quotaFields = [
+        ["聊天额度", accountForm.monthlyChatTurns],
+        ["搜索额度", accountForm.monthlySearchTurns],
+        ["生图额度", accountForm.monthlyImageCount],
+        ["视频额度", accountForm.monthlyVideoCount],
+      ] as const;
+      const invalid = quotaFields.find(([, value]) => {
+        const number = Number(value);
+        return !Number.isInteger(number) || number < 0;
+      });
+      if (invalid) {
+        setAccountFormError(`${invalid[0]}必须为非负整数`);
+        return;
+      }
+    }
     setSavingAccount(true);
     setAccountFormError("");
     try {
@@ -349,8 +398,12 @@ export function AdminPanel() {
           name: accountForm.name,
           password: accountForm.password || undefined,
           role: accountForm.role,
-          monthlyQuota:
-            accountForm.monthlyQuota === "" ? null : accountForm.monthlyQuota,
+          quotaUnlimited:
+            accountForm.role !== "employee" || accountForm.quotaUnlimited,
+          monthlyChatTurns: accountForm.monthlyChatTurns,
+          monthlySearchTurns: accountForm.monthlySearchTurns,
+          monthlyImageCount: accountForm.monthlyImageCount,
+          monthlyVideoCount: accountForm.monthlyVideoCount,
           allowedModelIds: accountForm.allowedModelIds,
           allowedCategories: accountForm.allowedCategories,
         }),
@@ -555,7 +608,10 @@ export function AdminPanel() {
   return (
     <main className={styles.admin}>
       <header className={styles.header}>
-        <h1>NewbieChat 管理后台</h1>
+        <div className={styles.brand}>
+          <img src="/newbiechat-logo.svg" alt="" />
+          <h1>NewbieChat 管理后台</h1>
+        </div>
         <IconButton
           text="返回聊天"
           bordered
@@ -618,10 +674,28 @@ export function AdminPanel() {
                       </span>
                     </td>
                     <td>
-                      <span>已用：{formatQuota(account.usedQuota ?? 0)}</span>
-                      <span className={styles.subtle}>
-                        月度：{formatQuota(account.monthlyQuota)}
-                      </span>
+                      {account.role !== "employee" || account.quotaUnlimited ? (
+                        <span>不限额度</span>
+                      ) : (
+                        <div className={styles["quota-summary"]}>
+                          <span>
+                            聊天：{account.usedChatTurns} /{" "}
+                            {account.monthlyChatTurns ?? 0}
+                          </span>
+                          <span>
+                            搜索：{account.usedSearchTurns} /{" "}
+                            {account.monthlySearchTurns ?? 0}
+                          </span>
+                          <span>
+                            生图：{account.usedImageCount} /{" "}
+                            {account.monthlyImageCount ?? 0}
+                          </span>
+                          <span>
+                            视频：{account.usedVideoCount} /{" "}
+                            {account.monthlyVideoCount ?? 0}
+                          </span>
+                        </div>
+                      )}
                     </td>
                     <td>
                       <span>{getPermissionSummary(account).categories}</span>
@@ -970,22 +1044,52 @@ export function AdminPanel() {
                 ))}
               </select>
             </label>
-            <label>
-              月度额度
-              <input
-                type="number"
-                min="0"
-                value={accountForm.monthlyQuota}
-                onChange={(event) =>
-                  setAccountForm({
-                    ...accountForm,
-                    monthlyQuota: event.currentTarget.value,
-                  })
-                }
-              />
-            </label>
             {accountForm.role === "employee" ? (
               <>
+                <div className={styles["switch-row"]}>
+                  <span>不限额度</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={accountForm.quotaUnlimited}
+                    aria-label="不限额度"
+                    className={styles.switch}
+                    onClick={() =>
+                      setAccountForm({
+                        ...accountForm,
+                        quotaUnlimited: !accountForm.quotaUnlimited,
+                      })
+                    }
+                  >
+                    <span />
+                  </button>
+                </div>
+                {accountForm.quotaUnlimited ? (
+                  <div className={styles["permission-summary"]}>不限额度</div>
+                ) : (
+                  <div className={styles["quota-fields"]}>
+                    {QUOTA_FORM_FIELDS.map(({ label, field, unit }) => (
+                      <label key={field}>
+                        {label}
+                        <span className={styles["quota-input"]}>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={accountForm[field]}
+                            onChange={(event) =>
+                              setAccountForm({
+                                ...accountForm,
+                                [field]: event.currentTarget.value,
+                              })
+                            }
+                          />
+                          <span>{unit}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
                 <fieldset>
                   <legend>分类权限</legend>
                   <div className={styles.checkboxes}>

@@ -2,8 +2,8 @@
 
 .card {
   background-color: var(--white);
-  border-radius: 10px;
-  box-shadow: var(--card-shadow);
+  border-radius: 12px;
+  box-shadow: var(--newbie-shadow-soft, var(--card-shadow));
   padding: 10px;
 }
 
@@ -78,8 +78,8 @@
 
 .list {
   border: var(--border-in-light);
-  border-radius: 10px;
-  box-shadow: var(--card-shadow);
+  border-radius: 14px;
+  box-shadow: var(--newbie-shadow-soft, var(--card-shadow));
   margin-bottom: 20px;
   animation: slide-in ease 0.3s;
   background: var(--white);
@@ -90,9 +90,9 @@
 }
 
 .modal-container {
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--newbie-shadow, var(--card-shadow));
   background-color: var(--white);
-  border-radius: 12px;
+  border-radius: 16px;
   width: 80vw;
   max-width: 900px;
   min-width: 300px;
@@ -215,7 +215,7 @@
     border: var(--border-in-light);
     color: var(--black);
     padding: 10px 20px;
-    border-radius: 50px;
+    border-radius: 12px;
     margin-bottom: 20px;
     display: flex;
     align-items: center;
@@ -336,4 +336,3 @@
     }
   }
 }
-

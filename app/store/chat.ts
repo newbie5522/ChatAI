@@ -38,6 +38,8 @@ import { collectModelsWithDefaultModel } from "../utils/model";
 import { createEmptyMask, Mask } from "./mask";
 import { executeMcpAction, getAllTools, isMcpEnabled } from "../mcp/actions";
 import { extractMcpJson, isMcpJson } from "../mcp/utils";
+import type { ChatAttachment } from "../types/attachment";
+import { buildAttachmentContext } from "../utils/attachments";
 
 const localStorage = safeLocalStorage();
 
@@ -63,6 +65,8 @@ export type ChatMessage = RequestMessage & {
   tools?: ChatMessageTool[];
   audio_url?: string;
   isMcpResponse?: boolean;
+  attachments?: ChatAttachment[];
+  requestContent?: RequestMessage["content"];
 };
 
 export function createMessage(override: Partial<ChatMessage>): ChatMessage {
@@ -410,32 +414,57 @@ export const useChatStore = createPersistStore(
 
       async onUserInput(
         content: string,
-        attachImages?: string[],
+        attachments?: ChatAttachment[],
         isMcpResponse?: boolean,
       ) {
         const session = get().currentSession();
         const modelConfig = session.mask.modelConfig;
 
-        // MCP Response no need to fill template
-        let mContent: string | MultimodalContent[] = isMcpResponse
+        const attachmentList = isMcpResponse ? [] : attachments ?? [];
+        const attachmentContext = buildAttachmentContext(attachmentList);
+        const imageUrls = attachmentList
+          .map((attachment) => attachment.dataUrl)
+          .filter((url): url is string => !!url);
+        const visibleContent: string | MultimodalContent[] =
+          imageUrls.length > 0
+            ? [
+                ...(content ? [{ type: "text" as const, text: content }] : []),
+                ...imageUrls.map((url) => ({
+                  type: "image_url" as const,
+                  image_url: { url },
+                })),
+              ]
+            : content;
+        const templatedContent = isMcpResponse
           ? content
           : fillTemplateWith(content, modelConfig);
-
-        if (!isMcpResponse && attachImages && attachImages.length > 0) {
-          mContent = [
-            ...(content ? [{ type: "text" as const, text: content }] : []),
-            ...attachImages.map((url) => ({
-              type: "image_url" as const,
-              image_url: { url },
-            })),
-          ];
-        }
+        const requestText = [templatedContent, attachmentContext]
+          .filter(Boolean)
+          .join("\n\n");
+        const requestContent: string | MultimodalContent[] =
+          imageUrls.length > 0
+            ? [
+                ...(requestText
+                  ? [{ type: "text" as const, text: requestText }]
+                  : []),
+                ...imageUrls.map((url) => ({
+                  type: "image_url" as const,
+                  image_url: { url },
+                })),
+              ]
+            : requestText;
 
         let userMessage: ChatMessage = createMessage({
           role: "user",
-          content: mContent,
+          content: visibleContent,
+          requestContent,
+          attachments: attachmentList,
           isMcpResponse,
         });
+        const requestUserMessage: ChatMessage = {
+          ...userMessage,
+          content: requestContent,
+        };
 
         const botMessage: ChatMessage = createMessage({
           role: "assistant",
@@ -445,19 +474,12 @@ export const useChatStore = createPersistStore(
 
         // get recent messages
         const recentMessages = await get().getMessagesWithMemory();
-        const sendMessages = recentMessages.concat(userMessage);
+        const sendMessages = recentMessages.concat(requestUserMessage);
         const messageIndex = session.messages.length + 1;
 
-        // save user's and bot's message
+        // save the original visible input separately from the model request.
         get().updateTargetSession(session, (session) => {
-          const savedUserMessage = {
-            ...userMessage,
-            content: mContent,
-          };
-          session.messages = session.messages.concat([
-            savedUserMessage,
-            botMessage,
-          ]);
+          session.messages = session.messages.concat([userMessage, botMessage]);
         });
 
         const api: ClientApi = getClientApi(modelConfig.providerName);
@@ -618,19 +640,23 @@ export const useChatStore = createPersistStore(
           : shortTermMemoryStartIndex;
         // and if user has cleared history messages, we should exclude the memory too.
         const contextStartIndex = Math.max(clearContextIndex, memoryStartIndex);
-        const maxTokenThreshold = modelConfig.max_tokens;
+        const historyTokenThreshold =
+          modelConfig.compressMessageLengthThreshold;
 
         // get recent messages as much as possible
         const reversedRecentMessages = [];
         for (
           let i = totalMessageCount - 1, tokenCount = 0;
-          i >= contextStartIndex && tokenCount < maxTokenThreshold;
+          i >= contextStartIndex && tokenCount < historyTokenThreshold;
           i -= 1
         ) {
           const msg = messages[i];
           if (!msg || msg.isError) continue;
           tokenCount += estimateTokenLength(getMessageTextContent(msg));
-          reversedRecentMessages.push(msg);
+          reversedRecentMessages.push({
+            ...msg,
+            content: msg.requestContent ?? msg.content,
+          });
         }
         // concat all messages
         const recentMessages = [
@@ -738,7 +764,10 @@ export const useChatStore = createPersistStore(
 
         const historyMsgLength = countMessages(toBeSummarizedMsgs);
 
-        if (historyMsgLength > (modelConfig?.max_tokens || 4000)) {
+        if (
+          historyMsgLength >
+          (modelConfig?.compressMessageLengthThreshold || 8000)
+        ) {
           const n = toBeSummarizedMsgs.length;
           toBeSummarizedMsgs = toBeSummarizedMsgs.slice(
             Math.max(0, n - modelConfig.historyMessageCount),

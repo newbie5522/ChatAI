@@ -10,6 +10,14 @@ declare module "*.scss" {
 
 declare module "*.svg";
 
+declare module "pdf-parse" {
+  interface PdfParseResult {
+    text: string;
+  }
+
+  export default function pdfParse(data: Buffer): Promise<PdfParseResult>;
+}
+
 declare interface Window {
   __TAURI__?: {
     writeText(text: string): Promise<void>;

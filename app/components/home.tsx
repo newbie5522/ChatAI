@@ -323,6 +323,7 @@ function Screen() {
   return (
     <div
       className={clsx(styles.container, {
+        "newbie-theme": true,
         [styles["tight-container"]]: shouldTightBorder && !isAuth && !isAdmin,
         [styles["auth-container"]]: isAuth,
         [styles["admin-container"]]: isAdmin,

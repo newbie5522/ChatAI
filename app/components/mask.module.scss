@@ -3,6 +3,7 @@
   height: 100%;
   display: flex;
   flex-direction: column;
+  background: var(--newbie-bg, var(--gray));
 
   .mask-page-body {
     padding: 20px;
@@ -41,6 +42,7 @@
       justify-content: space-between;
       padding: 20px;
       border: var(--border-in-light);
+      background: var(--newbie-card, var(--white));
       animation: slide-in ease 0.3s;
 
       &:not(:last-child) {
@@ -48,13 +50,13 @@
       }
 
       &:first-child {
-        border-top-left-radius: 10px;
-        border-top-right-radius: 10px;
+        border-top-left-radius: 14px;
+        border-top-right-radius: 14px;
       }
 
       &:last-child {
-        border-bottom-left-radius: 10px;
-        border-bottom-right-radius: 10px;
+        border-bottom-left-radius: 14px;
+        border-bottom-right-radius: 14px;
       }
 
       .mask-header {

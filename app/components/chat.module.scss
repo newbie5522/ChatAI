@@ -1,47 +1,5 @@
 @import "../styles/animation.scss";
 
-.attach-images {
-  position: absolute;
-  left: 30px;
-  bottom: 32px;
-  display: flex;
-}
-
-.attach-image {
-  cursor: default;
-  width: 64px;
-  height: 64px;
-  border: rgba($color: #888, $alpha: 0.2) 1px solid;
-  border-radius: 5px;
-  margin-right: 10px;
-  background-size: cover;
-  background-position: center;
-  background-color: var(--white);
-
-  .attach-image-mask {
-    width: 100%;
-    height: 100%;
-    opacity: 0;
-    transition: all ease 0.2s;
-  }
-
-  .attach-image-mask:hover {
-    opacity: 1;
-  }
-
-  .delete-image {
-    width: 24px;
-    height: 24px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 5px;
-    float: right;
-    background-color: var(--white);
-  }
-}
-
 .chat-input-actions {
   display: flex;
   flex-wrap: wrap;
@@ -56,17 +14,17 @@
 
   .chat-input-action {
     display: inline-flex;
-    border-radius: 20px;
+    border-radius: 10px;
     font-size: 12px;
     background-color: var(--white);
     color: var(--black);
     border: var(--border-in-light);
-    padding: 4px 10px;
+    padding: 6px 10px;
     animation: slide-in ease 0.3s;
     box-shadow: var(--card-shadow);
     transition: width ease 0.3s;
     align-items: center;
-    height: 16px;
+    height: 18px;
     width: var(--icon-width);
     overflow: hidden;
 
@@ -103,12 +61,12 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    height: 26px;
+    height: 32px;
     margin-bottom: 10px;
     padding: 0 8px;
     box-sizing: border-box;
     border: var(--border-in-light);
-    border-radius: 6px;
+    border-radius: 10px;
     background: var(--white);
     box-shadow: var(--card-shadow);
 
@@ -320,6 +278,7 @@
   flex-direction: column;
   position: relative;
   height: 100%;
+  background: var(--newbie-bg, var(--gray));
 }
 
 .chat-body {
@@ -330,6 +289,7 @@
   padding-bottom: 40px;
   position: relative;
   overscroll-behavior: none;
+  background: var(--newbie-bg, var(--gray));
 }
 
 .chat-body-main-title {
@@ -472,13 +432,14 @@
   box-sizing: border-box;
   max-width: 100%;
   margin-top: 10px;
-  border-radius: 10px;
-  background-color: rgba(0, 0, 0, 0.05);
-  padding: 10px;
+  border-radius: 12px;
+  background-color: var(--newbie-card, var(--white));
+  padding: 12px 14px;
   font-size: 14px;
   user-select: text;
   word-break: break-word;
-  border: var(--border-in-light);
+  border: 1px solid var(--newbie-border, #e4e6f0);
+  box-shadow: 0 5px 16px rgba(65, 54, 145, 0.06);
   position: relative;
   transition: all ease 0.3s;
 }
@@ -579,7 +540,8 @@
 }
 
 .chat-message-user > .chat-message-container > .chat-message-item {
-  background-color: var(--second);
+  border-color: rgba(141, 128, 255, 0.28);
+  background-color: var(--newbie-primary-soft, var(--second));
 
   &:hover {
     min-width: 0;
@@ -594,7 +556,8 @@
   box-sizing: border-box;
   flex-direction: column;
   border-top: var(--border-in-light);
-  box-shadow: var(--card-shadow);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 -8px 24px rgba(65, 54, 145, 0.05);
 
   .chat-input-actions {
     .chat-input-action {
@@ -660,23 +623,28 @@
 .chat-input-panel-inner {
   cursor: text;
   display: flex;
+  flex-direction: column;
   flex: 1;
-  border-radius: 10px;
-  border: var(--border-in-light);
+  border-radius: 14px;
+  border: 1px solid var(--newbie-border, #e4e6f0);
+  background: var(--newbie-card, var(--white));
+  box-shadow: var(--newbie-shadow-soft, var(--card-shadow));
+  overflow: hidden;
 }
 
 .chat-input-panel-inner-attach {
-  padding-bottom: 80px;
+  padding-bottom: 0;
 }
 
 .chat-input-panel-inner:has(.chat-input:focus) {
-  border: 1px solid var(--primary);
+  border: 1px solid var(--newbie-border-focus, var(--primary));
+  box-shadow: 0 0 0 3px rgba(91, 75, 255, 0.1);
 }
 
 .chat-input {
   height: 100%;
   width: 100%;
-  border-radius: 10px;
+  border-radius: 14px;
   border: none;
   box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.03);
   background-color: var(--white);
@@ -692,9 +660,104 @@
 .chat-input:focus {
 }
 
+.attachments {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 60px 0 10px;
+}
+
+.attachment {
+  min-width: 0;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px;
+  border: 1px solid var(--newbie-border, #e4e6f0);
+  border-radius: 10px;
+  background: var(--newbie-card, var(--white));
+  box-sizing: border-box;
+}
+
+.attachment-thumbnail,
+.attachment-file-icon {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 8px;
+}
+
+.attachment-thumbnail {
+  object-fit: cover;
+}
+
+.attachment-file-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--newbie-primary, var(--primary));
+  background: var(--newbie-primary-soft, var(--second));
+
+  svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+.attachment-meta {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+
+  strong,
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    font-size: 12px;
+  }
+
+  span {
+    color: var(--newbie-text-secondary, #737b91);
+    font-size: 11px;
+  }
+}
+
+.attachment-delete {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--newbie-text-muted, #9ca3b5);
+  cursor: pointer;
+
+  svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  &:hover {
+    color: #b84655;
+    background: rgba(184, 70, 85, 0.08);
+  }
+}
+
 .chat-input-send {
-  background-color: var(--primary);
+  background: linear-gradient(90deg, #633bff 0%, #514dff 100%);
   color: white;
+  box-shadow: 0 7px 18px rgba(91, 75, 255, 0.24);
 
   position: absolute;
   right: 30px;
@@ -708,6 +771,10 @@
 
   .chat-input-send {
     bottom: 30px;
+  }
+
+  .attachments {
+    grid-template-columns: 1fr;
   }
 }
 

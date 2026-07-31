@@ -44,6 +44,11 @@ export interface AccountRecord {
   role: AccountRole;
   passwordHash: string;
   status: AccountStatus;
+  quotaUnlimited: boolean;
+  monthlyChatTurns?: number;
+  monthlySearchTurns?: number;
+  monthlyImageCount?: number;
+  monthlyVideoCount?: number;
   monthlyQuota?: number;
   usedQuota?: number;
   allowedModelIds: string[];
@@ -106,19 +111,23 @@ export interface AccountSessionUser {
   role: AccountRole;
   allowedModelIds: string[];
   allowedCategories: ModelCategory[];
-  monthlyQuota?: number;
-  usedQuota?: number;
+  quotaUnlimited: boolean;
+  monthlyChatTurns?: number;
+  monthlySearchTurns?: number;
+  monthlyImageCount?: number;
+  monthlyVideoCount?: number;
 }
 
 const PROVIDER_NAMES: Record<AdminProviderId, string> = {
   openai: "OpenAI",
-  anthropic: "Anthropic",
+  anthropic: "Claude",
   google: "Google",
   perplexity: "Perplexity",
   xai: "xAI",
   deepseek: "DeepSeek",
   qwen: "Qwen",
   mistral: "Mistral",
+  zhipu: "智谱 GLM",
 };
 
 const PROVIDER_ENV: Record<
@@ -152,6 +161,7 @@ const PROVIDER_ENV: Record<
   deepseek: {},
   qwen: {},
   mistral: {},
+  zhipu: {},
 };
 
 export const ADMIN_PROVIDER_IDS: AdminProviderId[] = [
@@ -163,6 +173,7 @@ export const ADMIN_PROVIDER_IDS: AdminProviderId[] = [
   "deepseek",
   "qwen",
   "mistral",
+  "zhipu",
 ];
 
 const MODEL_CATEGORY_IDS: ModelCategory[] = [
@@ -222,6 +233,12 @@ function normalizeQuota(value: unknown) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
+function normalizeMonthlyCount(value: unknown) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
 function normalizeStatus(value: unknown): AccountStatus {
   const status = String(value ?? "active").toLowerCase();
   if (status === "disabled") return "disabled";
@@ -253,6 +270,8 @@ function normalizeAccountRecord(record: Partial<AccountRecord>): AccountRecord {
   const id = String(record.id ?? "").trim() || randomUUID();
   const username = String(record.username ?? id).trim();
   const name = String(record.name ?? username).trim() || username;
+  const quotaUnlimited =
+    typeof record.quotaUnlimited === "boolean" ? record.quotaUnlimited : true;
 
   if (!username) {
     throw new Error("username is required");
@@ -265,6 +284,19 @@ function normalizeAccountRecord(record: Partial<AccountRecord>): AccountRecord {
     role: normalizeRole(record.role),
     passwordHash: String(record.passwordHash ?? "").trim(),
     status: normalizeStatus(record.status),
+    quotaUnlimited,
+    monthlyChatTurns:
+      normalizeMonthlyCount(record.monthlyChatTurns) ??
+      (quotaUnlimited ? undefined : 500),
+    monthlySearchTurns:
+      normalizeMonthlyCount(record.monthlySearchTurns) ??
+      (quotaUnlimited ? undefined : 100),
+    monthlyImageCount:
+      normalizeMonthlyCount(record.monthlyImageCount) ??
+      (quotaUnlimited ? undefined : 50),
+    monthlyVideoCount:
+      normalizeMonthlyCount(record.monthlyVideoCount) ??
+      (quotaUnlimited ? undefined : 10),
     monthlyQuota: normalizeQuota(record.monthlyQuota),
     usedQuota: normalizeQuota(record.usedQuota),
     allowedModelIds: cleanList(record.allowedModelIds),
@@ -414,6 +446,11 @@ export function ensureBootstrapSuperAdmin() {
     role: "super_admin",
     passwordHash: hashPassword(password),
     status: "active",
+    quotaUnlimited: true,
+    monthlyChatTurns: undefined,
+    monthlySearchTurns: undefined,
+    monthlyImageCount: undefined,
+    monthlyVideoCount: undefined,
     monthlyQuota: undefined,
     usedQuota: 0,
     allowedModelIds: [],
@@ -438,8 +475,11 @@ export function toSessionUser(record: SafeAccountRecord): AccountSessionUser {
     role: record.role,
     allowedModelIds: record.allowedModelIds,
     allowedCategories: record.allowedCategories,
-    monthlyQuota: record.monthlyQuota,
-    usedQuota: record.usedQuota,
+    quotaUnlimited: record.quotaUnlimited,
+    monthlyChatTurns: record.monthlyChatTurns,
+    monthlySearchTurns: record.monthlySearchTurns,
+    monthlyImageCount: record.monthlyImageCount,
+    monthlyVideoCount: record.monthlyVideoCount,
   };
 }
 

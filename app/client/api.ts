@@ -28,6 +28,7 @@ import { ChatGLMApi } from "./platforms/glm";
 import { SiliconflowApi } from "./platforms/siliconflow";
 import { Ai302Api } from "./platforms/ai302";
 import { CompanyOpenAICompatibleApi } from "./platforms/company-openai-compatible";
+import type { CompanyModel } from "../config/model-registry";
 
 export const ROLES = ["system", "user", "assistant"] as const;
 export type MessageRole = (typeof ROLES)[number];
@@ -100,6 +101,7 @@ export interface LLMModel {
   available: boolean;
   provider: LLMModelProvider;
   sorted: number;
+  capabilities?: CompanyModel["capabilities"];
 }
 
 export interface LLMModelProvider {
@@ -185,6 +187,9 @@ export class ClientApi {
         break;
       case ModelProvider.Mistral:
         this.llm = new CompanyOpenAICompatibleApi("mistral");
+        break;
+      case ModelProvider.Zhipu:
+        this.llm = new CompanyOpenAICompatibleApi("zhipu");
         break;
       case ModelProvider.ChatGLM:
         this.llm = new ChatGLMApi();
@@ -438,6 +443,11 @@ export function getClientApi(provider: ServiceProvider | string): ClientApi {
         : new ClientApi(ModelProvider.XAI);
     case ServiceProvider.Mistral:
       return new ClientApi(ModelProvider.Mistral);
+    case "智谱 GLM":
+      return new ClientApi(
+        ModelProvider.Zhipu,
+        new CompanyOpenAICompatibleApi("zhipu"),
+      );
     case ServiceProvider.ChatGLM:
       return new ClientApi(ModelProvider.ChatGLM);
     case ServiceProvider.SiliconFlow:

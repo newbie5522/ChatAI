@@ -16,6 +16,7 @@ const DEFAULT_BASE_URL: Record<ModelProvider, string> = {
   deepseek: "",
   qwen: "",
   mistral: "",
+  zhipu: "https://open.bigmodel.cn/api/paas/v4",
 };
 
 function normalizeBaseUrl(url?: string, provider?: ModelProvider) {
@@ -93,12 +94,20 @@ export async function verifyProviderCredentialConnection(
       }),
     };
   } else {
+    const verificationModel: Partial<Record<ModelProvider, string>> = {
+      perplexity: "sonar",
+      xai: "grok-4.5",
+      deepseek: "deepseek-v4-flash",
+      qwen: "qwen3.7-flash",
+      mistral: "mistral-small-2603",
+      zhipu: "glm-4.7-flash",
+    };
     url = `${baseUrl}/chat/completions`;
     init = {
       method: "POST",
       headers: credentialHeaders(credential),
       body: JSON.stringify({
-        model: "sonar",
+        model: verificationModel[credential.provider] ?? "sonar",
         max_tokens: 1,
         messages: [{ role: "user", content: "ping" }],
       }),

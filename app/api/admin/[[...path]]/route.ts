@@ -82,6 +82,29 @@ function toNumber(value: unknown) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
+const QUOTA_FIELDS = [
+  ["monthlyChatTurns", "聊天额度"],
+  ["monthlySearchTurns", "搜索额度"],
+  ["monthlyImageCount", "生图额度"],
+  ["monthlyVideoCount", "视频额度"],
+] as const;
+
+function validateQuotaFields(body: Record<string, unknown>) {
+  for (const [field, label] of QUOTA_FIELDS) {
+    if (body[field] === undefined) continue;
+    const value = Number(body[field]);
+    if (!Number.isInteger(value) || value < 0) {
+      return `${label}必须为非负整数`;
+    }
+  }
+  return "";
+}
+
+function toNonNegativeInteger(value: unknown) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
 function forbidden(message: string) {
   return NextResponse.json({ error: true, message }, { status: 403 });
 }
@@ -115,10 +138,27 @@ function accountPayload(
       body.status ?? existing?.status ?? "active",
     ) as AccountStatus,
     password,
-    monthlyQuota:
-      body.monthlyQuota === undefined
-        ? existing?.monthlyQuota
-        : toNumber(body.monthlyQuota),
+    quotaUnlimited:
+      typeof body.quotaUnlimited === "boolean"
+        ? body.quotaUnlimited
+        : existing?.quotaUnlimited ?? true,
+    monthlyChatTurns:
+      body.monthlyChatTurns === undefined
+        ? existing?.monthlyChatTurns
+        : toNonNegativeInteger(body.monthlyChatTurns),
+    monthlySearchTurns:
+      body.monthlySearchTurns === undefined
+        ? existing?.monthlySearchTurns
+        : toNonNegativeInteger(body.monthlySearchTurns),
+    monthlyImageCount:
+      body.monthlyImageCount === undefined
+        ? existing?.monthlyImageCount
+        : toNonNegativeInteger(body.monthlyImageCount),
+    monthlyVideoCount:
+      body.monthlyVideoCount === undefined
+        ? existing?.monthlyVideoCount
+        : toNonNegativeInteger(body.monthlyVideoCount),
+    monthlyQuota: existing?.monthlyQuota,
     usedQuota: existing?.usedQuota,
     allowedModelIds:
       allowedModelIds === undefined
@@ -176,20 +216,30 @@ async function listAccounts() {
   const summaries = await Promise.all(
     accounts.map((account) => getAccountUsageSummary(account, month)),
   );
-  const usedQuotaByAccount = new Map(
-    summaries.map((summary) => [summary.accountId, summary.usedQuota]),
+  const summaryByAccount = new Map(
+    summaries.map((summary) => [summary.accountId, summary]),
   );
   return NextResponse.json({
     error: false,
     accounts: accounts.map((account) => ({
       ...account,
-      usedQuota: usedQuotaByAccount.get(account.id) ?? 0,
+      usedChatTurns: summaryByAccount.get(account.id)?.usedChatTurns ?? 0,
+      usedSearchTurns: summaryByAccount.get(account.id)?.usedSearchTurns ?? 0,
+      usedImageCount: summaryByAccount.get(account.id)?.usedImageCount ?? 0,
+      usedVideoCount: summaryByAccount.get(account.id)?.usedVideoCount ?? 0,
     })),
   });
 }
 
 async function createAccount(req: NextRequest, actor: SafeAccountRecord) {
   const body = await readBody(req);
+  const quotaError = validateQuotaFields(body);
+  if (quotaError) {
+    return NextResponse.json(
+      { error: true, message: quotaError },
+      { status: 400 },
+    );
+  }
   const payload = accountPayload(body);
 
   if (!payload.username) {
@@ -239,6 +289,13 @@ async function updateAccount(
   }
 
   const body = await readBody(req);
+  const quotaError = validateQuotaFields(body);
+  if (quotaError) {
+    return NextResponse.json(
+      { error: true, message: quotaError },
+      { status: 400 },
+    );
+  }
   const payload = accountPayload(body, toSafeAccount(existing));
   if (!payload.username) {
     return NextResponse.json(

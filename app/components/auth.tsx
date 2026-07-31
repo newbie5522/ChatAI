@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Path } from "../constant";
 import { useAccountStore } from "../store";
+import EyeIcon from "../icons/eye.svg";
+import EyeOffIcon from "../icons/eye-off.svg";
 
 export function AuthPage() {
   const navigate = useNavigate();
@@ -58,6 +60,7 @@ export function AuthPage() {
 
   return (
     <div className={styles["auth-page"]}>
+      <img className={styles["auth-logo"]} src="/newbiechat-logo.svg" alt="" />
       <div className={styles["auth-title"]}>NewbieChat</div>
       <form
         className={styles["auth-form"]}
@@ -92,7 +95,7 @@ export function AuthPage() {
             aria-label={showPassword ? "隐藏密码" : "显示密码"}
             onClick={() => setShowPassword((visible) => !visible)}
           >
-            {showPassword ? "隐藏" : "显示"}
+            {showPassword ? <EyeOffIcon /> : <EyeIcon />}
           </button>
         </div>
 

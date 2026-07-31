@@ -33,6 +33,8 @@ export const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 export const XAI_BASE_URL = "https://api.x.ai";
 
 export const CHATGLM_BASE_URL = "https://open.bigmodel.cn";
+export const ZHIPU_BASE_URL =
+  "https://open.bigmodel.cn/api/paas/v4/chat/completions";
 
 export const SILICONFLOW_BASE_URL = "https://api.siliconflow.cn";
 
@@ -123,7 +125,7 @@ export enum ServiceProvider {
   Azure = "Azure",
   Google = "Google",
   Perplexity = "Perplexity",
-  Anthropic = "Anthropic",
+  Anthropic = "Claude",
   Baidu = "Baidu",
   ByteDance = "ByteDance",
   Alibaba = "Alibaba",
@@ -136,6 +138,7 @@ export enum ServiceProvider {
   DeepSeek = "DeepSeek",
   Qwen = "Qwen",
   Mistral = "Mistral",
+  Zhipu = "智谱 GLM",
   SiliconFlow = "SiliconFlow",
   "302.AI" = "302.AI",
 }
@@ -165,6 +168,7 @@ export enum ModelProvider {
   ChatGLM = "ChatGLM",
   DeepSeek = "DeepSeek",
   Mistral = "Mistral",
+  Zhipu = "Zhipu",
   SiliconFlow = "SiliconFlow",
   "302.AI" = "302.AI",
 }
@@ -485,10 +489,11 @@ export const VISION_MODEL_REGEXES = [
   /vision/,
   /gpt-4o/,
   /gpt-4\.1/,
-  /claude.*[34]/,
+  /claude.*[345]/,
   /gemini-1\.5/,
   /gemini-exp/,
   /gemini-2\.[05]/,
+  /gemini-3\./,
   /learnlm/,
   /qwen-vl/,
   /qwen2-vl/,
@@ -955,6 +960,7 @@ export const COMPANY_ENABLED_PROVIDERS = [
   ServiceProvider.DeepSeek,
   ServiceProvider.Qwen,
   ServiceProvider.Mistral,
+  ServiceProvider.Zhipu,
 ] as const;
 
 export const COMPANY_GATEWAY_BASE = "/api/gateway";
@@ -968,6 +974,7 @@ export const COMPANY_API_PATH = {
   DeepSeek: "/api/gateway/deepseek",
   Qwen: "/api/gateway/qwen",
   Mistral: "/api/gateway/mistral",
+  Zhipu: "/api/gateway/zhipu",
 };
 
 export const PERPLEXITY_BASE_URL = "https://api.perplexity.ai";

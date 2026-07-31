@@ -19,11 +19,17 @@
   }
 
   &.primary {
-    background-color: var(--primary);
+    background: linear-gradient(90deg, #633bff 0%, #514dff 100%);
     color: white;
+    box-shadow: 0 8px 20px rgba(91, 75, 255, 0.22);
 
     path {
       fill: white !important;
+    }
+
+    &:hover,
+    &:focus {
+      background: linear-gradient(90deg, #5730f5 0%, #4742f2 100%);
     }
   }
 

@@ -9,6 +9,7 @@ const PROVIDER_ENDPOINTS = {
   deepseek: "https://api.deepseek.com/chat/completions",
   qwen: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
   mistral: "https://api.mistral.ai/v1/chat/completions",
+  zhipu: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
 } as const;
 
 const FORWARDED_FIELDS = [

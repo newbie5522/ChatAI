@@ -12,8 +12,11 @@ export interface AccountSessionUser {
   role: AccountRole;
   allowedModelIds: string[];
   allowedCategories: ModelCategory[];
-  monthlyQuota?: number;
-  usedQuota?: number;
+  quotaUnlimited: boolean;
+  monthlyChatTurns?: number;
+  monthlySearchTurns?: number;
+  monthlyImageCount?: number;
+  monthlyVideoCount?: number;
 }
 
 interface AccountSessionResponse {
@@ -46,9 +49,15 @@ function isAccountSessionUser(value: unknown): value is AccountSessionUser {
     user.allowedCategories.every((category) =>
       MODEL_CATEGORIES.includes(category as ModelCategory),
     ) &&
-    (user.monthlyQuota === undefined ||
-      typeof user.monthlyQuota === "number") &&
-    (user.usedQuota === undefined || typeof user.usedQuota === "number")
+    typeof user.quotaUnlimited === "boolean" &&
+    (user.monthlyChatTurns === undefined ||
+      typeof user.monthlyChatTurns === "number") &&
+    (user.monthlySearchTurns === undefined ||
+      typeof user.monthlySearchTurns === "number") &&
+    (user.monthlyImageCount === undefined ||
+      typeof user.monthlyImageCount === "number") &&
+    (user.monthlyVideoCount === undefined ||
+      typeof user.monthlyVideoCount === "number")
   );
 }
 

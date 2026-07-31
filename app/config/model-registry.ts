@@ -6,7 +6,8 @@ export type ModelProvider =
   | "xai"
   | "deepseek"
   | "qwen"
-  | "mistral";
+  | "mistral"
+  | "zhipu";
 
 export type ModelCategory = "chat" | "image" | "search" | "video";
 
@@ -47,13 +48,14 @@ export interface CompanyModel {
 
 export const MODEL_PROVIDER_LABELS: Record<ModelProvider, string> = {
   openai: "OpenAI",
-  anthropic: "Anthropic",
+  anthropic: "Claude",
   google: "Google",
   perplexity: "Perplexity",
   xai: "xAI",
   deepseek: "DeepSeek",
   qwen: "Qwen",
   mistral: "Mistral",
+  zhipu: "智谱 GLM",
 };
 
 export const MODEL_PROVIDER_SORT: Record<ModelProvider, number> = {
@@ -65,6 +67,7 @@ export const MODEL_PROVIDER_SORT: Record<ModelProvider, number> = {
   deepseek: 6,
   qwen: 7,
   mistral: 8,
+  zhipu: 9,
 };
 
 export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
@@ -111,10 +114,11 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     displayName: "GPT-5.5",
     model: "gpt-5.5",
     endpointType: "openai_responses",
-    enabled: false,
-    defaultEnabled: false,
-    legacy: true,
-    sort: 190,
+    enabled: true,
+    defaultEnabled: true,
+    legacy: false,
+    deprecated: false,
+    sort: 130,
     capabilities: { reasoning: true, tools: true, vision: true },
   },
   {
@@ -127,6 +131,7 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     enabled: false,
     defaultEnabled: false,
     legacy: true,
+    deprecated: true,
     sort: 195,
     capabilities: { reasoning: true, tools: true, vision: true },
   },
@@ -203,7 +208,7 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     enabled: true,
     defaultEnabled: true,
     sort: 400,
-    capabilities: { vision: true, tools: true },
+    capabilities: { vision: true, reasoning: true, tools: true },
   },
   {
     id: "google:gemini-3.5-flash",
@@ -215,19 +220,19 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     enabled: true,
     defaultEnabled: true,
     sort: 410,
-    capabilities: { vision: true, tools: true },
+    capabilities: { vision: true, reasoning: true, tools: true },
   },
   {
     id: "google:gemini-3.5-flash-lite",
     provider: "google",
     category: "chat",
-    displayName: "Gemini 3.5 Flash Lite",
+    displayName: "Gemini 3.5 Flash-Lite",
     model: "gemini-3.5-flash-lite",
     endpointType: "google_generate_content",
     enabled: true,
     defaultEnabled: true,
     sort: 420,
-    capabilities: { vision: true },
+    capabilities: { vision: true, reasoning: true, tools: true },
   },
   {
     id: "google:gemini-3.1-pro-preview",
@@ -239,25 +244,10 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     enabled: false,
     defaultEnabled: false,
     adminOnly: true,
-    legacy: true,
-    deprecated: true,
+    legacy: false,
+    deprecated: false,
     sort: 430,
     capabilities: { reasoning: true, vision: true, tools: true },
-  },
-  {
-    id: "google:gemini-3-flash-preview",
-    provider: "google",
-    category: "chat",
-    displayName: "Gemini 3 Flash Preview",
-    model: "gemini-3-flash-preview",
-    endpointType: "google_generate_content",
-    enabled: false,
-    defaultEnabled: false,
-    adminOnly: true,
-    legacy: true,
-    deprecated: true,
-    sort: 440,
-    capabilities: { vision: true, tools: true },
   },
   {
     id: "google:nano-banana-2",
@@ -293,19 +283,6 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     enabled: true,
     defaultEnabled: true,
     sort: 520,
-    capabilities: { imageGeneration: true },
-  },
-  {
-    id: "google:nano-banana",
-    provider: "google",
-    category: "image",
-    displayName: "Nano Banana",
-    model: "gemini-2.5-flash-image",
-    endpointType: "google_image",
-    enabled: false,
-    defaultEnabled: false,
-    legacy: true,
-    sort: 590,
     capabilities: { imageGeneration: true },
   },
   {
@@ -483,6 +460,42 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     defaultEnabled: true,
     sort: 1020,
   },
+  {
+    id: "zhipu:glm-5.2",
+    provider: "zhipu",
+    category: "chat",
+    displayName: "GLM-5.2",
+    model: "glm-5.2",
+    endpointType: "openai_compatible_chat",
+    enabled: true,
+    defaultEnabled: true,
+    sort: 1100,
+    capabilities: { reasoning: true, tools: true },
+  },
+  {
+    id: "zhipu:glm-5.1",
+    provider: "zhipu",
+    category: "chat",
+    displayName: "GLM-5.1",
+    model: "glm-5.1",
+    endpointType: "openai_compatible_chat",
+    enabled: true,
+    defaultEnabled: true,
+    sort: 1110,
+    capabilities: { reasoning: true, tools: true },
+  },
+  {
+    id: "zhipu:glm-4.7-flash",
+    provider: "zhipu",
+    category: "chat",
+    displayName: "GLM-4.7 Flash",
+    model: "glm-4.7-flash",
+    endpointType: "openai_compatible_chat",
+    enabled: true,
+    defaultEnabled: true,
+    sort: 1120,
+    capabilities: { reasoning: true, tools: true },
+  },
 ];
 
 export function normalizeCompanyModel(
@@ -540,6 +553,7 @@ export function toCompanyLLMModel(model: CompanyModel) {
     category: model.category,
     available: true,
     sorted: model.sort,
+    capabilities: model.capabilities,
     provider: {
       id: model.provider,
       providerName: MODEL_PROVIDER_LABELS[model.provider],

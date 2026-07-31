@@ -19,6 +19,7 @@ export interface UsageLogRecord {
   promptPreview: string;
   promptContent?: string;
   inputTokens?: number;
+  usageUnits?: number;
   quotaUnits?: number;
   status: UsageStatus;
   errorMessage?: string;
@@ -34,9 +35,15 @@ export interface UsageSummary {
   name?: string;
   role: string;
   month: string;
-  monthlyQuota?: number;
-  usedQuota: number;
-  remainingQuota?: number;
+  quotaUnlimited: boolean;
+  monthlyChatTurns?: number;
+  monthlySearchTurns?: number;
+  monthlyImageCount?: number;
+  monthlyVideoCount?: number;
+  usedChatTurns: number;
+  usedSearchTurns: number;
+  usedImageCount: number;
+  usedVideoCount: number;
   requestCount: number;
   successCount: number;
   failedCount: number;
@@ -103,6 +110,7 @@ function normalizeRecord(record: Partial<UsageLogRecord>): UsageLogRecord {
         ? record.promptContent.slice(0, 12000)
         : undefined,
     inputTokens: Number(record.inputTokens ?? 0),
+    usageUnits: Number(record.usageUnits ?? 0),
     quotaUnits: Number(record.quotaUnits ?? 0),
     status: ["success", "failed", "blocked"].includes(status)
       ? (status as UsageStatus)
@@ -248,6 +256,15 @@ export function extractPromptFromBody(bodyText?: string) {
 
 export function sanitizePromptForLog(prompt: string) {
   return prompt
+    .replace(/\[附件开始\]([\s\S]*?)\[附件结束\]/g, (_match, block) => {
+      const name = String(block)
+        .match(/文件名：([^\n\r]+)/)?.[1]
+        ?.trim();
+      const type = String(block)
+        .match(/文件类型：([^\n\r]+)/)?.[1]
+        ?.trim();
+      return `[附件：${name || "未命名"}${type ? `（${type}）` : ""}]`;
+    })
     .replace(/data:image\/[^;]+;base64,[a-z0-9+/_=-]+/gi, "[图片数据已省略]")
     .replace(/(?:https?|blob):\/\/[^\s"'<>]+/gi, "[链接已省略]")
     .slice(0, 12000);
@@ -277,19 +294,6 @@ export function extractModelFromGatewayRequest(
   return "";
 }
 
-function quotaSeed(account?: SafeAccountRecord) {
-  // Persisted usedQuota is a one-time migration seed; live usage stays in logs.
-  const usedQuota = Number(account?.usedQuota ?? 0);
-  return Number.isFinite(usedQuota) && usedQuota > 0 ? usedQuota : 0;
-}
-
-function quotaLimit(account?: SafeAccountRecord) {
-  const monthlyQuota = Number(account?.monthlyQuota ?? 0);
-  return Number.isFinite(monthlyQuota) && monthlyQuota > 0
-    ? monthlyQuota
-    : undefined;
-}
-
 function getMonthlyRecords(
   records: UsageLogRecord[],
   accountId: string,
@@ -310,15 +314,10 @@ export async function getAccountUsageSummary(
     month,
   );
   const successfulRecords = records.filter(
-    (record) => record.status === "success",
+    (record) => record.status === "success" && record.usageUnits === 1,
   );
-  const usedQuota =
-    quotaSeed(account) +
-    successfulRecords.reduce(
-      (sum, record) => sum + Number(record.quotaUnits ?? 0),
-      0,
-    );
-  const monthlyQuota = quotaLimit(account);
+  const usedByCategory = (category: ModelCategory) =>
+    successfulRecords.filter((record) => record.category === category).length;
 
   return {
     accountId: account.id,
@@ -326,12 +325,15 @@ export async function getAccountUsageSummary(
     name: account.name,
     role: account.role,
     month,
-    monthlyQuota,
-    usedQuota,
-    remainingQuota:
-      monthlyQuota === undefined
-        ? undefined
-        : Math.max(0, monthlyQuota - usedQuota),
+    quotaUnlimited: account.quotaUnlimited,
+    monthlyChatTurns: account.monthlyChatTurns,
+    monthlySearchTurns: account.monthlySearchTurns,
+    monthlyImageCount: account.monthlyImageCount,
+    monthlyVideoCount: account.monthlyVideoCount,
+    usedChatTurns: usedByCategory("chat"),
+    usedSearchTurns: usedByCategory("search"),
+    usedImageCount: usedByCategory("image"),
+    usedVideoCount: usedByCategory("video"),
     requestCount: records.length,
     successCount: successfulRecords.length,
     failedCount: records.filter((record) => record.status === "failed").length,
@@ -356,32 +358,48 @@ export async function listAccountUsageRecords(
   return records.slice(-limit).reverse();
 }
 
-export async function checkMonthlyQuota(
+function categoryLimit(account: SafeAccountRecord, category: ModelCategory) {
+  if (category === "chat") return account.monthlyChatTurns;
+  if (category === "search") return account.monthlySearchTurns;
+  if (category === "image") return account.monthlyImageCount;
+  return account.monthlyVideoCount;
+}
+
+function categoryUsage(summary: UsageSummary, category: ModelCategory) {
+  if (category === "chat") return summary.usedChatTurns;
+  if (category === "search") return summary.usedSearchTurns;
+  if (category === "image") return summary.usedImageCount;
+  return summary.usedVideoCount;
+}
+
+export async function checkCategoryQuota(
   account: SafeAccountRecord | undefined,
-  requestedQuotaUnits: number,
+  category: ModelCategory,
 ) {
   if (!account || account.role === "admin" || account.role === "super_admin") {
     return {
       allowed: true,
-      usedQuota: 0,
-      requestedQuotaUnits,
+      category,
+      used: 0,
     };
   }
 
   const summary = await getAccountUsageSummary(account);
-  if (summary.monthlyQuota === undefined) {
+  if (account.quotaUnlimited) {
     return {
       allowed: true,
-      usedQuota: summary.usedQuota,
-      requestedQuotaUnits,
+      category,
+      used: categoryUsage(summary, category),
     };
   }
 
+  const limit = categoryLimit(account, category) ?? 0;
+  const used = categoryUsage(summary, category);
   return {
-    allowed: summary.usedQuota + requestedQuotaUnits <= summary.monthlyQuota,
-    monthlyQuota: summary.monthlyQuota,
-    usedQuota: summary.usedQuota,
-    requestedQuotaUnits,
-    remainingQuota: Math.max(0, summary.monthlyQuota - summary.usedQuota),
+    allowed: used < limit,
+    category,
+    limit,
+    used,
+    remaining: Math.max(0, limit - used),
   };
 }

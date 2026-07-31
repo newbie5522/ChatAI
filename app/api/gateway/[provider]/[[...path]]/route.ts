@@ -14,7 +14,7 @@ import type {
 } from "@/app/config/model-registry";
 import {
   appendUsageRecord,
-  checkMonthlyQuota,
+  checkCategoryQuota,
   estimateTokensFromBody,
   extractModelFromGatewayRequest,
   extractPromptFromBody,
@@ -43,6 +43,7 @@ const SUPPORTED_PROVIDERS: GatewayProvider[] = [
   "deepseek",
   "qwen",
   "mistral",
+  "zhipu",
 ];
 
 function gatewayError(
@@ -114,7 +115,7 @@ async function recordUsageSafely(
     modelName: string;
     bodyText?: string;
     inputTokens: number;
-    quotaUnits: number;
+    usageUnits: number;
     status: "success" | "failed" | "blocked";
     httpStatus?: number;
     errorMessage?: string;
@@ -136,7 +137,7 @@ async function recordUsageSafely(
       promptPreview: promptContent.slice(0, 300),
       promptContent,
       inputTokens: input.inputTokens,
-      quotaUnits: input.quotaUnits,
+      usageUnits: input.usageUnits,
       status: input.status,
       httpStatus: input.httpStatus,
       errorMessage: input.errorMessage,
@@ -145,6 +146,104 @@ async function recordUsageSafely(
   } catch (error) {
     console.error("[Gateway] failed to record usage", error);
   }
+}
+
+const RESPONSE_SAMPLE_LIMIT = 2 * 1024 * 1024;
+
+function hasValidResponseContent(
+  category: CompanyModel["category"],
+  text: string,
+) {
+  const sample = text.trim();
+  if (!sample) return false;
+
+  if (category === "image") {
+    return /"(?:b64_json|url|data)"\s*:\s*"[^"]+/i.test(sample);
+  }
+  if (category === "video") {
+    return /"(?:url|video|data)"\s*:\s*"[^"]+/i.test(sample);
+  }
+
+  return (
+    /"(?:content|text|output_text|reasoning_content)"\s*:\s*"[^"]+/i.test(
+      sample,
+    ) || /"tool_calls"\s*:\s*\[\s*\{/i.test(sample)
+  );
+}
+
+function trackedResponse(
+  res: Response,
+  account: SafeAccountRecord,
+  model: CompanyModel,
+  input: {
+    provider: string;
+    modelName: string;
+    bodyText?: string;
+    inputTokens: number;
+    requestPath?: string;
+  },
+) {
+  if (!res.body) return undefined;
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let sample = "";
+  let settled = false;
+
+  const finalize = async (valid: boolean, errorMessage?: string) => {
+    if (settled) return;
+    settled = true;
+    await recordUsageSafely(account, model, {
+      ...input,
+      usageUnits: valid ? 1 : 0,
+      status: valid ? "success" : "failed",
+      httpStatus: res.status,
+      errorMessage,
+    });
+  };
+
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          if (sample.length < RESPONSE_SAMPLE_LIMIT) {
+            sample += decoder.decode();
+          }
+          const valid = hasValidResponseContent(model.category, sample);
+          await finalize(
+            valid,
+            valid ? undefined : "response did not contain valid content",
+          );
+          controller.close();
+          return;
+        }
+
+        if (sample.length < RESPONSE_SAMPLE_LIMIT) {
+          sample += decoder
+            .decode(chunk.value, { stream: true })
+            .slice(0, RESPONSE_SAMPLE_LIMIT - sample.length);
+        }
+        controller.enqueue(chunk.value);
+      } catch (error) {
+        await finalize(
+          false,
+          error instanceof Error ? error.message : String(error),
+        );
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason);
+      await finalize(false, "request canceled");
+    },
+  });
+
+  return new Response(body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers: res.headers,
+  });
 }
 
 async function handle(
@@ -177,7 +276,7 @@ async function handle(
       modelName: "",
       bodyText,
       inputTokens,
-      quotaUnits: 0,
+      usageUnits: 0,
       status: "blocked",
       httpStatus: 400,
       errorMessage: "model is required",
@@ -198,7 +297,7 @@ async function handle(
       modelName,
       bodyText,
       inputTokens,
-      quotaUnits: 0,
+      usageUnits: 0,
       status: "blocked",
       httpStatus: 403,
       errorMessage: blockedReason,
@@ -213,7 +312,7 @@ async function handle(
       modelName,
       bodyText,
       inputTokens,
-      quotaUnits: 0,
+      usageUnits: 0,
       status: "blocked",
       httpStatus: 403,
       errorMessage: "account is not allowed to use this model",
@@ -233,7 +332,7 @@ async function handle(
       modelName,
       bodyText,
       inputTokens,
-      quotaUnits: 0,
+      usageUnits: 0,
       status: "blocked",
       httpStatus: 403,
       errorMessage: "no provider credential is available",
@@ -242,21 +341,25 @@ async function handle(
     return gatewayError(provider, 403, "no provider credential is available");
   }
 
-  const quotaUnits = inputTokens;
-  const quota = await checkMonthlyQuota(account, quotaUnits);
+  const quota = await checkCategoryQuota(account, companyModel.category);
   if (!quota.allowed) {
     await recordUsageSafely(account, companyModel, {
       provider,
       modelName,
       bodyText,
       inputTokens,
-      quotaUnits,
+      usageUnits: 0,
       status: "blocked",
       httpStatus: 429,
-      errorMessage: "monthly quota exceeded",
+      errorMessage: "monthly category quota exceeded",
       requestPath,
     });
-    return gatewayError(provider, 429, "monthly quota exceeded", quota);
+    return gatewayError(
+      provider,
+      429,
+      "monthly category quota exceeded",
+      quota,
+    );
   }
 
   const adapter = adapterFor(companyModel.endpointType);
@@ -266,7 +369,7 @@ async function handle(
       modelName,
       bodyText,
       inputTokens,
-      quotaUnits: 0,
+      usageUnits: 0,
       status: "blocked",
       httpStatus: 501,
       errorMessage: "model adapter is not implemented",
@@ -286,15 +389,39 @@ async function handle(
 
   try {
     const res = await adapter(adapterContext);
+    if (!res.ok) {
+      await recordUsageSafely(account, companyModel, {
+        provider,
+        modelName,
+        bodyText,
+        inputTokens,
+        usageUnits: 0,
+        status: "failed",
+        httpStatus: res.status,
+        errorMessage: res.statusText,
+        requestPath,
+      });
+      return res;
+    }
+
+    const tracked = trackedResponse(res, account, companyModel, {
+      provider,
+      modelName,
+      bodyText,
+      inputTokens,
+      requestPath,
+    });
+    if (tracked) return tracked;
+
     await recordUsageSafely(account, companyModel, {
       provider,
       modelName,
       bodyText,
       inputTokens,
-      quotaUnits: res.ok ? quotaUnits : 0,
-      status: res.ok ? "success" : "failed",
+      usageUnits: 0,
+      status: "failed",
       httpStatus: res.status,
-      errorMessage: res.ok ? undefined : res.statusText,
+      errorMessage: "response did not contain a body",
       requestPath,
     });
     return res;
@@ -305,7 +432,7 @@ async function handle(
       modelName,
       bodyText,
       inputTokens,
-      quotaUnits: 0,
+      usageUnits: 0,
       status: "failed",
       httpStatus: 502,
       errorMessage: error instanceof Error ? error.message : String(error),

@@ -31,6 +31,34 @@ function textFromContent(content: any) {
     .join("\n");
 }
 
+function responsesContent(content: any, role: string) {
+  if (!Array.isArray(content)) return textFromContent(content);
+
+  return content
+    .map((part: any) => {
+      if (typeof part === "string") {
+        return {
+          type: role === "assistant" ? "output_text" : "input_text",
+          text: part,
+        };
+      }
+      if (part?.type === "image_url" && part?.image_url?.url) {
+        return {
+          type: "input_image",
+          image_url: part.image_url.url,
+        };
+      }
+      const text = typeof part?.text === "string" ? part.text : "";
+      return text
+        ? {
+            type: role === "assistant" ? "output_text" : "input_text",
+            text,
+          }
+        : undefined;
+    })
+    .filter(Boolean);
+}
+
 function toResponsesPayload(bodyText: string | undefined, model: string) {
   const parsed = bodyText ? JSON.parse(bodyText) : {};
   const messages = Array.isArray(parsed.messages) ? parsed.messages : [];
@@ -38,7 +66,7 @@ function toResponsesPayload(bodyText: string | undefined, model: string) {
     messages.length > 0
       ? messages.map((message: any) => ({
           role: message.role === "system" ? "developer" : message.role,
-          content: textFromContent(message.content),
+          content: responsesContent(message.content, message.role),
         }))
       : textFromContent(parsed.prompt) || "";
 

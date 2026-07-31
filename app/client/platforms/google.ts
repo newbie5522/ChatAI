@@ -220,9 +220,10 @@ export class GeminiProApi implements LLMApi {
         model: options.config.model,
       },
     };
-    const usesLatestGeminiParams =
-      options.config.model.startsWith("gemini-3.6-") ||
-      options.config.model.startsWith("gemini-3.5-");
+    const usesLatestGeminiParams = [
+      "gemini-3.6-flash",
+      "gemini-3.5-flash-lite",
+    ].includes(options.config.model);
     const generationConfig = usesLatestGeminiParams
       ? {
           maxOutputTokens: modelConfig.max_tokens,

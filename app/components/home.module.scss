@@ -1,8 +1,8 @@
 @mixin container {
-  background-color: var(--white);
+  background-color: var(--newbie-card, var(--white));
   border: var(--border-in-light);
-  border-radius: 20px;
-  box-shadow: var(--shadow);
+  border-radius: 22px;
+  box-shadow: var(--newbie-shadow, var(--shadow));
   color: var(--black);
   background-color: var(--white);
   min-width: 600px;
@@ -22,14 +22,32 @@
 }
 
 .auth-container {
-  --window-width: 432px;
-  --window-height: 420px;
+  --window-width: 100vw;
+  --window-height: var(--full-height);
 
-  min-width: 432px;
-  min-height: 420px;
-  max-width: 432px;
-  max-height: 420px;
-  border-radius: 12px;
+  width: 100vw;
+  height: var(--full-height);
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  background:
+    radial-gradient(
+      circle at 15% 85%,
+      rgba(116, 96, 255, 0.1),
+      transparent 36%
+    ),
+    radial-gradient(
+      circle at 85% 10%,
+      rgba(150, 136, 255, 0.12),
+      transparent 34%
+    ),
+    #f9f9fe;
+  box-shadow: none;
 }
 
 .admin-container {
@@ -41,7 +59,7 @@
   min-height: 0;
   max-width: 1600px;
   max-height: calc(100vh - 24px);
-  border-radius: 8px;
+  border-radius: 18px;
 }
 
 @media only screen and (min-width: 600px) {
@@ -65,10 +83,10 @@
   width: var(--sidebar-width);
   box-sizing: border-box;
   padding: 20px;
-  background-color: var(--second);
+  background-color: var(--newbie-sidebar, var(--second));
   display: flex;
   flex-direction: column;
-  box-shadow: inset -2px 0px 2px 0px rgb(0, 0, 0, 0.05);
+  box-shadow: inset -1px 0 0 var(--newbie-border, rgba(0, 0, 0, 0.05));
   position: relative;
   transition: width ease 0.05s;
 
@@ -172,8 +190,9 @@
   padding-top: 20px;
   padding-bottom: 20px;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
+  gap: 12px;
   &-narrow {
     justify-content: center;
   }
@@ -181,6 +200,14 @@
 
 .sidebar-logo {
   display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.sidebar-logo-image {
+  width: 44px;
+  height: 44px;
+  display: block;
+  object-fit: contain;
 }
 
 .sidebar-title-container {
@@ -189,8 +216,9 @@
 }
 
 .sidebar-title {
-  font-size: 20px;
-  font-weight: bold;
+  color: var(--newbie-text, var(--black));
+  font-size: 21px;
+  font-weight: 800;
   animation: slide-in ease 0.3s;
 }
 
@@ -209,13 +237,13 @@
 .chat-item {
   padding: 10px 14px;
   background-color: var(--white);
-  border-radius: 10px;
+  border-radius: 12px;
   margin-bottom: 10px;
   box-shadow: var(--card-shadow);
   transition: background-color 0.3s ease;
   cursor: pointer;
   user-select: none;
-  border: 2px solid transparent;
+  border: 1px solid transparent;
   position: relative;
   content-visibility: auto;
 }
@@ -225,7 +253,8 @@
 }
 
 .chat-item-selected {
-  border-color: var(--primary);
+  border-color: var(--newbie-primary-light, var(--primary));
+  box-shadow: 0 8px 22px rgba(91, 75, 255, 0.1);
 }
 
 .chat-item-title {

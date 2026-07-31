@@ -67,6 +67,79 @@
   --full-height: 100%;
 }
 
+.newbie-theme {
+  --newbie-primary: #5b4bff;
+  --newbie-primary-hover: #4c3cf2;
+  --newbie-primary-light: #8d80ff;
+  --newbie-primary-soft: #eeeafe;
+  --newbie-bg: #f8f8fd;
+  --newbie-bg-lavender: #f2f0ff;
+  --newbie-sidebar: #f6f4ff;
+  --newbie-card: #ffffff;
+  --newbie-text: #18213a;
+  --newbie-text-secondary: #737b91;
+  --newbie-text-muted: #9ca3b5;
+  --newbie-border: #e4e6f0;
+  --newbie-border-focus: #a99fff;
+  --newbie-shadow: 0 20px 55px rgba(65, 54, 145, 0.12);
+  --newbie-shadow-soft: 0 8px 24px rgba(65, 54, 145, 0.08);
+
+  --white: var(--newbie-card);
+  --black: var(--newbie-text);
+  --gray: var(--newbie-bg);
+  --primary: var(--newbie-primary);
+  --second: var(--newbie-primary-soft);
+  --hover-color: #f2f0ff;
+  --bar-color: rgba(91, 75, 255, 0.18);
+  --theme-color: var(--newbie-bg);
+  --shadow: var(--newbie-shadow);
+  --card-shadow: var(--newbie-shadow-soft);
+  --border-in-light: 1px solid var(--newbie-border);
+  color: var(--newbie-text);
+}
+
+.newbie-theme select,
+.newbie-theme input[type="number"],
+.newbie-theme input[type="text"],
+.newbie-theme input[type="password"],
+.newbie-theme textarea {
+  border-color: var(--newbie-border);
+  background-color: var(--newbie-card);
+  color: var(--newbie-text);
+}
+
+.newbie-theme select:focus,
+.newbie-theme input[type="number"]:focus,
+.newbie-theme input[type="text"]:focus,
+.newbie-theme input[type="password"]:focus,
+.newbie-theme textarea:focus {
+  border-color: var(--newbie-border-focus);
+  box-shadow: 0 0 0 3px rgba(91, 75, 255, 0.1);
+  outline: 0;
+}
+
+.newbie-theme input[type="checkbox"]:checked::after {
+  background-color: var(--newbie-primary);
+}
+
+.newbie-theme .modal-mask {
+  background-color: rgba(24, 33, 58, 0.32);
+  backdrop-filter: blur(6px);
+}
+
+.newbie-theme .window-header {
+  border-bottom-color: var(--newbie-border);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.newbie-theme .window-header-sub-title {
+  color: var(--newbie-text-secondary);
+}
+
+.dark .newbie-theme div > svg {
+  filter: none;
+}
+
 @media only screen and (max-width: 600px) {
   :root {
     --window-width: 100vw;

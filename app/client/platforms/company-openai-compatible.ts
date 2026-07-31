@@ -23,13 +23,15 @@ export type CompanyOpenAICompatibleProvider =
   | "xai"
   | "deepseek"
   | "qwen"
-  | "mistral";
+  | "mistral"
+  | "zhipu";
 
 const CHAT_PATHS: Record<CompanyOpenAICompatibleProvider, string> = {
   xai: `${COMPANY_API_PATH.XAI}/v1/chat/completions`,
   deepseek: `${COMPANY_API_PATH.DeepSeek}/chat/completions`,
   qwen: `${COMPANY_API_PATH.Qwen}/chat/completions`,
   mistral: `${COMPANY_API_PATH.Mistral}/chat/completions`,
+  zhipu: `${COMPANY_API_PATH.Zhipu}/chat/completions`,
 };
 
 const XAI_IMAGE_PATH = `${COMPANY_API_PATH.XAI}/v1/images/generations`;

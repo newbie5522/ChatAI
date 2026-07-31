@@ -5,7 +5,6 @@ import styles from "./home.module.scss";
 import { IconButton } from "./button";
 import SettingsIcon from "../icons/settings.svg";
 import GithubIcon from "../icons/github.svg";
-import ChatGptIcon from "../icons/chatgpt.svg";
 import AddIcon from "../icons/add.svg";
 import DeleteIcon from "../icons/delete.svg";
 import MaskIcon from "../icons/mask.svg";
@@ -185,13 +184,15 @@ export function SideBarHeader(props: {
         })}
         data-tauri-drag-region
       >
+        <div className={clsx(styles["sidebar-logo"], "no-dark")}>{logo}</div>
         <div className={styles["sidebar-title-container"]}>
           <div className={styles["sidebar-title"]} data-tauri-drag-region>
             {title}
           </div>
-          <div className={styles["sidebar-sub-title"]}>{subTitle}</div>
+          {subTitle && (
+            <div className={styles["sidebar-sub-title"]}>{subTitle}</div>
+          )}
         </div>
-        <div className={clsx(styles["sidebar-logo"], "no-dark")}>{logo}</div>
       </div>
       {children}
     </Fragment>
@@ -251,8 +252,13 @@ export function SideBar(props: { className?: string }) {
     >
       <SideBarHeader
         title="NewbieChat"
-        subTitle="Internal AI workspace."
-        logo={<ChatGptIcon />}
+        logo={
+          <img
+            className={styles["sidebar-logo-image"]}
+            src="/newbiechat-logo.svg"
+            alt=""
+          />
+        }
         shouldNarrow={shouldNarrow}
       >
         <div className={styles["sidebar-header-bar"]}>
