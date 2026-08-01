@@ -34,12 +34,23 @@ import { createPersistStore } from "../utils/store";
 import { estimateTokenLength } from "../utils/token";
 import { ModelConfig, ModelType, useAppConfig } from "./config";
 import { useAccessStore } from "./access";
-import { collectModelsWithDefaultModel } from "../utils/model";
+import { useAccountStore } from "./account";
+import {
+  collectModelsWithDefaultModel,
+  findAccountModel,
+} from "../utils/model";
 import { createEmptyMask, Mask } from "./mask";
 import { executeMcpAction, getAllTools, isMcpEnabled } from "../mcp/actions";
 import { extractMcpJson, isMcpJson } from "../mcp/utils";
-import type { ChatAttachment } from "../types/attachment";
-import { buildAttachmentContext } from "../utils/attachments";
+import type {
+  AttachmentKind,
+  StoredAttachmentMetadata,
+  TransientChatAttachment,
+} from "../types/attachment";
+import {
+  buildAttachmentContext,
+  toStoredAttachmentMetadata,
+} from "../utils/attachments";
 
 const localStorage = safeLocalStorage();
 
@@ -65,8 +76,7 @@ export type ChatMessage = RequestMessage & {
   tools?: ChatMessageTool[];
   audio_url?: string;
   isMcpResponse?: boolean;
-  attachments?: ChatAttachment[];
-  requestContent?: RequestMessage["content"];
+  attachments?: StoredAttachmentMetadata[];
 };
 
 export function createMessage(override: Partial<ChatMessage>): ChatMessage {
@@ -157,6 +167,73 @@ function getSummarizeModel(
   }
 
   return [safeCurrentModel, providerName];
+}
+
+function getCompanyBackgroundModel(modelConfig: ModelConfig) {
+  const accountStore = useAccountStore.getState();
+  if (!accountStore.authenticated) return undefined;
+
+  const configuredModel = findAccountModel(
+    accountStore.models,
+    modelConfig.compressModel,
+    modelConfig.compressProviderName,
+  );
+  return (
+    configuredModel ??
+    findAccountModel(
+      accountStore.models,
+      modelConfig.model,
+      modelConfig.providerName,
+    )
+  );
+}
+
+function isAttachmentKind(value: unknown): value is AttachmentKind {
+  return ["image", "text", "document", "spreadsheet"].includes(String(value));
+}
+
+function stripTransientMessageData(message: ChatMessage): ChatMessage {
+  const legacyMessage = message as ChatMessage & {
+    requestContent?: RequestMessage["content"];
+    attachments?: Array<Partial<TransientChatAttachment>>;
+  };
+  const attachments = Array.isArray(legacyMessage.attachments)
+    ? legacyMessage.attachments
+        .filter(
+          (attachment) =>
+            typeof attachment?.id === "string" &&
+            typeof attachment.name === "string" &&
+            typeof attachment.mimeType === "string" &&
+            typeof attachment.size === "number" &&
+            isAttachmentKind(attachment.kind),
+        )
+        .map((attachment) => ({
+          id: attachment.id as string,
+          name: attachment.name as string,
+          mimeType: attachment.mimeType as string,
+          size: attachment.size as number,
+          kind: attachment.kind as StoredAttachmentMetadata["kind"],
+          truncated:
+            typeof attachment.truncated === "boolean"
+              ? attachment.truncated
+              : undefined,
+        }))
+    : undefined;
+
+  const content = Array.isArray(message.content)
+    ? message.content.filter((part) => {
+        if (part.type !== "image_url") return true;
+        const url = part.image_url?.url ?? "";
+        return !url.startsWith("data:") && !url.startsWith("blob:");
+      })
+    : message.content;
+  const sanitized: ChatMessage = {
+    ...message,
+    content,
+    attachments: attachments?.length ? attachments : undefined,
+  };
+  delete (sanitized as typeof legacyMessage).requestContent;
+  return sanitized;
 }
 
 function countMessages(msgs: ChatMessage[]) {
@@ -414,7 +491,7 @@ export const useChatStore = createPersistStore(
 
       async onUserInput(
         content: string,
-        attachments?: ChatAttachment[],
+        attachments?: TransientChatAttachment[],
         isMcpResponse?: boolean,
       ) {
         const session = get().currentSession();
@@ -425,16 +502,6 @@ export const useChatStore = createPersistStore(
         const imageUrls = attachmentList
           .map((attachment) => attachment.dataUrl)
           .filter((url): url is string => !!url);
-        const visibleContent: string | MultimodalContent[] =
-          imageUrls.length > 0
-            ? [
-                ...(content ? [{ type: "text" as const, text: content }] : []),
-                ...imageUrls.map((url) => ({
-                  type: "image_url" as const,
-                  image_url: { url },
-                })),
-              ]
-            : content;
         const templatedContent = isMcpResponse
           ? content
           : fillTemplateWith(content, modelConfig);
@@ -456,9 +523,8 @@ export const useChatStore = createPersistStore(
 
         let userMessage: ChatMessage = createMessage({
           role: "user",
-          content: visibleContent,
-          requestContent,
-          attachments: attachmentList,
+          content,
+          attachments: attachmentList.map(toStoredAttachmentMetadata),
           isMcpResponse,
         });
         const requestUserMessage: ChatMessage = {
@@ -540,7 +606,7 @@ export const useChatStore = createPersistStore(
               botMessage.id ?? messageIndex,
             );
 
-            console.error("[Chat] failed ", error);
+            console.error("[Chat] request failed");
           },
           onController(controller) {
             // collect controller for stop/retry
@@ -606,12 +672,6 @@ export const useChatStore = createPersistStore(
           ];
         }
 
-        if (shouldInjectSystemPrompts || mcpEnabled) {
-          console.log(
-            "[Global System Prompt] ",
-            systemPrompts.at(0)?.content ?? "empty",
-          );
-        }
         const memoryPrompt = get().getMemoryPrompt();
         // long term memory
         const shouldSendLongTermMemory =
@@ -655,7 +715,7 @@ export const useChatStore = createPersistStore(
           tokenCount += estimateTokenLength(getMessageTextContent(msg));
           reversedRecentMessages.push({
             ...msg,
-            content: msg.requestContent ?? msg.content,
+            content: msg.content,
           });
         }
         // concat all messages
@@ -700,8 +760,13 @@ export const useChatStore = createPersistStore(
           return;
         }
 
-        // if not config compressModel, then using getSummarizeModel
-        const [model, providerName] = modelConfig.compressModel
+        const accountStore = useAccountStore.getState();
+        const companyModel = getCompanyBackgroundModel(modelConfig);
+        if (accountStore.authenticated && !companyModel) return;
+
+        const [model, providerName] = companyModel
+          ? [companyModel.name, companyModel.provider.providerName]
+          : modelConfig.compressModel
           ? [modelConfig.compressModel, modelConfig.compressProviderName]
           : getSummarizeModel(
               session.mask.modelConfig.model,
@@ -781,13 +846,6 @@ export const useChatStore = createPersistStore(
 
         const lastSummarizeIndex = session.messages.length;
 
-        console.log(
-          "[Chat History] ",
-          toBeSummarizedMsgs,
-          historyMsgLength,
-          modelConfig.compressMessageLengthThreshold,
-        );
-
         if (
           historyMsgLength > modelConfig.compressMessageLengthThreshold &&
           modelConfig.sendMemory
@@ -815,15 +873,14 @@ export const useChatStore = createPersistStore(
             },
             onFinish(message, responseRes) {
               if (responseRes?.status === 200) {
-                console.log("[Memory] ", message);
                 get().updateTargetSession(session, (session) => {
                   session.lastSummarizeIndex = lastSummarizeIndex;
                   session.memoryPrompt = message; // Update the memory prompt for stored it in local storage
                 });
               }
             },
-            onError(err) {
-              console.error("[Summarize] ", err);
+            onError() {
+              console.error("[Summarize] request failed");
             },
           });
         }
@@ -865,11 +922,8 @@ export const useChatStore = createPersistStore(
           try {
             const mcpRequest = extractMcpJson(content);
             if (mcpRequest) {
-              console.debug("[MCP Request]", mcpRequest);
-
               executeMcpAction(mcpRequest.clientId, mcpRequest.mcp)
                 .then((result) => {
-                  console.log("[MCP Response]", result);
                   const mcpResponse =
                     typeof result === "object"
                       ? JSON.stringify(result)
@@ -882,8 +936,8 @@ export const useChatStore = createPersistStore(
                 })
                 .catch((error) => showToast("MCP execution failed", error));
             }
-          } catch (error) {
-            console.error("[Check MCP JSON]", error);
+          } catch {
+            console.error("[Chat] MCP payload could not be processed");
           }
         }
       },
@@ -893,7 +947,7 @@ export const useChatStore = createPersistStore(
   },
   {
     name: StoreKey.Chat,
-    version: 3.3,
+    version: 3.4,
     migrate(persistedState, version) {
       const state = persistedState as any;
       const newState = JSON.parse(
@@ -955,6 +1009,15 @@ export const useChatStore = createPersistStore(
           const config = useAppConfig.getState();
           s.mask.modelConfig.compressModel = "";
           s.mask.modelConfig.compressProviderName = "";
+        });
+      }
+
+      if (version < 3.4) {
+        newState.sessions.forEach((session) => {
+          session.messages = session.messages.map(stripTransientMessageData);
+          session.mask.context = session.mask.context.map(
+            stripTransientMessageData,
+          );
         });
       }
 

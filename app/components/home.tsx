@@ -230,14 +230,16 @@ function Screen() {
           state.modelConfig.providerName = "" as any;
         });
       }
-      if (
-        session.mask.modelConfig.model ||
-        session.mask.modelConfig.providerName
-      ) {
-        chatStore.updateTargetSession(session, (target) => {
-          target.mask.modelConfig.model = "";
-          target.mask.modelConfig.providerName = "" as any;
-        });
+      for (const targetSession of chatStore.sessions) {
+        if (
+          targetSession.mask.modelConfig.model ||
+          targetSession.mask.modelConfig.providerName
+        ) {
+          chatStore.updateTargetSession(targetSession, (target) => {
+            target.mask.modelConfig.model = "";
+            target.mask.modelConfig.providerName = "" as any;
+          });
+        }
       }
       return;
     }
@@ -263,12 +265,20 @@ function Screen() {
         state.modelConfig.providerName = nextModel.provider.providerName as any;
       });
     }
-    if (!currentAllowed) {
-      chatStore.updateTargetSession(session, (target) => {
-        target.mask.modelConfig.model = nextModel.name;
-        target.mask.modelConfig.providerName = nextModel.provider
-          .providerName as any;
-      });
+    for (const targetSession of chatStore.sessions) {
+      const targetAllowed = allowedModels.some(
+        (model) =>
+          model.name === targetSession.mask.modelConfig.model &&
+          model.provider.providerName ===
+            targetSession.mask.modelConfig.providerName,
+      );
+      if (!targetAllowed) {
+        chatStore.updateTargetSession(targetSession, (target) => {
+          target.mask.modelConfig.model = allowedModels[0].name;
+          target.mask.modelConfig.providerName = allowedModels[0].provider
+            .providerName as any;
+        });
+      }
     }
   }, [
     accountStore.authenticated,

@@ -32,6 +32,10 @@ export function copyResponseHeaders(res: Response) {
   return headers;
 }
 
+export function withDuplex(init: RequestInit) {
+  return { ...init, duplex: "half" } as RequestInit & { duplex: "half" };
+}
+
 export function gatewayJsonError(status: number, message: string) {
   return Response.json({ error: true, message }, { status });
 }

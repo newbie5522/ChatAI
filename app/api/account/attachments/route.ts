@@ -6,7 +6,10 @@ import pdfParse from "pdf-parse";
 import * as XLSX from "xlsx";
 
 import { requireAccount } from "@/app/config/account-auth";
-import type { AttachmentKind, ChatAttachment } from "@/app/types/attachment";
+import type {
+  AttachmentKind,
+  TransientChatAttachment,
+} from "@/app/types/attachment";
 import { ATTACHMENT_TRUNCATION_MARKER } from "@/app/utils/attachments";
 
 const MAX_FILE_COUNT = 4;
@@ -71,9 +74,10 @@ const SPREADSHEET_MIME: Record<string, string[]> = {
   ],
 };
 
+class AttachmentError extends Error {}
+
 function extensionOf(name: string) {
-  const match = name.toLowerCase().match(/\.[^.]+$/);
-  return match?.[0] ?? "";
+  return name.toLowerCase().match(/\.[^.]+$/)?.[0] ?? "";
 }
 
 function safeName(name: string) {
@@ -93,9 +97,8 @@ function validMime(extension: string, mimeType: string) {
   if (!mime || mime === "application/octet-stream") return true;
   if (extension in IMAGE_MIME) return IMAGE_MIME[extension] === mime;
   if (TEXT_EXTENSIONS.has(extension)) return TEXT_MIME.has(mime);
-  if (extension in DOCUMENT_MIME) {
+  if (extension in DOCUMENT_MIME)
     return DOCUMENT_MIME[extension].includes(mime);
-  }
   if (extension in SPREADSHEET_MIME) {
     return SPREADSHEET_MIME[extension].includes(mime);
   }
@@ -110,11 +113,107 @@ function resolvedMime(extension: string, mimeType: string) {
   return "text/plain";
 }
 
+function startsWithBytes(buffer: Buffer, bytes: number[]) {
+  return bytes.every((byte, index) => buffer[index] === byte);
+}
+
+function includesAscii(buffer: Buffer, value: string) {
+  return buffer.indexOf(Buffer.from(value, "utf8")) >= 0;
+}
+
+function isZip(buffer: Buffer) {
+  return (
+    startsWithBytes(buffer, [0x50, 0x4b, 0x03, 0x04]) ||
+    startsWithBytes(buffer, [0x50, 0x4b, 0x05, 0x06]) ||
+    startsWithBytes(buffer, [0x50, 0x4b, 0x07, 0x08])
+  );
+}
+
+function decodeTextFile(buffer: Buffer) {
+  if (buffer.length > 0) {
+    const nulCount = buffer.reduce(
+      (count, byte) => count + Number(byte === 0),
+      0,
+    );
+    const controlCount = buffer.reduce(
+      (count, byte) =>
+        count +
+        Number(byte < 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d),
+      0,
+    );
+    if (
+      nulCount / buffer.length > 0.001 ||
+      controlCount / buffer.length > 0.02
+    ) {
+      throw new AttachmentError("文件内容与扩展名不匹配。");
+    }
+  }
+
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    throw new AttachmentError("文件内容无法解析。");
+  }
+}
+
+function validateFileContent(extension: string, buffer: Buffer) {
+  if (extension === ".png") {
+    return startsWithBytes(
+      buffer,
+      [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+    );
+  }
+  if (extension === ".jpg" || extension === ".jpeg") {
+    return startsWithBytes(buffer, [0xff, 0xd8, 0xff]);
+  }
+  if (extension === ".webp") {
+    return (
+      buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
+      buffer.subarray(8, 12).toString("ascii") === "WEBP"
+    );
+  }
+  if (extension === ".pdf") {
+    return buffer.subarray(0, 5).toString("ascii") === "%PDF-";
+  }
+  if (extension === ".xls") {
+    return startsWithBytes(
+      buffer,
+      [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1],
+    );
+  }
+  if (extension === ".docx") {
+    return (
+      isZip(buffer) &&
+      includesAscii(buffer, "[Content_Types].xml") &&
+      includesAscii(buffer, "word/")
+    );
+  }
+  if (extension === ".xlsx") {
+    return (
+      isZip(buffer) &&
+      includesAscii(buffer, "[Content_Types].xml") &&
+      includesAscii(buffer, "xl/")
+    );
+  }
+  if (TEXT_EXTENSIONS.has(extension)) {
+    decodeTextFile(buffer);
+    return true;
+  }
+  return false;
+}
+
 function truncateText(text: string, limit: number) {
   if (text.length <= limit) return { text, truncated: false };
+  if (limit <= 0) return { text: "", truncated: true };
   const suffix = `\n${ATTACHMENT_TRUNCATION_MARKER}`;
+  if (suffix.length >= limit) {
+    return {
+      text: ATTACHMENT_TRUNCATION_MARKER.slice(0, limit),
+      truncated: true,
+    };
+  }
   return {
-    text: `${text.slice(0, Math.max(0, limit - suffix.length))}${suffix}`,
+    text: `${text.slice(0, limit - suffix.length)}${suffix}`,
     truncated: true,
   };
 }
@@ -130,7 +229,7 @@ function spreadsheetText(buffer: Buffer) {
 }
 
 async function extractText(extension: string, buffer: Buffer) {
-  if (TEXT_EXTENSIONS.has(extension)) return buffer.toString("utf8");
+  if (TEXT_EXTENSIONS.has(extension)) return decodeTextFile(buffer);
   if (extension === ".pdf") return (await pdfParse(buffer)).text;
   if (extension === ".docx") {
     return (await mammoth.extractRawText({ buffer })).value;
@@ -159,7 +258,7 @@ export async function POST(req: NextRequest) {
   try {
     formData = await req.formData();
   } catch {
-    return errorResponse("附件上传请求格式无效。");
+    return errorResponse("文件内容无法解析。");
   }
 
   const files = formData
@@ -172,7 +271,7 @@ export async function POST(req: NextRequest) {
 
   const totalSize = files.reduce((sum, file) => sum + file.size, 0);
   if (totalSize > MAX_TOTAL_SIZE) {
-    return errorResponse("单次附件总大小不能超过 20 MB。");
+    return errorResponse("附件总大小超过限制。");
   }
 
   try {
@@ -181,19 +280,23 @@ export async function POST(req: NextRequest) {
       const extension = extensionOf(name);
       const kind = resolveKind(extension);
       if (!kind || !validMime(extension, file.type)) {
-        throw new Error("暂不支持该文件格式。");
+        throw new AttachmentError("暂不支持该文件格式。");
       }
       if (file.size > MAX_FILE_SIZE) {
-        throw new Error(`文件“${name}”不能超过 10 MB。`);
+        throw new AttachmentError("文件大小超过限制。");
       }
       return { file, name, extension, kind };
     });
 
     let extractedCharacters = 0;
-    const attachments: ChatAttachment[] = [];
+    const attachments: TransientChatAttachment[] = [];
 
     for (const item of validated) {
       const buffer = Buffer.from(await item.file.arrayBuffer());
+      if (!validateFileContent(item.extension, buffer)) {
+        throw new AttachmentError("文件内容与扩展名不匹配。");
+      }
+
       const mimeType = resolvedMime(item.extension, item.file.type);
       if (item.kind === "image") {
         attachments.push({
@@ -228,7 +331,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: false, attachments });
   } catch (error) {
     return errorResponse(
-      error instanceof Error ? error.message : "附件解析失败。",
+      error instanceof AttachmentError ? error.message : "文件内容无法解析。",
     );
   }
 }

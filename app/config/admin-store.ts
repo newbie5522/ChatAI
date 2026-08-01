@@ -176,6 +176,37 @@ export const ADMIN_PROVIDER_IDS: AdminProviderId[] = [
   "zhipu",
 ];
 
+const COMPANY_MODEL_IDS = new Set(
+  DEFAULT_COMPANY_MODELS.map((model) => model.id),
+);
+
+function isAdminProviderId(value: unknown): value is AdminProviderId {
+  return ADMIN_PROVIDER_IDS.includes(value as AdminProviderId);
+}
+
+function cleanCompanyModelIds(value: unknown, provider?: AdminProviderId) {
+  return cleanList(value).filter((id) => {
+    if (!COMPANY_MODEL_IDS.has(id)) return false;
+    return (
+      !provider ||
+      DEFAULT_COMPANY_MODELS.some(
+        (model) => model.id === id && model.provider === provider,
+      )
+    );
+  });
+}
+
+function cleanProviderModelNames(provider: AdminProviderId, value: unknown) {
+  const validNames = new Set(
+    DEFAULT_COMPANY_MODELS.filter((model) => model.provider === provider).map(
+      (model) => model.model.toLowerCase(),
+    ),
+  );
+  return cleanList(value).filter((model) =>
+    validNames.has(model.toLowerCase()),
+  );
+}
+
 const MODEL_CATEGORY_IDS: ModelCategory[] = [
   "chat",
   "image",
@@ -299,7 +330,7 @@ function normalizeAccountRecord(record: Partial<AccountRecord>): AccountRecord {
       (quotaUnlimited ? undefined : 10),
     monthlyQuota: normalizeQuota(record.monthlyQuota),
     usedQuota: normalizeQuota(record.usedQuota),
-    allowedModelIds: cleanList(record.allowedModelIds),
+    allowedModelIds: cleanCompanyModelIds(record.allowedModelIds),
     allowedCategories: cleanCategories(record.allowedCategories),
     createdAt: record.createdAt || now(),
     updatedAt: record.updatedAt || now(),
@@ -324,7 +355,7 @@ function normalizeCredentialRecord(
     apiVersion: String(record.apiVersion ?? "").trim(),
     orgId: String(record.orgId ?? "").trim(),
     categoryScope: normalizeCategoryScope(record.categoryScope),
-    modelIds: cleanList(record.modelIds),
+    modelIds: cleanCompanyModelIds(record.modelIds, provider),
     enabled: record.enabled ?? false,
     verified: record.verified ?? false,
     priority: Number.isFinite(priority) ? priority : 100,
@@ -353,8 +384,10 @@ function normalizeEmployeeRecord(
     status: String(record.status ?? "active").trim(),
     monthlyQuota: normalizeQuota(record.monthlyQuota),
     usedQuota: normalizeQuota(record.usedQuota),
-    allowedProviders: cleanList(record.allowedProviders),
-    allowedModels: cleanList(record.allowedModels),
+    allowedProviders: cleanList(record.allowedProviders).filter(
+      isAdminProviderId,
+    ),
+    allowedModels: cleanCompanyModelIds(record.allowedModels),
     createdAt: record.createdAt || now(),
     updatedAt: now(),
     lastUsedAt: record.lastUsedAt,
@@ -365,20 +398,35 @@ function normalizeStore(value: unknown): AdminStore {
   if (!value || typeof value !== "object") return emptyStore();
 
   const store = value as Partial<AdminStore>;
+  const providers: AdminStore["providers"] = {};
+  if (store.providers && typeof store.providers === "object") {
+    for (const provider of ADMIN_PROVIDER_IDS) {
+      const config = store.providers[provider];
+      if (!config || typeof config !== "object") continue;
+      providers[provider] = {
+        ...config,
+        id: provider,
+        enabled: config.enabled === true,
+        enabledModels: cleanProviderModelNames(provider, config.enabledModels),
+      };
+    }
+  }
+
   return {
     version: 2,
-    employees: Array.isArray(store.employees) ? store.employees : [],
-    providers:
-      store.providers && typeof store.providers === "object"
-        ? store.providers
-        : {},
+    employees: Array.isArray(store.employees)
+      ? store.employees.map((record) => normalizeEmployeeRecord(record))
+      : [],
+    providers,
     accounts: Array.isArray(store.accounts)
       ? store.accounts
           .map((record) => normalizeAccountRecord(record))
           .filter((record) => !!record.username)
       : [],
     credentials: Array.isArray(store.credentials)
-      ? store.credentials.map((record) => normalizeCredentialRecord(record))
+      ? store.credentials
+          .filter((record) => isAdminProviderId(record?.provider))
+          .map((record) => normalizeCredentialRecord(record))
       : [],
     models: mergeCompanyModels(Array.isArray(store.models) ? store.models : []),
   };
@@ -938,7 +986,7 @@ export function getEffectiveProviderOrgId(id: AdminProviderId) {
 
 export function isProviderEnabled(id: AdminProviderId) {
   const adminConfig = getAdminProviderConfig(id);
-  return adminConfig?.enabled === true;
+  return adminConfig?.enabled === true && !!getEffectiveProviderSecret(id);
 }
 
 export function getProviderEnabledModels(id: AdminProviderId) {
@@ -961,7 +1009,7 @@ export function listProviderPublicConfigs(): ProviderPublicConfig[] {
     return {
       id,
       name: PROVIDER_NAMES[id],
-      enabled: adminConfig?.enabled === true,
+      enabled: adminConfig?.enabled === true && !!secret,
       keyConfigured: !!secret,
       keyPreview: previewSecret(secret),
       baseUrl: getEffectiveProviderBaseUrl(id),

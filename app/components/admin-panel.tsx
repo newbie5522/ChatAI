@@ -191,9 +191,11 @@ function formatDate(value?: string) {
 }
 
 function getLogStatus(status: string) {
+  if (status === "pending") return "处理中";
   if (status === "success") return "成功";
   if (status === "failed") return "失败";
   if (status === "blocked") return "已阻止";
+  if (status === "canceled") return "已取消";
   return status || "-";
 }
 

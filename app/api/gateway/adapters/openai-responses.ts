@@ -2,51 +2,66 @@ import { OPENAI_BASE_URL } from "@/app/constant";
 
 import {
   GatewayAdapterContext,
-  copyResponseHeaders,
+  gatewayJsonError,
   normalizeBaseUrl,
 } from "./types";
 
-function textFromResponse(json: any) {
-  if (typeof json?.output_text === "string") return json.output_text;
-  if (!Array.isArray(json?.output)) return "";
-
-  return json.output
-    .flatMap((item: any) => item?.content ?? [])
-    .map((content: any) => content?.text ?? content?.output_text ?? "")
-    .filter(Boolean)
-    .join("\n");
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
-function textFromContent(content: any) {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((part) => {
-      if (typeof part === "string") return part;
-      if (part?.type === "text") return part.text ?? "";
-      if (part?.text) return part.text;
-      return "";
+function textFromResponse(value: unknown) {
+  const body = objectValue(value);
+  if (typeof body?.output_text === "string") return body.output_text;
+  const outputValue = body?.output;
+  const output = Array.isArray(outputValue) ? outputValue : [];
+  return output
+    .flatMap((itemValue) => {
+      const item = objectValue(itemValue);
+      const contentValue = item?.content;
+      return Array.isArray(contentValue) ? contentValue : [];
+    })
+    .map((contentValue) => {
+      const content = objectValue(contentValue);
+      if (typeof content?.text === "string") return content.text;
+      return typeof content?.output_text === "string"
+        ? content.output_text
+        : "";
     })
     .filter(Boolean)
     .join("\n");
 }
 
-function responsesContent(content: any, role: string) {
+function textFromContent(content: unknown) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((partValue) => {
+      if (typeof partValue === "string") return partValue;
+      const part = objectValue(partValue);
+      return typeof part?.text === "string" ? part.text : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function responsesContent(content: unknown, role: string) {
   if (!Array.isArray(content)) return textFromContent(content);
 
   return content
-    .map((part: any) => {
-      if (typeof part === "string") {
+    .map((partValue) => {
+      if (typeof partValue === "string") {
         return {
           type: role === "assistant" ? "output_text" : "input_text",
-          text: part,
+          text: partValue,
         };
       }
-      if (part?.type === "image_url" && part?.image_url?.url) {
-        return {
-          type: "input_image",
-          image_url: part.image_url.url,
-        };
+      const part = objectValue(partValue);
+      const imageUrl = objectValue(part?.image_url);
+      if (part?.type === "image_url" && typeof imageUrl?.url === "string") {
+        return { type: "input_image", image_url: imageUrl.url };
       }
       const text = typeof part?.text === "string" ? part.text : "";
       return text
@@ -59,21 +74,34 @@ function responsesContent(content: any, role: string) {
     .filter(Boolean);
 }
 
-function toResponsesPayload(bodyText: string | undefined, model: string) {
-  const parsed = bodyText ? JSON.parse(bodyText) : {};
+function parseRequestBody(bodyText?: string) {
+  if (!bodyText) return {};
+  const value: unknown = JSON.parse(bodyText);
+  return objectValue(value) ?? {};
+}
+
+function toResponsesPayload(
+  parsed: Record<string, unknown>,
+  model: string,
+  shouldStream: boolean,
+) {
   const messages = Array.isArray(parsed.messages) ? parsed.messages : [];
   const input =
     messages.length > 0
-      ? messages.map((message: any) => ({
-          role: message.role === "system" ? "developer" : message.role,
-          content: responsesContent(message.content, message.role),
-        }))
+      ? messages.map((messageValue) => {
+          const message = objectValue(messageValue) ?? {};
+          const role = typeof message.role === "string" ? message.role : "user";
+          return {
+            role: role === "system" ? "developer" : role,
+            content: responsesContent(message.content, role),
+          };
+        })
       : textFromContent(parsed.prompt) || "";
 
   const payload: Record<string, unknown> = {
     model,
     input,
-    stream: false,
+    stream: shouldStream,
     max_output_tokens:
       parsed.max_output_tokens ??
       parsed.max_completion_tokens ??
@@ -106,46 +134,102 @@ function chatCompletionJson(model: string, content: string) {
     choices: [
       {
         index: 0,
-        message: {
-          role: "assistant",
-          content,
-        },
+        message: { role: "assistant", content },
         finish_reason: "stop",
       },
     ],
   };
 }
 
-function chatCompletionStream(model: string, content: string) {
+function streamChunk(model: string, content: string, finished = false) {
+  return JSON.stringify({
+    id: `newbiechat-${Date.now()}`,
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model,
+    choices: [
+      {
+        index: 0,
+        delta: finished ? {} : { content },
+        finish_reason: finished ? "stop" : null,
+      },
+    ],
+  });
+}
+
+function transformedResponsesStream(res: Response, model: string) {
+  if (!res.body) return gatewayJsonError(502, "OpenAI stream had no body");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
   const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    start(controller) {
-      controller.enqueue(
-        encoder.encode(
-          `data: ${JSON.stringify({
-            id: `newbiechat-${Date.now()}`,
-            object: "chat.completion.chunk",
-            created: Math.floor(Date.now() / 1000),
-            model,
-            choices: [
-              {
-                index: 0,
-                delta: { role: "assistant", content },
-                finish_reason: null,
-              },
-            ],
-          })}\n\n`,
-        ),
-      );
-      controller.enqueue(
-        encoder.encode(
-          `data: ${JSON.stringify({
-            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-          })}\n\n`,
-        ),
-      );
-      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-      controller.close();
+  let buffer = "";
+  let completed = false;
+  const maxEventBuffer = 256 * 1024;
+
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        while (!completed) {
+          const chunk = await reader.read();
+          if (chunk.done) {
+            buffer += decoder.decode();
+            throw new Error("OpenAI Responses stream ended before completion");
+          }
+
+          buffer += decoder.decode(chunk.value, { stream: true });
+          if (buffer.length > maxEventBuffer) {
+            throw new Error("OpenAI Responses stream event was too large");
+          }
+          const events = buffer.split(/\r?\n\r?\n/);
+          buffer = events.pop() ?? "";
+          const output: string[] = [];
+
+          for (const event of events) {
+            const data = event
+              .split(/\r?\n/)
+              .filter((line) => line.startsWith("data:"))
+              .map((line) => line.slice(5).trimStart())
+              .join("\n");
+            if (!data || data === "[DONE]") continue;
+
+            const value: unknown = JSON.parse(data);
+            const payload = objectValue(value);
+            const type = typeof payload?.type === "string" ? payload.type : "";
+            if (type === "response.output_text.delta") {
+              const delta =
+                typeof payload?.delta === "string" ? payload.delta : "";
+              if (delta) output.push(`data: ${streamChunk(model, delta)}\n\n`);
+            } else if (type === "response.output_text.done") {
+              continue;
+            } else if (type === "response.completed") {
+              completed = true;
+              output.push(`data: ${streamChunk(model, "", true)}\n\n`);
+              output.push("data: [DONE]\n\n");
+            } else if (type === "error") {
+              throw new Error("OpenAI Responses stream failed");
+            }
+          }
+
+          if (output.length > 0) {
+            controller.enqueue(encoder.encode(output.join("")));
+            if (completed) {
+              await reader.cancel();
+              controller.close();
+            }
+            return;
+          }
+        }
+      } catch (error) {
+        try {
+          await reader.cancel();
+        } catch {
+          // The upstream may already be closed.
+        }
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason);
     },
   });
 
@@ -161,13 +245,19 @@ function chatCompletionStream(model: string, content: string) {
 
 export async function callOpenAIResponses(ctx: GatewayAdapterContext) {
   const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, OPENAI_BASE_URL);
-  const parsed = ctx.bodyText ? JSON.parse(ctx.bodyText) : {};
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = parseRequestBody(ctx.bodyText);
+  } catch {
+    return gatewayJsonError(400, "invalid JSON request body");
+  }
   const shouldStream = parsed.stream === true;
-  const payload = toResponsesPayload(ctx.bodyText, ctx.model.model);
+  const payload = toResponsesPayload(parsed, ctx.model.model, shouldStream);
 
   const res = await fetch(`${baseUrl}/v1/responses`, {
     method: "POST",
     headers: {
+      Accept: shouldStream ? "text/event-stream" : "application/json",
       "Content-Type": "application/json",
       Authorization: `Bearer ${ctx.credential.apiKey}`,
       ...(ctx.credential.orgId
@@ -178,20 +268,14 @@ export async function callOpenAIResponses(ctx: GatewayAdapterContext) {
   });
 
   if (!res.ok) {
-    return new Response(res.body, {
-      status: res.status,
-      statusText: res.statusText,
-      headers: copyResponseHeaders(res),
-    });
+    return gatewayJsonError(res.status, "OpenAI request failed");
   }
 
-  const json = await res.json();
-  const content = textFromResponse(json);
-  if (shouldStream) {
-    return chatCompletionStream(ctx.model.model, content);
-  }
+  if (shouldStream) return transformedResponsesStream(res, ctx.model.model);
 
-  return Response.json(chatCompletionJson(ctx.model.model, content), {
-    status: 200,
-  });
+  const value: unknown = await res.json();
+  return Response.json(
+    chatCompletionJson(ctx.model.model, textFromResponse(value)),
+    { status: 200 },
+  );
 }

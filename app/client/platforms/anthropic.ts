@@ -21,6 +21,7 @@ import {
   ChatMessageTool,
 } from "@/app/store";
 import { getMessageTextContent, isVisionModel } from "@/app/utils";
+import { findAccountModel } from "@/app/utils/model";
 import { preProcessImageContent, stream } from "@/app/utils/chat";
 import { cloudflareAIGatewayUrl } from "@/app/utils/cloudflare";
 import { RequestPayload } from "./openai";
@@ -90,12 +91,18 @@ export class ClaudeApi implements LLMApi {
   }
 
   extractMessage(res: any) {
-    console.log("[Response] claude response: ", res);
-
     return res?.content?.[0]?.text;
   }
   async chat(options: ChatOptions): Promise<void> {
-    const visionModel = isVisionModel(options.config.model);
+    const accountStore = useAccountStore.getState();
+    const accountModel = findAccountModel(
+      accountStore.models,
+      options.config.model,
+      options.config.providerName,
+    );
+    const visionModel = accountStore.authenticated
+      ? accountModel?.capabilities?.vision === true
+      : isVisionModel(options.config.model);
 
     const accessStore = useAccessStore.getState();
 
@@ -112,7 +119,9 @@ export class ClaudeApi implements LLMApi {
     // try get base64image from local cache image_url
     const messages: ChatOptions["messages"] = [];
     for (const v of options.messages) {
-      const content = await preProcessImageContent(v.content);
+      const content = visionModel
+        ? await preProcessImageContent(v.content)
+        : getMessageTextContent(v);
       messages.push({ role: v.role, content });
     }
 
@@ -231,7 +240,6 @@ export class ClaudeApi implements LLMApi {
         controller,
         // parseSSE
         (text: string, runTools: ChatMessageTool[]) => {
-          // console.log("parseSSE", text, runTools);
           let chunkJson:
             | undefined
             | {
@@ -353,7 +361,7 @@ export class ClaudeApi implements LLMApi {
         const message = this.extractMessage(resJson);
         options.onFinish(message, res);
       } catch (e) {
-        console.error("failed to chat", e);
+        console.error("[Anthropic] chat request failed");
         options.onError?.(e as Error);
       }
     }

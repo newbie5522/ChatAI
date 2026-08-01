@@ -5,10 +5,16 @@ import path from "path";
 import type { ModelCategory } from "./model-registry";
 import type { SafeAccountRecord } from "./admin-store";
 
-export type UsageStatus = "success" | "failed" | "blocked";
+export type UsageStatus =
+  | "pending"
+  | "success"
+  | "failed"
+  | "blocked"
+  | "canceled";
 
 export interface UsageLogRecord {
   id: string;
+  requestId?: string;
   accountId: string;
   username: string;
   role: string;
@@ -52,13 +58,30 @@ export interface UsageSummary {
 }
 
 interface UsageStore {
-  version: 2;
+  version: 3;
   records: UsageLogRecord[];
 }
 
 type UsageRecordInput = Omit<UsageLogRecord, "id" | "createdAt" | "month"> & {
   createdAt?: string;
 };
+
+export type UsageReservationInput = Omit<
+  UsageRecordInput,
+  "status" | "usageUnits" | "quotaUnits"
+> & {
+  requestId: string;
+};
+
+export interface UsageReservationResult {
+  allowed: boolean;
+  requestId: string;
+  category: ModelCategory;
+  used: number;
+  pending: number;
+  limit?: number;
+  remaining?: number;
+}
 
 const DEFAULT_USAGE_LOG_PATH = path.join(
   process.cwd(),
@@ -86,7 +109,7 @@ export function getMonthKey(date = new Date()) {
 
 function emptyStore(): UsageStore {
   return {
-    version: 2,
+    version: 3,
     records: [],
   };
 }
@@ -97,6 +120,10 @@ function normalizeRecord(record: Partial<UsageLogRecord>): UsageLogRecord {
   const status = String(record.status ?? "failed");
   return {
     id: record.id || randomUUID(),
+    requestId:
+      typeof record.requestId === "string" && record.requestId.trim()
+        ? record.requestId
+        : undefined,
     accountId: String(record.accountId ?? legacy.employeeId ?? ""),
     username: String(record.username ?? legacy.employeeName ?? ""),
     role: String(record.role ?? "employee"),
@@ -112,7 +139,9 @@ function normalizeRecord(record: Partial<UsageLogRecord>): UsageLogRecord {
     inputTokens: Number(record.inputTokens ?? 0),
     usageUnits: Number(record.usageUnits ?? 0),
     quotaUnits: Number(record.quotaUnits ?? 0),
-    status: ["success", "failed", "blocked"].includes(status)
+    status: ["pending", "success", "failed", "blocked", "canceled"].includes(
+      status,
+    )
       ? (status as UsageStatus)
       : "failed",
     errorMessage: record.errorMessage?.slice(0, 1000),
@@ -128,7 +157,7 @@ async function readStoreUnsafe(): Promise<UsageStore> {
     const raw = await readFile(getUsageLogPath(), "utf8");
     const parsed = JSON.parse(raw) as Partial<UsageStore>;
     return {
-      version: 2,
+      version: 3,
       records: Array.isArray(parsed.records)
         ? parsed.records.map((record) => normalizeRecord(record))
         : [],
@@ -147,7 +176,7 @@ async function writeStoreUnsafe(store: UsageStore) {
 
   const maxRecords = getMaxRecords();
   const trimmedStore: UsageStore = {
-    version: 2,
+    version: 3,
     records: store.records.slice(-maxRecords),
   };
 
@@ -182,6 +211,136 @@ export async function appendUsageRecord(input: UsageRecordInput) {
     store.records.push(record);
     await writeStoreUnsafe(store);
 
+    return record;
+  });
+}
+
+function categoryLimit(account: SafeAccountRecord, category: ModelCategory) {
+  if (category === "chat") return account.monthlyChatTurns;
+  if (category === "search") return account.monthlySearchTurns;
+  if (category === "image") return account.monthlyImageCount;
+  return account.monthlyVideoCount;
+}
+
+export async function reserveCategoryQuota(
+  account: SafeAccountRecord,
+  input: UsageReservationInput,
+): Promise<UsageReservationResult> {
+  return enqueueWrite(async () => {
+    const store = await readStoreUnsafe();
+    const month = getMonthKey();
+    const existing = store.records.find(
+      (record) => record.requestId === input.requestId,
+    );
+    const categoryRecords = getMonthlyRecords(
+      store.records,
+      account.id,
+      month,
+    ).filter((record) => record.category === input.category);
+    const used = categoryRecords.filter(
+      (record) => record.status === "success" && record.usageUnits === 1,
+    ).length;
+    const pending = categoryRecords.filter(
+      (record) => record.status === "pending",
+    ).length;
+    const unlimited =
+      account.role === "admin" ||
+      account.role === "super_admin" ||
+      account.quotaUnlimited;
+    const limit = unlimited
+      ? undefined
+      : categoryLimit(account, input.category) ?? 0;
+
+    if (existing) {
+      return {
+        allowed: existing.status === "pending" || existing.status === "success",
+        requestId: input.requestId,
+        category: input.category,
+        used,
+        pending,
+        limit,
+        remaining:
+          limit === undefined ? undefined : Math.max(0, limit - used - pending),
+      };
+    }
+
+    if (limit !== undefined && used + pending >= limit) {
+      return {
+        allowed: false,
+        requestId: input.requestId,
+        category: input.category,
+        used,
+        pending,
+        limit,
+        remaining: 0,
+      };
+    }
+
+    store.records.push(
+      normalizeRecord({
+        ...input,
+        id: randomUUID(),
+        requestId: input.requestId,
+        status: "pending",
+        usageUnits: 0,
+        quotaUnits: 1,
+        month,
+        createdAt: input.createdAt ?? new Date().toISOString(),
+      }),
+    );
+    await writeStoreUnsafe(store);
+
+    return {
+      allowed: true,
+      requestId: input.requestId,
+      category: input.category,
+      used,
+      pending: pending + 1,
+      limit,
+      remaining:
+        limit === undefined
+          ? undefined
+          : Math.max(0, limit - used - pending - 1),
+    };
+  });
+}
+
+export async function confirmCategoryQuota(
+  requestId: string,
+  httpStatus?: number,
+) {
+  return enqueueWrite(async () => {
+    const store = await readStoreUnsafe();
+    const record = store.records.find((item) => item.requestId === requestId);
+    if (!record || record.status !== "pending") return record;
+
+    record.status = "success";
+    record.usageUnits = 1;
+    record.quotaUnits = 1;
+    record.httpStatus = httpStatus;
+    record.errorMessage = undefined;
+    await writeStoreUnsafe(store);
+    return record;
+  });
+}
+
+export async function releaseCategoryQuota(
+  requestId: string,
+  status: "failed" | "canceled" = "failed",
+  errorMessage?: string,
+  httpStatus?: number,
+) {
+  return enqueueWrite(async () => {
+    const store = await readStoreUnsafe();
+    const record = store.records.find((item) => item.requestId === requestId);
+    if (!record || record.status !== "pending") return record;
+
+    record.status = status;
+    record.usageUnits = 0;
+    record.quotaUnits = 0;
+    record.httpStatus = httpStatus;
+    record.errorMessage = errorMessage?.slice(0, 1000);
+    await writeStoreUnsafe(store);
     return record;
   });
 }
@@ -356,50 +515,4 @@ export async function listAccountUsageRecords(
       (!accountId || record.accountId === accountId) && record.month === month,
   );
   return records.slice(-limit).reverse();
-}
-
-function categoryLimit(account: SafeAccountRecord, category: ModelCategory) {
-  if (category === "chat") return account.monthlyChatTurns;
-  if (category === "search") return account.monthlySearchTurns;
-  if (category === "image") return account.monthlyImageCount;
-  return account.monthlyVideoCount;
-}
-
-function categoryUsage(summary: UsageSummary, category: ModelCategory) {
-  if (category === "chat") return summary.usedChatTurns;
-  if (category === "search") return summary.usedSearchTurns;
-  if (category === "image") return summary.usedImageCount;
-  return summary.usedVideoCount;
-}
-
-export async function checkCategoryQuota(
-  account: SafeAccountRecord | undefined,
-  category: ModelCategory,
-) {
-  if (!account || account.role === "admin" || account.role === "super_admin") {
-    return {
-      allowed: true,
-      category,
-      used: 0,
-    };
-  }
-
-  const summary = await getAccountUsageSummary(account);
-  if (account.quotaUnlimited) {
-    return {
-      allowed: true,
-      category,
-      used: categoryUsage(summary, category),
-    };
-  }
-
-  const limit = categoryLimit(account, category) ?? 0;
-  const used = categoryUsage(summary, category);
-  return {
-    allowed: used < limit,
-    category,
-    limit,
-    used,
-    remaining: Math.max(0, limit - used),
-  };
 }

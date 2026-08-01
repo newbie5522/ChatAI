@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAccount } from "@/app/config/account-auth";
@@ -14,10 +15,12 @@ import type {
 } from "@/app/config/model-registry";
 import {
   appendUsageRecord,
-  checkCategoryQuota,
+  confirmCategoryQuota,
   estimateTokensFromBody,
   extractModelFromGatewayRequest,
   extractPromptFromBody,
+  releaseCategoryQuota,
+  reserveCategoryQuota,
   sanitizePromptForLog,
 } from "@/app/config/usage";
 
@@ -53,12 +56,7 @@ function gatewayError(
   details?: unknown,
 ) {
   return NextResponse.json(
-    {
-      error: true,
-      provider,
-      message,
-      details,
-    },
+    { error: true, provider, message, details },
     { status },
   );
 }
@@ -107,7 +105,7 @@ function adapterFor(
   }
 }
 
-async function recordUsageSafely(
+function usageFields(
   account: SafeAccountRecord,
   model: CompanyModel | undefined,
   input: {
@@ -115,91 +113,219 @@ async function recordUsageSafely(
     modelName: string;
     bodyText?: string;
     inputTokens: number;
-    usageUnits: number;
-    status: "success" | "failed" | "blocked";
-    httpStatus?: number;
-    errorMessage?: string;
     requestPath?: string;
   },
 ) {
-  try {
-    const promptContent = sanitizePromptForLog(
-      extractPromptFromBody(input.bodyText),
-    );
-    await appendUsageRecord({
-      accountId: account.id,
-      username: account.username,
-      role: account.role,
-      provider: model?.provider ?? input.provider,
-      modelId: model?.id ?? "",
-      model: model?.model ?? input.modelName,
-      category: model?.category ?? "chat",
-      promptPreview: promptContent.slice(0, 300),
-      promptContent,
-      inputTokens: input.inputTokens,
-      usageUnits: input.usageUnits,
-      status: input.status,
-      httpStatus: input.httpStatus,
-      errorMessage: input.errorMessage,
-      requestPath: input.requestPath,
-    });
-  } catch (error) {
-    console.error("[Gateway] failed to record usage", error);
-  }
-}
-
-const RESPONSE_SAMPLE_LIMIT = 2 * 1024 * 1024;
-
-function hasValidResponseContent(
-  category: CompanyModel["category"],
-  text: string,
-) {
-  const sample = text.trim();
-  if (!sample) return false;
-
-  if (category === "image") {
-    return /"(?:b64_json|url|data)"\s*:\s*"[^"]+/i.test(sample);
-  }
-  if (category === "video") {
-    return /"(?:url|video|data)"\s*:\s*"[^"]+/i.test(sample);
-  }
-
-  return (
-    /"(?:content|text|output_text|reasoning_content)"\s*:\s*"[^"]+/i.test(
-      sample,
-    ) || /"tool_calls"\s*:\s*\[\s*\{/i.test(sample)
+  const promptContent = sanitizePromptForLog(
+    extractPromptFromBody(input.bodyText),
   );
+  return {
+    accountId: account.id,
+    username: account.username,
+    role: account.role,
+    provider: model?.provider ?? input.provider,
+    modelId: model?.id ?? "",
+    model: model?.model ?? input.modelName,
+    category: model?.category ?? ("chat" as const),
+    promptPreview: promptContent.slice(0, 300),
+    promptContent,
+    inputTokens: input.inputTokens,
+    requestPath: input.requestPath,
+  };
 }
 
-function trackedResponse(
-  res: Response,
+async function recordBlockedUsage(
   account: SafeAccountRecord,
-  model: CompanyModel,
+  model: CompanyModel | undefined,
   input: {
     provider: string;
     modelName: string;
     bodyText?: string;
     inputTokens: number;
+    httpStatus: number;
+    errorMessage: string;
     requestPath?: string;
+    requestId?: string;
   },
 ) {
-  if (!res.body) return undefined;
+  try {
+    await appendUsageRecord({
+      ...usageFields(account, model, input),
+      requestId: input.requestId,
+      usageUnits: 0,
+      quotaUnits: 0,
+      status: "blocked",
+      httpStatus: input.httpStatus,
+      errorMessage: input.errorMessage,
+    });
+  } catch {
+    console.error("[Gateway] usage record failed");
+  }
+}
 
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function nonEmptyText(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function nonEmptyObjects(value: unknown) {
+  return (
+    Array.isArray(value) &&
+    value.some((item) => {
+      const record = objectValue(item);
+      return !!record && Object.keys(record).length > 0;
+    })
+  );
+}
+
+function validOpenAIChat(value: unknown, stream: boolean) {
+  const body = objectValue(value);
+  const choicesValue = body?.choices;
+  const choices = Array.isArray(choicesValue) ? choicesValue : [];
+  return choices.some((choiceValue) => {
+    const choice = objectValue(choiceValue);
+    const message = objectValue(stream ? choice?.delta : choice?.message);
+    return (
+      nonEmptyText(message?.content) || nonEmptyObjects(message?.tool_calls)
+    );
+  });
+}
+
+function validAnthropic(value: unknown, stream: boolean) {
+  const body = objectValue(value);
+  if (stream) {
+    const delta = objectValue(body?.delta);
+    const block = objectValue(body?.content_block);
+    return (
+      nonEmptyText(delta?.text) ||
+      block?.type === "tool_use" ||
+      (body?.type === "content_block_start" && block?.type === "tool_use")
+    );
+  }
+  const contentValue = body?.content;
+  const content = Array.isArray(contentValue) ? contentValue : [];
+  return content.some((partValue) => {
+    const part = objectValue(partValue);
+    return nonEmptyText(part?.text) || part?.type === "tool_use";
+  });
+}
+
+function validGoogle(value: unknown) {
+  if (Array.isArray(value)) return value.some(validGoogle);
+  const body = objectValue(value);
+  const candidatesValue = body?.candidates;
+  const candidates = Array.isArray(candidatesValue) ? candidatesValue : [];
+  return candidates.some((candidateValue) => {
+    const candidate = objectValue(candidateValue);
+    const content = objectValue(candidate?.content);
+    const partsValue = content?.parts;
+    const parts = Array.isArray(partsValue) ? partsValue : [];
+    return parts.some((partValue) => {
+      const part = objectValue(partValue);
+      return nonEmptyText(part?.text) || !!objectValue(part?.functionCall);
+    });
+  });
+}
+
+function validImage(value: unknown) {
+  const body = objectValue(value);
+  const dataValue = body?.data;
+  const data = Array.isArray(dataValue) ? dataValue : [];
+  return data.some((itemValue) => {
+    const item = objectValue(itemValue);
+    return nonEmptyText(item?.url) || nonEmptyText(item?.b64_json);
+  });
+}
+
+function validVideo(value: unknown) {
+  const body = objectValue(value);
+  if (!body) return false;
+  if (nonEmptyText(body.video_url) || nonEmptyText(body.url)) return true;
+  const output = objectValue(body.output);
+  return (
+    (body.status === "completed" || body.status === "succeeded") &&
+    (nonEmptyText(output?.video_url) || nonEmptyText(output?.url))
+  );
+}
+
+function hasValidJson(model: CompanyModel, value: unknown) {
+  if (model.category === "image") return validImage(value);
+  if (model.category === "video") return validVideo(value);
+  if (model.endpointType === "anthropic_messages") {
+    return validAnthropic(value, false);
+  }
+  if (
+    model.endpointType === "google_generate_content" ||
+    model.endpointType === "google_interactions"
+  ) {
+    return validGoogle(value);
+  }
+  return validOpenAIChat(value, false);
+}
+
+function hasValidStreamEvent(model: CompanyModel, data: string) {
+  if (!data || data === "[DONE]") return false;
+  try {
+    const value: unknown = JSON.parse(data);
+    if (model.endpointType === "anthropic_messages") {
+      return validAnthropic(value, true);
+    }
+    if (
+      model.endpointType === "google_generate_content" ||
+      model.endpointType === "google_interactions"
+    ) {
+      return validGoogle(value);
+    }
+    return validOpenAIChat(value, true);
+  } catch {
+    return false;
+  }
+}
+
+function inspectSseEvents(model: CompanyModel, text: string) {
+  return text.split(/\r?\n\r?\n/).some((event) => {
+    const data = event
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    return hasValidStreamEvent(model, data);
+  });
+}
+
+function trackedEventStream(
+  res: Response,
+  model: CompanyModel,
+  requestId: string,
+) {
+  if (!res.body) return undefined;
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let sample = "";
+  let eventBuffer = "";
+  let valid = false;
   let settled = false;
+  const maxEventBuffer = 256 * 1024;
 
-  const finalize = async (valid: boolean, errorMessage?: string) => {
+  const settle = async (status: "success" | "failed" | "canceled") => {
     if (settled) return;
     settled = true;
-    await recordUsageSafely(account, model, {
-      ...input,
-      usageUnits: valid ? 1 : 0,
-      status: valid ? "success" : "failed",
-      httpStatus: res.status,
-      errorMessage,
-    });
+    if (status === "success") {
+      await confirmCategoryQuota(requestId, res.status);
+    } else {
+      await releaseCategoryQuota(
+        requestId,
+        status,
+        status === "canceled"
+          ? "request canceled"
+          : "response did not contain valid content",
+        res.status,
+      );
+    }
   };
 
   const body = new ReadableStream<Uint8Array>({
@@ -207,35 +333,32 @@ function trackedResponse(
       try {
         const chunk = await reader.read();
         if (chunk.done) {
-          if (sample.length < RESPONSE_SAMPLE_LIMIT) {
-            sample += decoder.decode();
-          }
-          const valid = hasValidResponseContent(model.category, sample);
-          await finalize(
-            valid,
-            valid ? undefined : "response did not contain valid content",
-          );
+          eventBuffer += decoder.decode();
+          valid = valid || inspectSseEvents(model, `${eventBuffer}\n\n`);
+          await settle(valid ? "success" : "failed");
           controller.close();
           return;
         }
 
-        if (sample.length < RESPONSE_SAMPLE_LIMIT) {
-          sample += decoder
-            .decode(chunk.value, { stream: true })
-            .slice(0, RESPONSE_SAMPLE_LIMIT - sample.length);
+        eventBuffer += decoder.decode(chunk.value, { stream: true });
+        if (eventBuffer.length > maxEventBuffer) {
+          throw new Error("stream event was too large");
         }
+        const events = eventBuffer.split(/\r?\n\r?\n/);
+        eventBuffer = events.pop() ?? "";
+        valid = valid || inspectSseEvents(model, events.join("\n\n"));
         controller.enqueue(chunk.value);
       } catch (error) {
-        await finalize(
-          false,
-          error instanceof Error ? error.message : String(error),
-        );
+        await settle("failed");
         controller.error(error);
       }
     },
     async cancel(reason) {
-      await reader.cancel(reason);
-      await finalize(false, "request canceled");
+      try {
+        await reader.cancel(reason);
+      } finally {
+        await settle("canceled");
+      }
     },
   });
 
@@ -244,6 +367,34 @@ function trackedResponse(
     statusText: res.statusText,
     headers: res.headers,
   });
+}
+
+async function validateJsonResponse(
+  res: Response,
+  model: CompanyModel,
+  requestId: string,
+) {
+  try {
+    const value: unknown = await res.clone().json();
+    if (hasValidJson(model, value)) {
+      await confirmCategoryQuota(requestId, res.status);
+    } else {
+      await releaseCategoryQuota(
+        requestId,
+        "failed",
+        "response did not contain valid content",
+        res.status,
+      );
+    }
+  } catch {
+    await releaseCategoryQuota(
+      requestId,
+      "failed",
+      "response could not be parsed",
+      res.status,
+    );
+  }
+  return res;
 }
 
 async function handle(
@@ -262,120 +413,85 @@ async function handle(
   const path = params.path?.join("/") ?? "";
   const { account, response } = requireAccount(req);
   if (response) return response;
-  if (!account) {
-    return gatewayError(provider, 401, "account login required");
-  }
+  if (!account) return gatewayError(provider, 401, "account login required");
 
   const bodyText = await getRequestBody(req);
   const modelName = extractModelFromGatewayRequest(provider, path, bodyText);
   const inputTokens = estimateTokensFromBody(bodyText);
-  const requestPath = path;
+  const baseUsage = {
+    provider,
+    modelName,
+    bodyText,
+    inputTokens,
+    requestPath: path,
+  };
+
   if (!modelName) {
-    await recordUsageSafely(account, undefined, {
-      provider,
-      modelName: "",
-      bodyText,
-      inputTokens,
-      usageUnits: 0,
-      status: "blocked",
+    await recordBlockedUsage(account, undefined, {
+      ...baseUsage,
       httpStatus: 400,
       errorMessage: "model is required",
-      requestPath,
     });
     return gatewayError(provider, 400, "model is required");
   }
 
-  const companyModel = getCompanyModelForRequest(
-    provider as ModelProvider,
-    modelName,
-  );
+  const companyModel = getCompanyModelForRequest(provider, modelName);
   const blockedReason = modelBlockedReason(companyModel);
-
   if (blockedReason || !companyModel) {
-    await recordUsageSafely(account, companyModel, {
-      provider,
-      modelName,
-      bodyText,
-      inputTokens,
-      usageUnits: 0,
-      status: "blocked",
+    await recordBlockedUsage(account, companyModel, {
+      ...baseUsage,
       httpStatus: 403,
       errorMessage: blockedReason,
-      requestPath,
     });
     return gatewayError(provider, 403, blockedReason);
   }
 
-  if (!accountCanUseCompanyModel(account, companyModel)) {
-    await recordUsageSafely(account, companyModel, {
-      provider,
-      modelName,
-      bodyText,
-      inputTokens,
-      usageUnits: 0,
-      status: "blocked",
-      httpStatus: 403,
-      errorMessage: "account is not allowed to use this model",
-      requestPath,
-    });
-    return gatewayError(
-      provider,
-      403,
-      "account is not allowed to use this model",
-    );
-  }
-
   const credential = selectProviderCredentialForModel(companyModel);
   if (!credential) {
-    await recordUsageSafely(account, companyModel, {
-      provider,
-      modelName,
-      bodyText,
-      inputTokens,
-      usageUnits: 0,
-      status: "blocked",
+    const message = "no provider credential is available";
+    await recordBlockedUsage(account, companyModel, {
+      ...baseUsage,
       httpStatus: 403,
-      errorMessage: "no provider credential is available",
-      requestPath,
+      errorMessage: message,
     });
-    return gatewayError(provider, 403, "no provider credential is available");
+    return gatewayError(provider, 403, message);
   }
 
-  const quota = await checkCategoryQuota(account, companyModel.category);
-  if (!quota.allowed) {
-    await recordUsageSafely(account, companyModel, {
-      provider,
-      modelName,
-      bodyText,
-      inputTokens,
-      usageUnits: 0,
-      status: "blocked",
-      httpStatus: 429,
-      errorMessage: "monthly category quota exceeded",
-      requestPath,
+  if (!accountCanUseCompanyModel(account, companyModel)) {
+    const message = "account is not allowed to use this model";
+    await recordBlockedUsage(account, companyModel, {
+      ...baseUsage,
+      httpStatus: 403,
+      errorMessage: message,
     });
-    return gatewayError(
-      provider,
-      429,
-      "monthly category quota exceeded",
-      quota,
-    );
+    return gatewayError(provider, 403, message);
   }
 
   const adapter = adapterFor(companyModel.endpointType);
   if (!adapter) {
-    await recordUsageSafely(account, companyModel, {
-      provider,
-      modelName,
-      bodyText,
-      inputTokens,
-      usageUnits: 0,
-      status: "blocked",
+    const message = "model adapter is not implemented";
+    await recordBlockedUsage(account, companyModel, {
+      ...baseUsage,
       httpStatus: 501,
-      errorMessage: "model adapter is not implemented",
-      requestPath,
+      errorMessage: message,
     });
-    return gatewayError(provider, 501, "model adapter is not implemented");
+    return gatewayError(provider, 501, message);
+  }
+
+  const requestId = randomUUID();
+  const reservation = await reserveCategoryQuota(account, {
+    ...usageFields(account, companyModel, baseUsage),
+    requestId,
+  });
+  if (!reservation.allowed) {
+    const message = "monthly category quota exceeded";
+    await recordBlockedUsage(account, companyModel, {
+      ...baseUsage,
+      requestId,
+      httpStatus: 429,
+      errorMessage: message,
+    });
+    return gatewayError(provider, 429, message, reservation);
   }
 
   const adapterContext: GatewayAdapterContext = {
@@ -390,61 +506,48 @@ async function handle(
   try {
     const res = await adapter(adapterContext);
     if (!res.ok) {
-      await recordUsageSafely(account, companyModel, {
-        provider,
-        modelName,
-        bodyText,
-        inputTokens,
-        usageUnits: 0,
-        status: "failed",
-        httpStatus: res.status,
-        errorMessage: res.statusText,
-        requestPath,
-      });
+      await releaseCategoryQuota(
+        requestId,
+        "failed",
+        "provider returned an HTTP error",
+        res.status,
+      );
+      return res;
+    }
+    if (!res.body) {
+      await releaseCategoryQuota(
+        requestId,
+        "failed",
+        "response did not contain a body",
+        res.status,
+      );
       return res;
     }
 
-    const tracked = trackedResponse(res, account, companyModel, {
-      provider,
-      modelName,
-      bodyText,
-      inputTokens,
-      requestPath,
-    });
-    if (tracked) return tracked;
+    const contentType = res.headers.get("content-type")?.toLowerCase() ?? "";
+    if (contentType.includes("text/event-stream")) {
+      return trackedEventStream(res, companyModel, requestId) ?? res;
+    }
+    if (contentType.includes("json")) {
+      return validateJsonResponse(res, companyModel, requestId);
+    }
 
-    await recordUsageSafely(account, companyModel, {
-      provider,
-      modelName,
-      bodyText,
-      inputTokens,
-      usageUnits: 0,
-      status: "failed",
-      httpStatus: res.status,
-      errorMessage: "response did not contain a body",
-      requestPath,
-    });
-    return res;
-  } catch (error) {
-    console.error("[Gateway] request failed", provider, error);
-    await recordUsageSafely(account, companyModel, {
-      provider,
-      modelName,
-      bodyText,
-      inputTokens,
-      usageUnits: 0,
-      status: "failed",
-      httpStatus: 502,
-      errorMessage: error instanceof Error ? error.message : String(error),
-      requestPath,
-    });
-
-    return gatewayError(
-      provider,
-      502,
-      "gateway request failed",
-      error instanceof Error ? error.message : String(error),
+    await releaseCategoryQuota(
+      requestId,
+      "failed",
+      "unsupported response content type",
+      res.status,
     );
+    return res;
+  } catch {
+    await releaseCategoryQuota(
+      requestId,
+      "failed",
+      "gateway request failed",
+      502,
+    );
+    console.error("[Gateway] request failed");
+    return gatewayError(provider, 502, "gateway request failed");
   }
 }
 

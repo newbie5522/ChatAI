@@ -1,8 +1,11 @@
-import type { ChatAttachment } from "../types/attachment";
+import type {
+  StoredAttachmentMetadata,
+  TransientChatAttachment,
+} from "../types/attachment";
 
 export const ATTACHMENT_TRUNCATION_MARKER = "内容已截断。";
 
-export function buildAttachmentContext(attachments: ChatAttachment[]) {
+export function buildAttachmentContext(attachments: TransientChatAttachment[]) {
   return attachments
     .map(
       (attachment) =>
@@ -14,6 +17,13 @@ export function buildAttachmentContext(attachments: ChatAttachment[]) {
         }\n[附件结束]`,
     )
     .join("\n\n");
+}
+
+export function toStoredAttachmentMetadata(
+  attachment: TransientChatAttachment,
+): StoredAttachmentMetadata {
+  const { id, name, mimeType, size, kind, truncated } = attachment;
+  return { id, name, mimeType, size, kind, truncated };
 }
 
 export function formatAttachmentSize(size: number) {

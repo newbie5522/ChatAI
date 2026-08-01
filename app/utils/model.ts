@@ -211,6 +211,19 @@ export function getModelCategory(
   return model?.category ?? "chat";
 }
 
+export function findAccountModel(
+  models: LLMModel[],
+  modelName: string | undefined,
+  providerName: string | undefined,
+) {
+  return models.find(
+    (model) =>
+      model.available &&
+      model.name === modelName &&
+      model.provider.providerName === providerName,
+  );
+}
+
 export function isModelAvailableInServer(
   customModels: string,
   modelName: string,

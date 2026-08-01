@@ -58,10 +58,11 @@ export async function callOpenAICompatibleChat(
   }
 
   const provider = ctx.model.provider as keyof typeof PROVIDER_ENDPOINTS;
+  const shouldStream = input.stream === true;
   const res = await fetch(PROVIDER_ENDPOINTS[provider], {
     method: "POST",
     headers: {
-      Accept: "application/json",
+      Accept: shouldStream ? "text/event-stream" : "application/json",
       "Content-Type": "application/json",
       Authorization: `Bearer ${ctx.credential.apiKey}`,
     },

@@ -118,14 +118,14 @@ import { ClientApi, MultimodalContent } from "../client/api";
 import { createTTSPlayer } from "../utils/audio";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "../utils/ms_edge_tts";
 
-import { getModelProvider } from "../utils/model";
+import { findAccountModel, getModelProvider } from "../utils/model";
 import { getGroupedModels } from "./model-config";
 import { RealtimeChat } from "@/app/components/realtime-chat";
 import clsx from "clsx";
 import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
 import type {
   AttachmentUploadResponse,
-  ChatAttachment,
+  TransientChatAttachment,
 } from "../types/attachment";
 import { formatAttachmentSize } from "../utils/attachments";
 
@@ -1036,7 +1036,7 @@ function _Chat() {
   const [hitBottom, setHitBottom] = useState(true);
   const isMobileScreen = useMobileScreen();
   const navigate = useNavigate();
-  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [attachments, setAttachments] = useState<TransientChatAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
 
   // prompt hints
@@ -1124,10 +1124,10 @@ function _Chat() {
       showToast("附件正在解析，请稍候。");
       return;
     }
-    const selectedModel = accountStore.models.find(
-      (model) =>
-        model.name === session.mask.modelConfig.model &&
-        model.provider.providerName === session.mask.modelConfig.providerName,
+    const selectedModel = findAccountModel(
+      accountStore.models,
+      session.mask.modelConfig.model,
+      session.mask.modelConfig.providerName,
     );
     const imageAttachments = attachments.filter(
       (attachment) => attachment.kind === "image",
@@ -1199,7 +1199,6 @@ function _Chat() {
 
       // auto sync mask config from global config
       if (session.mask.syncGlobalConfig) {
-        console.log("[Mask] syncing from global, name = ", session.mask.name);
         session.mask.modelConfig = { ...config.modelConfig };
       }
     });
@@ -1262,7 +1261,7 @@ function _Chat() {
     );
 
     if (resendingIndex < 0 || resendingIndex >= session.messages.length) {
-      console.error("[Chat] failed to find resending message", message);
+      console.error("[Chat] failed to find resending message");
       return;
     }
 
@@ -1290,7 +1289,7 @@ function _Chat() {
     }
 
     if (userMessage === undefined) {
-      console.error("[Chat] failed to resend", message);
+      console.error("[Chat] failed to resend");
       return;
     }
 
@@ -1301,9 +1300,7 @@ function _Chat() {
     // resend the message
     setIsLoading(true);
     const textContent = getMessageTextContent(userMessage);
-    chatStore
-      .onUserInput(textContent, userMessage.attachments)
-      .then(() => setIsLoading(false));
+    chatStore.onUserInput(textContent).then(() => setIsLoading(false));
     inputRef.current?.focus();
   };
 
@@ -1359,7 +1356,7 @@ function _Chat() {
           setSpeechStatus(false);
         })
         .catch((e) => {
-          console.error("[OpenAI Speech]", e);
+          console.error("[OpenAI] speech playback failed");
           showToast(prettyObject(e));
           setSpeechStatus(false);
         })
@@ -1485,7 +1482,6 @@ function _Chat() {
     },
     code: (text) => {
       if (accessStore.disableFastLink) return;
-      console.log("[Command] got code from url: ", text);
       showConfirm(Locale.URLCommand.Code + `code = ${text}`).then((res) => {
         if (res) {
           accessStore.update((access) => (access.accessCode = text));
@@ -1501,8 +1497,6 @@ function _Chat() {
           url?: string;
         };
 
-        console.log("[Command] got settings from url: ", payload);
-
         if (payload.url) {
           showConfirm(
             Locale.URLCommand.Settings +
@@ -1516,7 +1510,7 @@ function _Chat() {
           });
         }
       } catch {
-        console.error("[Command] failed to get settings from url: ", text);
+        console.error("[Command] failed to read settings from URL");
       }
     },
   });
@@ -1544,6 +1538,24 @@ function _Chat() {
   const uploadFiles = useCallback(
     async (files: File[]) => {
       if (files.length === 0) return;
+      const selectedModel = findAccountModel(
+        accountStore.models,
+        session.mask.modelConfig.model,
+        session.mask.modelConfig.providerName,
+      );
+      const includesImage = files.some(
+        (file) =>
+          file.type.startsWith("image/") ||
+          /\.(?:png|jpe?g|webp)$/i.test(file.name),
+      );
+      if (includesImage && selectedModel?.category === "image") {
+        showToast("当前生图接口暂不支持参考图片。");
+        return;
+      }
+      if (includesImage && selectedModel?.capabilities?.vision !== true) {
+        showToast("当前模型不支持图片输入，请更换支持图片的模型。");
+        return;
+      }
       if (attachments.length + files.length > 4) {
         showToast("单次最多选择 4 个文件。");
         return;
@@ -1580,7 +1592,12 @@ function _Chat() {
         setUploading(false);
       }
     },
-    [attachments],
+    [
+      accountStore.models,
+      attachments,
+      session.mask.modelConfig.model,
+      session.mask.modelConfig.providerName,
+    ],
   );
 
   const handlePaste = useCallback(
@@ -2171,9 +2188,7 @@ function _Chat() {
                 onClose={() => {
                   setShowChatSidePanel(false);
                 }}
-                onStartVoice={async () => {
-                  console.log("start voice");
-                }}
+                onStartVoice={async () => undefined}
               />
             )}
           </div>

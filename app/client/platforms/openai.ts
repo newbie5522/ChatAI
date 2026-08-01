@@ -19,6 +19,7 @@ import {
 } from "@/app/store";
 import {
   collectModelsWithDefaultModel,
+  findAccountModel,
   getModelCategory,
 } from "@/app/utils/model";
 import {
@@ -121,8 +122,6 @@ export class ChatGPTApi implements LLMApi {
       baseUrl = "https://" + baseUrl;
     }
 
-    console.log("[Proxy Endpoint] ", baseUrl, path);
-
     // try rebuild url, when using cloudflare ai gateway in client
     return cloudflareAIGatewayUrl([baseUrl, path].join("/"));
   }
@@ -160,8 +159,6 @@ export class ChatGPTApi implements LLMApi {
       speed: options.speed,
     };
 
-    console.log("[Request] openai speech payload: ", requestPayload);
-
     const controller = new AbortController();
     options.onController?.(controller);
 
@@ -184,7 +181,7 @@ export class ChatGPTApi implements LLMApi {
       clearTimeout(requestTimeoutId);
       return await res.arrayBuffer();
     } catch (e) {
-      console.log("[Request] failed to make a speech request", e);
+      console.error("[OpenAI] speech request failed");
       throw e;
     }
   }
@@ -224,7 +221,15 @@ export class ChatGPTApi implements LLMApi {
         size: "1024x1024",
       };
     } else {
-      const visionModel = isVisionModel(options.config.model);
+      const accountStore = useAccountStore.getState();
+      const accountModel = findAccountModel(
+        accountStore.models,
+        options.config.model,
+        options.config.providerName,
+      );
+      const visionModel = accountStore.authenticated
+        ? accountModel?.capabilities?.vision === true
+        : isVisionModel(options.config.model);
       const messages: ChatOptions["messages"] = [];
       for (const v of options.messages) {
         const content = visionModel
@@ -271,8 +276,6 @@ export class ChatGPTApi implements LLMApi {
       }
     }
 
-    console.log("[Request] openai payload: ", requestPayload);
-
     const shouldStream = !isImageModel && !!options.config.stream;
     const controller = new AbortController();
     options.onController?.(controller);
@@ -316,7 +319,6 @@ export class ChatGPTApi implements LLMApi {
           .getAsTools(
             useChatStore.getState().currentSession().mask?.plugin || [],
           );
-        // console.log("getAsTools", tools, funcs);
         streamWithThink(
           chatPath,
           requestPayload,
@@ -326,7 +328,6 @@ export class ChatGPTApi implements LLMApi {
           controller,
           // parseSSE
           (text: string, runTools: ChatMessageTool[]) => {
-            // console.log("parseSSE", text, runTools);
             const json = JSON.parse(text);
             const choices = json.choices as Array<{
               delta: {
@@ -430,7 +431,7 @@ export class ChatGPTApi implements LLMApi {
         options.onFinish(message, res);
       }
     } catch (e) {
-      console.log("[Request] failed to make a chat request", e);
+      console.error("[OpenAI] chat request failed");
       options.onError?.(e as Error);
     }
   }
@@ -516,8 +517,6 @@ export class ChatGPTApi implements LLMApi {
     const chatModels = resJson.data?.filter(
       (m) => m.id.startsWith("gpt-") || m.id.startsWith("chatgpt-"),
     );
-    console.log("[Models]", chatModels);
-
     if (!chatModels) {
       return [];
     }

@@ -16,7 +16,7 @@ import {
   ChatMessageTool,
 } from "@/app/store";
 import { stream, base64Image2Blob, uploadImage } from "@/app/utils/chat";
-import { getModelCategory } from "@/app/utils/model";
+import { findAccountModel, getModelCategory } from "@/app/utils/model";
 
 import {
   getMessageTextContent,
@@ -56,8 +56,6 @@ export class GeminiProApi implements LLMApi {
       baseUrl = "https://" + baseUrl;
     }
 
-    console.log("[Proxy Endpoint] ", baseUrl, path);
-
     let chatPath = [baseUrl, path].join("/");
     if (shouldStream) {
       chatPath += chatPath.includes("?") ? "&alt=sse" : "?alt=sse";
@@ -66,8 +64,6 @@ export class GeminiProApi implements LLMApi {
     return chatPath;
   }
   extractMessage(res: any) {
-    console.log("[Response] gemini-pro response: ", res);
-
     const getTextFromParts = (parts: any[]) => {
       if (!Array.isArray(parts)) return "";
 
@@ -154,23 +150,34 @@ export class GeminiProApi implements LLMApi {
         const message = await apiClient.extractImageMessage(resJson);
         options.onFinish(message as any, res);
       } catch (e) {
-        console.log("[Request] failed to make a google image request", e);
+        console.error("[Google] image request failed");
         options.onError?.(e as Error);
       }
       return;
     }
 
+    const accountStore = useAccountStore.getState();
+    const accountModel = findAccountModel(
+      accountStore.models,
+      options.config.model,
+      options.config.providerName,
+    );
+    const visionModel = accountStore.authenticated
+      ? accountModel?.capabilities?.vision === true
+      : isVisionModel(options.config.model);
     let multimodal = false;
 
     // try get base64image from local cache image_url
     const _messages: ChatOptions["messages"] = [];
     for (const v of options.messages) {
-      const content = await preProcessImageContent(v.content);
+      const content = visionModel
+        ? await preProcessImageContent(v.content)
+        : getMessageTextContent(v);
       _messages.push({ role: v.role, content });
     }
     const messages = _messages.map((v) => {
       let parts: any[] = [{ text: getMessageTextContent(v) }];
-      if (isVisionModel(options.config.model)) {
+      if (visionModel) {
         const images = getMessageImages(v);
         if (images.length > 0) {
           multimodal = true;
@@ -299,7 +306,6 @@ export class GeminiProApi implements LLMApi {
           controller,
           // parseSSE
           (text: string, runTools: ChatMessageTool[]) => {
-            // console.log("parseSSE", text, runTools);
             const chunkJson = JSON.parse(text);
 
             const functionCall = chunkJson?.candidates
@@ -379,7 +385,7 @@ export class GeminiProApi implements LLMApi {
         options.onFinish(message, res);
       }
     } catch (e) {
-      console.log("[Request] failed to make a chat request", e);
+      console.error("[Google] chat request failed");
       options.onError?.(e as Error);
     }
   }

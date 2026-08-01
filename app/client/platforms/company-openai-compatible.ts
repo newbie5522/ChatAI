@@ -9,7 +9,7 @@ import {
   usePluginStore,
 } from "@/app/store";
 import { preProcessImageContent, streamWithThink } from "@/app/utils/chat";
-import { getModelCategory } from "@/app/utils/model";
+import { findAccountModel, getModelCategory } from "@/app/utils/model";
 import {
   getMessageTextContent,
   getMessageTextContentWithoutThinking,
@@ -128,15 +128,6 @@ function parseStreamChunk(text: string, runTools: ChatMessageTool[]) {
   return { isThinking: false, content: delta?.content ?? "" };
 }
 
-function supportsVision(
-  provider: CompanyOpenAICompatibleProvider,
-  model: string,
-) {
-  return (
-    provider === "xai" || (provider === "qwen" && model === "qwen3.7-plus")
-  );
-}
-
 export class CompanyOpenAICompatibleApi implements LLMApi {
   constructor(private readonly provider: CompanyOpenAICompatibleProvider) {}
 
@@ -196,7 +187,12 @@ export class CompanyOpenAICompatibleApi implements LLMApi {
         model: options.config.model,
         providerName: options.config.providerName,
       };
-      const vision = supportsVision(this.provider, modelConfig.model);
+      const accountModel = findAccountModel(
+        accountModels,
+        modelConfig.model,
+        modelConfig.providerName,
+      );
+      const vision = accountModel?.capabilities?.vision === true;
       const messages: ChatOptions["messages"] = [];
       for (const message of options.messages) {
         const content = vision
