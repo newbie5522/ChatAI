@@ -68,6 +68,9 @@
 }
 
 .newbie-theme {
+  --window-width: min(1640px, calc(100vw - 40px));
+  --window-height: calc(100vh - 28px);
+  --sidebar-width: clamp(300px, 24vw, 400px);
   --newbie-primary: #5b4bff;
   --newbie-primary-hover: #4c3cf2;
   --newbie-primary-light: #8d80ff;
