@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 
 import mammoth from "mammoth";
 import { NextRequest, NextResponse } from "next/server";
-import pdfParse from "pdf-parse";
+import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import * as XLSX from "xlsx";
 
 import { requireAccount } from "@/app/config/account-auth";
