@@ -21,6 +21,7 @@ export async function callGoogleGenerateContent(ctx: GatewayAdapterContext) {
         "x-goog-api-key": ctx.credential.apiKey,
       },
       body: ctx.bodyText,
+      signal: ctx.signal,
       redirect: "manual",
     }),
   );

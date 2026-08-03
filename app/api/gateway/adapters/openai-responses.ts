@@ -265,6 +265,7 @@ export async function callOpenAIResponses(ctx: GatewayAdapterContext) {
         : {}),
     },
     body: JSON.stringify(payload),
+    signal: ctx.signal,
   });
 
   if (!res.ok) {

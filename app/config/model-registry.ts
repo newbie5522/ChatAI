@@ -42,6 +42,11 @@ export interface CompanyModel {
     tools?: boolean;
     webSearch?: boolean;
     imageGeneration?: boolean;
+    imageEditing?: boolean;
+    referenceImages?: boolean;
+    imageToVideo?: boolean;
+    imageInputFormats?: string[];
+    maxInputImages?: number;
     videoGeneration?: boolean;
   };
 }
@@ -131,7 +136,13 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     enabled: true,
     defaultEnabled: true,
     sort: 610,
-    capabilities: { imageGeneration: true },
+    capabilities: {
+      imageGeneration: true,
+      imageEditing: true,
+      referenceImages: true,
+      imageInputFormats: ["image/png", "image/jpeg", "image/webp"],
+      maxInputImages: 4,
+    },
   },
   {
     id: "anthropic:claude-haiku-4-5",
@@ -206,7 +217,13 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     enabled: true,
     defaultEnabled: true,
     sort: 500,
-    capabilities: { imageGeneration: true },
+    capabilities: {
+      imageGeneration: true,
+      imageEditing: true,
+      referenceImages: true,
+      imageInputFormats: ["image/png", "image/jpeg", "image/webp"],
+      maxInputImages: 4,
+    },
   },
   {
     id: "google:nano-banana-2-lite",
@@ -218,7 +235,13 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     enabled: true,
     defaultEnabled: true,
     sort: 510,
-    capabilities: { imageGeneration: true },
+    capabilities: {
+      imageGeneration: true,
+      imageEditing: true,
+      referenceImages: true,
+      imageInputFormats: ["image/png", "image/jpeg", "image/webp"],
+      maxInputImages: 4,
+    },
   },
   {
     id: "google:nano-banana-pro",
@@ -230,7 +253,13 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     enabled: true,
     defaultEnabled: true,
     sort: 520,
-    capabilities: { imageGeneration: true },
+    capabilities: {
+      imageGeneration: true,
+      imageEditing: true,
+      referenceImages: true,
+      imageInputFormats: ["image/png", "image/jpeg", "image/webp"],
+      maxInputImages: 4,
+    },
   },
   {
     id: "perplexity:sonar",

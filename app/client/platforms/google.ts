@@ -5,6 +5,7 @@ import {
   LLMApi,
   LLMModel,
   LLMUsage,
+  linkAbortSignal,
   SpeechOptions,
 } from "../api";
 import {
@@ -125,6 +126,7 @@ export class GeminiProApi implements LLMApi {
 
     if (modelCategory === "image") {
       const controller = new AbortController();
+      linkAbortSignal(options.signal, controller);
       options.onController?.(controller);
       try {
         const prompt = getMessageTextContent(
@@ -133,6 +135,7 @@ export class GeminiProApi implements LLMApi {
         const requestPayload = {
           model: options.config.model,
           prompt,
+          messages: options.messages,
         };
         const requestTimeoutId = setTimeout(
           () => controller.abort(),
@@ -165,19 +168,20 @@ export class GeminiProApi implements LLMApi {
     const visionModel = accountStore.authenticated
       ? accountModel?.capabilities?.vision === true
       : isVisionModel(options.config.model);
+    const preserveImages = accountStore.authenticated || visionModel;
     let multimodal = false;
 
     // try get base64image from local cache image_url
     const _messages: ChatOptions["messages"] = [];
     for (const v of options.messages) {
-      const content = visionModel
-        ? await preProcessImageContent(v.content)
+      const content = preserveImages
+        ? await preProcessImageContent(v.content, options.signal)
         : getMessageTextContent(v);
       _messages.push({ role: v.role, content });
     }
     const messages = _messages.map((v) => {
       let parts: any[] = [{ text: getMessageTextContent(v) }];
-      if (visionModel) {
+      if (preserveImages) {
         const images = getMessageImages(v);
         if (images.length > 0) {
           multimodal = true;
@@ -186,8 +190,8 @@ export class GeminiProApi implements LLMApi {
               const imageType = image.split(";")[0].split(":")[1];
               const imageData = image.split(",")[1];
               return {
-                inline_data: {
-                  mime_type: imageType,
+                inlineData: {
+                  mimeType: imageType,
                   data: imageData,
                 },
               };
@@ -265,6 +269,7 @@ export class GeminiProApi implements LLMApi {
 
     let shouldStream = !!options.config.stream;
     const controller = new AbortController();
+    linkAbortSignal(options.signal, controller);
     options.onController?.(controller);
     try {
       // https://github.com/google-gemini/cookbook/blob/main/quickstarts/rest/Streaming_REST.ipynb

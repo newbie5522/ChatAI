@@ -34,6 +34,7 @@ import { callOpenAIResponses } from "../../adapters/openai-responses";
 import { callPerplexitySonar } from "../../adapters/perplexity-sonar";
 import type { GatewayAdapterContext } from "../../adapters/types";
 import { callXAIImages } from "../../adapters/xai-images";
+import { prepareGatewayImageInput } from "../../image-bridge";
 
 type GatewayProvider = ModelProvider;
 
@@ -242,6 +243,16 @@ function validImage(value: unknown) {
   });
 }
 
+function validImageCount(value: unknown) {
+  const body = objectValue(value);
+  const dataValue = body?.data;
+  const data = Array.isArray(dataValue) ? dataValue : [];
+  return data.filter((itemValue) => {
+    const item = objectValue(itemValue);
+    return nonEmptyText(item?.url) || nonEmptyText(item?.b64_json);
+  }).length;
+}
+
 function validVideo(value: unknown) {
   const body = objectValue(value);
   if (!body) return false;
@@ -302,6 +313,7 @@ function trackedEventStream(
   res: Response,
   model: CompanyModel,
   requestId: string,
+  signal: AbortSignal,
 ) {
   if (!res.body) return undefined;
   const reader = res.body.getReader();
@@ -349,7 +361,7 @@ function trackedEventStream(
         valid = valid || inspectSseEvents(model, events.join("\n\n"));
         controller.enqueue(chunk.value);
       } catch (error) {
-        await settle("failed");
+        await settle(signal.aborted ? "canceled" : "failed");
         controller.error(error);
       }
     },
@@ -373,11 +385,23 @@ async function validateJsonResponse(
   res: Response,
   model: CompanyModel,
   requestId: string,
+  signal: AbortSignal,
 ) {
   try {
     const value: unknown = await res.clone().json();
+    if (signal.aborted) {
+      await releaseCategoryQuota(
+        requestId,
+        "canceled",
+        "request canceled",
+        499,
+      );
+      return res;
+    }
     if (hasValidJson(model, value)) {
-      await confirmCategoryQuota(requestId, res.status);
+      const usageUnits =
+        model.category === "image" ? validImageCount(value) : 1;
+      await confirmCategoryQuota(requestId, res.status, usageUnits);
     } else {
       await releaseCategoryQuota(
         requestId,
@@ -389,9 +413,9 @@ async function validateJsonResponse(
   } catch {
     await releaseCategoryQuota(
       requestId,
-      "failed",
-      "response could not be parsed",
-      res.status,
+      signal.aborted ? "canceled" : "failed",
+      signal.aborted ? "request canceled" : "response could not be parsed",
+      signal.aborted ? 499 : res.status,
     );
   }
   return res;
@@ -467,6 +491,26 @@ async function handle(
     return gatewayError(provider, 403, message);
   }
 
+  let adapterBodyText = bodyText;
+  try {
+    adapterBodyText = (
+      await prepareGatewayImageInput({
+        bodyText,
+        targetModel: companyModel,
+        signal: req.signal,
+      })
+    ).bodyText;
+  } catch (error) {
+    if (req.signal.aborted) {
+      return gatewayError(provider, 499, "request canceled");
+    }
+    return gatewayError(
+      provider,
+      502,
+      error instanceof Error ? error.message : "image bridge failed",
+    );
+  }
+
   const adapter = adapterFor(companyModel.endpointType);
   if (!adapter) {
     const message = "model adapter is not implemented";
@@ -498,9 +542,10 @@ async function handle(
     req,
     path,
     search: req.nextUrl.search || "",
-    bodyText,
+    bodyText: adapterBodyText,
     model: companyModel,
     credential,
+    signal: req.signal,
   };
 
   try {
@@ -526,10 +571,12 @@ async function handle(
 
     const contentType = res.headers.get("content-type")?.toLowerCase() ?? "";
     if (contentType.includes("text/event-stream")) {
-      return trackedEventStream(res, companyModel, requestId) ?? res;
+      return (
+        trackedEventStream(res, companyModel, requestId, req.signal) ?? res
+      );
     }
     if (contentType.includes("json")) {
-      return validateJsonResponse(res, companyModel, requestId);
+      return validateJsonResponse(res, companyModel, requestId, req.signal);
     }
 
     await releaseCategoryQuota(
@@ -542,12 +589,16 @@ async function handle(
   } catch {
     await releaseCategoryQuota(
       requestId,
-      "failed",
-      "gateway request failed",
-      502,
+      req.signal.aborted ? "canceled" : "failed",
+      req.signal.aborted ? "request canceled" : "gateway request failed",
+      req.signal.aborted ? 499 : 502,
     );
-    console.error("[Gateway] request failed");
-    return gatewayError(provider, 502, "gateway request failed");
+    if (!req.signal.aborted) console.error("[Gateway] request failed");
+    return gatewayError(
+      provider,
+      req.signal.aborted ? 499 : 502,
+      req.signal.aborted ? "request canceled" : "gateway request failed",
+    );
   }
 }
 

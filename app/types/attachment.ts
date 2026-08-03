@@ -17,6 +17,10 @@ export interface StoredAttachmentMetadata {
   columnCount?: number;
   sheetCount?: number;
   chunkCount?: number;
+  mediaId?: string;
+  width?: number;
+  height?: number;
+  previewAvailable?: boolean;
 }
 
 export interface TransientChatAttachment extends StoredAttachmentMetadata {

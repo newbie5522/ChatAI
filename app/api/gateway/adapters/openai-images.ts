@@ -58,10 +58,47 @@ function extractPrompt(bodyText?: string) {
   }
 }
 
-function normalizedImageData(json: any) {
-  const data = Array.isArray(json?.data)
-    ? json.data
-        .map((item: any) => {
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function extractImages(bodyText?: string) {
+  if (!bodyText) return [];
+  const images: Array<{ mimeType: string; data: string }> = [];
+  try {
+    const value: unknown = JSON.parse(bodyText);
+    const visit = (item: unknown) => {
+      if (Array.isArray(item)) {
+        item.forEach(visit);
+        return;
+      }
+      const record = objectValue(item);
+      if (!record) return;
+      const imageUrl = objectValue(record.image_url);
+      if (typeof imageUrl?.url === "string") {
+        const match = imageUrl.url.match(
+          /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=]+)$/i,
+        );
+        if (match) images.push({ mimeType: match[1], data: match[2] });
+      }
+      Object.values(record).forEach(visit);
+    };
+    visit(value);
+  } catch {
+    return [];
+  }
+  return images;
+}
+
+function normalizedImageData(value: unknown) {
+  const json = objectValue(value);
+  const dataValue = json?.data;
+  const data = Array.isArray(dataValue)
+    ? dataValue
+        .map((value) => {
+          const item = objectValue(value);
           const b64_json = item?.b64_json;
           const url = item?.url;
           if (typeof b64_json === "string" && b64_json) return { b64_json };
@@ -86,22 +123,49 @@ export async function callOpenAIImages(
   }
 
   const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, OPENAI_BASE_URL);
-  const res = await fetch(`${baseUrl}/v1/images/generations`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${ctx.credential.apiKey}`,
-      ...(ctx.credential.orgId
-        ? { "OpenAI-Organization": ctx.credential.orgId }
-        : {}),
-    },
-    body: JSON.stringify({
-      model: ctx.model.model,
-      prompt,
-      n: 1,
-      size: "1024x1024",
-    }),
-  });
+  const images = extractImages(ctx.bodyText);
+  const headers = {
+    Authorization: `Bearer ${ctx.credential.apiKey}`,
+    ...(ctx.credential.orgId
+      ? { "OpenAI-Organization": ctx.credential.orgId }
+      : {}),
+  };
+  const res = images.length
+    ? await (() => {
+        const form = new FormData();
+        form.set("model", ctx.model.model);
+        form.set("prompt", prompt);
+        form.set("size", "1024x1024");
+        form.set("n", "1");
+        images.forEach((image, index) => {
+          const extension = image.mimeType === "image/png" ? "png" : "jpg";
+          const blob = new Blob([Buffer.from(image.data, "base64")], {
+            type: image.mimeType,
+          });
+          form.append(
+            index === 0 ? "image" : "image[]",
+            blob,
+            `reference-${index + 1}.${extension}`,
+          );
+        });
+        return fetch(`${baseUrl}/v1/images/edits`, {
+          method: "POST",
+          headers,
+          body: form,
+          signal: ctx.signal,
+        });
+      })()
+    : await fetch(`${baseUrl}/v1/images/generations`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: ctx.model.model,
+          prompt,
+          n: 1,
+          size: "1024x1024",
+        }),
+        signal: ctx.signal,
+      });
 
   if (!res.ok) {
     return new Response(res.body, {
@@ -111,6 +175,6 @@ export async function callOpenAIImages(
     });
   }
 
-  const json = await res.json();
+  const json: unknown = await res.json();
   return Response.json(normalizedImageData(json), { status: 200 });
 }

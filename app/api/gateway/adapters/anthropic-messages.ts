@@ -24,6 +24,7 @@ export async function callAnthropicMessages(ctx: GatewayAdapterContext) {
           Anthropic.Vision,
       },
       body: ctx.bodyText,
+      signal: ctx.signal,
       redirect: "manual",
     }),
   );

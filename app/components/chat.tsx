@@ -7,6 +7,7 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 
 import SendWhiteIcon from "../icons/send-white.svg";
@@ -118,7 +119,7 @@ import { ClientApi, MultimodalContent } from "../client/api";
 import { createTTSPlayer } from "../utils/audio";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "../utils/ms_edge_tts";
 
-import { findAccountModel, getModelProvider } from "../utils/model";
+import { getModelProvider } from "../utils/model";
 import { getGroupedModels } from "./model-config";
 import { RealtimeChat } from "@/app/components/realtime-chat";
 import clsx from "clsx";
@@ -128,6 +129,14 @@ import type {
   TransientChatAttachment,
 } from "../types/attachment";
 import { formatAttachmentSize } from "../utils/attachments";
+import {
+  deleteMessageMedia,
+  deleteUnreferencedMessageMedia,
+  saveMessageMedia,
+} from "../utils/message-media-store";
+import { ProviderAvatar } from "./provider-avatar";
+import { ImagePreview } from "./image-preview";
+import { MessageAttachments } from "./message-attachments";
 
 const localStorage = safeLocalStorage();
 
@@ -1037,8 +1046,19 @@ function _Chat() {
   const isMobileScreen = useMobileScreen();
   const navigate = useNavigate();
   const [attachments, setAttachments] = useState<TransientChatAttachment[]>([]);
+  const attachmentDraftRef = useRef<TransientChatAttachment[]>([]);
+  const uploadControllerRef = useRef<AbortController | undefined>(undefined);
   const [uploading, setUploading] = useState(false);
   const [analyzingAttachments, setAnalyzingAttachments] = useState(false);
+  const requestState = useSyncExternalStore(
+    ChatControllerPool.subscribe,
+    () => ChatControllerPool.getSnapshot(session.id),
+    () => "finished",
+  );
+  const requestPending = ["preparing", "streaming", "stopping"].includes(
+    requestState,
+  );
+  const requestStopping = requestState === "stopping";
 
   // prompt hints
   const promptStore = usePromptStore();
@@ -1110,7 +1130,7 @@ function _Chat() {
 
   const doSubmit = async (userInput: string) => {
     if (userInput.trim() === "" && attachments.length === 0) return;
-    if (analyzingAttachments) return;
+    if (requestPending) return;
     const matchCommand = chatCommands.match(userInput);
     if (matchCommand.matched) {
       setUserInput("");
@@ -1126,46 +1146,35 @@ function _Chat() {
       showToast("附件正在解析，请稍候。");
       return;
     }
-    const selectedModel = findAccountModel(
-      accountStore.models,
-      session.mask.modelConfig.model,
-      session.mask.modelConfig.providerName,
-    );
-    const imageAttachments = attachments.filter(
-      (attachment) => attachment.kind === "image",
-    );
-    if (selectedModel?.category === "image" && imageAttachments.length > 0) {
-      showToast("当前生图接口暂不支持参考图片。");
-      return;
-    }
-    if (
-      imageAttachments.length > 0 &&
-      selectedModel?.capabilities?.vision !== true
-    ) {
-      showToast("当前模型不支持图片输入，请更换支持图片的模型。");
-      return;
-    }
     const hasIndexedAttachment = attachments.some(
       (attachment) => attachment.analysisId,
     );
     setIsLoading(true);
     setAnalyzingAttachments(hasIndexedAttachment);
     try {
-      await chatStore.onUserInput(userInput, attachments);
+      const handle = await chatStore.onUserInput(userInput, attachments);
+      if (!handle.accepted) return;
       deleteAttachmentAnalysis(attachments);
+      attachmentDraftRef.current = [];
       setAttachments([]);
       chatStore.setLastInput(userInput);
       setUserInput("");
       setPromptHints([]);
       if (!isMobileScreen) inputRef.current?.focus();
       setAutoScroll(true);
+      setIsLoading(false);
     } catch (error) {
-      showToast(
-        error instanceof Error ? error.message : "附件分析失败，请稍后重试。",
-      );
+      const canceled =
+        error instanceof Error &&
+        (error.name === "AbortError" || /abort|cancel/i.test(error.message));
+      if (!canceled) {
+        showToast(
+          error instanceof Error ? error.message : "附件分析失败，请稍后重试。",
+        );
+      }
+      setIsLoading(false);
     } finally {
       setAnalyzingAttachments(false);
-      setIsLoading(false);
     }
   };
 
@@ -1195,6 +1204,14 @@ function _Chat() {
     chatStore.updateTargetSession(session, (session) => {
       const stopTiming = Date.now() - REQUEST_TIMEOUT_MS;
       session.messages.forEach((m) => {
+        if (m.canceled) {
+          m.streaming = false;
+          m.isError = false;
+          if (!getMessageTextContent(m).trim()) {
+            m.content = "已停止生成";
+          }
+          return;
+        }
         // check if should stop all stale messages
         if (m.isError || new Date(m.date).getTime() < stopTiming) {
           if (m.streaming) {
@@ -1232,7 +1249,7 @@ function _Chat() {
       return;
     }
     if (shouldSubmit(e) && promptHints.length === 0) {
-      doSubmit(userInput);
+      if (!requestPending) void doSubmit(userInput);
       e.preventDefault();
     }
   };
@@ -1248,11 +1265,28 @@ function _Chat() {
   };
 
   const deleteMessage = (msgId?: string) => {
+    const removed = session.messages.find((message) => message.id === msgId);
+    const candidates = (removed?.attachments ?? [])
+      .map((attachment) => attachment.mediaId)
+      .filter((mediaId): mediaId is string => Boolean(mediaId));
     chatStore.updateTargetSession(
       session,
       (session) =>
         (session.messages = session.messages.filter((m) => m.id !== msgId)),
     );
+    const accountId = accountStore.user?.userId;
+    if (accountId && candidates.length > 0) {
+      const referenced = new Set(
+        chatStore.sessions.flatMap((chatSession) =>
+          chatSession.messages.flatMap((message) =>
+            (message.attachments ?? [])
+              .map((attachment) => attachment.mediaId)
+              .filter((mediaId): mediaId is string => Boolean(mediaId)),
+          ),
+        ),
+      );
+      void deleteUnreferencedMessageMedia(accountId, candidates, referenced);
+    }
   };
 
   const onDelete = (msgId: string) => {
@@ -1314,7 +1348,10 @@ function _Chat() {
     // resend the message
     setIsLoading(true);
     const textContent = getMessageTextContent(userMessage);
-    chatStore.onUserInput(textContent).then(() => setIsLoading(false));
+    void chatStore
+      .onUserInput(textContent)
+      .then(() => setIsLoading(false))
+      .catch(() => setIsLoading(false));
     inputRef.current?.focus();
   };
 
@@ -1552,24 +1589,6 @@ function _Chat() {
   const uploadFiles = useCallback(
     async (files: File[]) => {
       if (files.length === 0) return;
-      const selectedModel = findAccountModel(
-        accountStore.models,
-        session.mask.modelConfig.model,
-        session.mask.modelConfig.providerName,
-      );
-      const includesImage = files.some(
-        (file) =>
-          file.type.startsWith("image/") ||
-          /\.(?:png|jpe?g|webp)$/i.test(file.name),
-      );
-      if (includesImage && selectedModel?.category === "image") {
-        showToast("当前生图接口暂不支持参考图片。");
-        return;
-      }
-      if (includesImage && selectedModel?.capabilities?.vision !== true) {
-        showToast("当前模型不支持图片输入，请更换支持图片的模型。");
-        return;
-      }
       if (attachments.length + files.length > 4) {
         showToast("单次最多选择 4 个文件。");
         return;
@@ -1597,30 +1616,89 @@ function _Chat() {
 
       const formData = new FormData();
       files.forEach((file) => formData.append("files", file));
+      const uploadController = new AbortController();
+      uploadControllerRef.current = uploadController;
       setUploading(true);
       try {
         const response = await fetch("/api/account/attachments", {
           method: "POST",
           credentials: "same-origin",
           body: formData,
+          signal: uploadController.signal,
         });
         const body = (await response.json()) as AttachmentUploadResponse;
         if (!response.ok || body.error || !body.attachments) {
           throw new Error(body.message || "附件解析失败。");
         }
-        setAttachments((current) => [...current, ...body.attachments!]);
+        const createdMediaIds: string[] = [];
+        try {
+          const protectedMediaIds = new Set(
+            session.messages.flatMap((message) =>
+              (message.attachments ?? [])
+                .map((attachment) => attachment.mediaId)
+                .filter((mediaId): mediaId is string => Boolean(mediaId)),
+            ),
+          );
+          attachments.forEach((attachment) => {
+            if (attachment.mediaId) protectedMediaIds.add(attachment.mediaId);
+          });
+          const uploaded: TransientChatAttachment[] = [];
+          for (let index = 0; index < body.attachments.length; index += 1) {
+            const attachment = body.attachments[index];
+            const file = files[index];
+            if (attachment.kind !== "image" || !file) {
+              uploaded.push(attachment);
+              continue;
+            }
+            const accountId = accountStore.user?.userId;
+            if (!accountId) throw new Error("账号会话已失效。");
+            const media = await saveMessageMedia(
+              file,
+              accountId,
+              protectedMediaIds,
+            );
+            createdMediaIds.push(media.mediaId);
+            protectedMediaIds.add(media.mediaId);
+            uploaded.push({
+              ...attachment,
+              mediaId: media.mediaId,
+              width: media.width,
+              height: media.height,
+              previewAvailable: true,
+            });
+          }
+          if (uploadController.signal.aborted) {
+            throw new DOMException("Upload aborted", "AbortError");
+          }
+          setAttachments((current) => {
+            const next = [...current, ...uploaded];
+            attachmentDraftRef.current = next;
+            return next;
+          });
+        } catch (error) {
+          const accountId = accountStore.user?.userId;
+          if (accountId) {
+            await Promise.all(
+              createdMediaIds.map((mediaId) =>
+                deleteMessageMedia(accountId, mediaId),
+              ),
+            );
+          }
+          throw error;
+        }
       } catch (error) {
-        showToast(error instanceof Error ? error.message : "附件解析失败。");
+        const canceled = error instanceof Error && error.name === "AbortError";
+        if (!canceled) {
+          showToast(error instanceof Error ? error.message : "附件解析失败。");
+        }
       } finally {
+        if (uploadControllerRef.current === uploadController) {
+          uploadControllerRef.current = undefined;
+        }
         setUploading(false);
       }
     },
-    [
-      accountStore.models,
-      attachments,
-      session.mask.modelConfig.model,
-      session.mask.modelConfig.providerName,
-    ],
+    [accountStore.user?.userId, attachments],
   );
 
   const deleteAttachmentAnalysis = useCallback(
@@ -1664,14 +1742,24 @@ function _Chat() {
     fileInput.click();
   }
 
-  useEffect(() => {
-    setAttachments((current) => {
-      deleteAttachmentAnalysis(current);
-      return [];
-    });
-    setUploading(false);
-    setAnalyzingAttachments(false);
-  }, [deleteAttachmentAnalysis, session.id]);
+  useEffect(
+    () => () => {
+      uploadControllerRef.current?.abort();
+      const draft = attachmentDraftRef.current;
+      deleteAttachmentAnalysis(draft);
+      const accountId = accountStore.user?.userId;
+      if (accountId) {
+        void Promise.all(
+          draft
+            .map((attachment) => attachment.mediaId)
+            .filter((mediaId): mediaId is string => Boolean(mediaId))
+            .map((mediaId) => deleteMessageMedia(accountId, mediaId)),
+        );
+      }
+      attachmentDraftRef.current = [];
+    },
+    [accountStore.user?.userId, deleteAttachmentAnalysis],
+  );
 
   // 快捷键 shortcut keys
   const [showShortcutKeyModal, setShowShortcutKeyModal] = useState(false);
@@ -1862,6 +1950,19 @@ function _Chat() {
                 .map((message, i) => {
                   const isUser = message.role === "user";
                   const isContext = i < context.length;
+                  const generatedImages = getMessageImages(message);
+                  const matchingModels = accountStore.models.filter(
+                    (model) => model.name === message.model,
+                  );
+                  const companyModel = message.providerName
+                    ? matchingModels.find(
+                        (model) =>
+                          model.provider.providerName === message.providerName,
+                      )
+                    : matchingModels.length === 1
+                    ? matchingModels[0]
+                    : undefined;
+                  const modelName = companyModel?.displayName || message.model;
                   const showActions =
                     i > 0 &&
                     !(message.preview || message.content.length === 0) &&
@@ -1930,6 +2031,11 @@ function _Chat() {
                                 <>
                                   {["system"].includes(message.role) ? (
                                     <Avatar avatar="2699-fe0f" />
+                                  ) : accountStore.authenticated ? (
+                                    <ProviderAvatar
+                                      providerName={message.providerName}
+                                      model={message.model}
+                                    />
                                   ) : (
                                     <MaskAvatar
                                       avatar={session.mask.avatar}
@@ -1944,7 +2050,7 @@ function _Chat() {
                             </div>
                             {!isUser && (
                               <div className={styles["chat-model-name"]}>
-                                {message.model}
+                                {modelName}
                               </div>
                             )}
 
@@ -2061,41 +2167,24 @@ function _Chat() {
                               parentRef={scrollRef}
                               defaultShow={i >= messages.length - 6}
                             />
-                            {getMessageImages(message).length == 1 && (
-                              <img
-                                className={styles["chat-message-item-image"]}
-                                src={getMessageImages(message)[0]}
-                                alt=""
-                              />
-                            )}
-                            {getMessageImages(message).length > 1 && (
-                              <div
-                                className={styles["chat-message-item-images"]}
-                                style={
-                                  {
-                                    "--image-count":
-                                      getMessageImages(message).length,
-                                  } as React.CSSProperties
-                                }
-                              >
-                                {getMessageImages(message).map(
-                                  (image, index) => {
-                                    return (
-                                      <img
-                                        className={
-                                          styles[
-                                            "chat-message-item-image-multi"
-                                          ]
-                                        }
-                                        key={index}
-                                        src={image}
-                                        alt=""
-                                      />
-                                    );
-                                  },
-                                )}
-                              </div>
-                            )}
+                            <MessageAttachments
+                              attachments={message.attachments}
+                            />
+                            <ImagePreview
+                              images={generatedImages.map((image, index) => ({
+                                src: image,
+                                alt: `${modelName ?? "NewbieChat"} ${
+                                  index + 1
+                                }`,
+                              }))}
+                            />
+                            {message.canceled &&
+                              getMessageTextContent(message).trim() !==
+                                "已停止生成" && (
+                                <div className={styles["chat-message-status"]}>
+                                  已停止生成
+                                </div>
+                              )}
                           </div>
                           {message?.audio_url && (
                             <div className={styles["chat-message-audio"]}>
@@ -2154,10 +2243,14 @@ function _Chat() {
                     {attachments.map((attachment) => (
                       <div className={styles.attachment} key={attachment.id}>
                         {attachment.kind === "image" && attachment.dataUrl ? (
-                          <img
-                            className={styles["attachment-thumbnail"]}
-                            src={attachment.dataUrl}
-                            alt=""
+                          <ImagePreview
+                            compact
+                            images={[
+                              {
+                                src: attachment.dataUrl,
+                                alt: attachment.name,
+                              },
+                            ]}
                           />
                         ) : (
                           <div className={styles["attachment-file-icon"]}>
@@ -2209,11 +2302,20 @@ function _Chat() {
                           onClick={(event) => {
                             event.preventDefault();
                             deleteAttachmentAnalysis([attachment]);
-                            setAttachments((current) =>
-                              current.filter(
+                            const accountId = accountStore.user?.userId;
+                            if (accountId && attachment.mediaId) {
+                              void deleteMessageMedia(
+                                accountId,
+                                attachment.mediaId,
+                              );
+                            }
+                            setAttachments((current) => {
+                              const next = current.filter(
                                 (item) => item.id !== attachment.id,
-                              ),
-                            );
+                              );
+                              attachmentDraftRef.current = next;
+                              return next;
+                            });
                           }}
                         >
                           <DeleteIcon />
@@ -2247,17 +2349,33 @@ function _Chat() {
                 />
                 <IconButton
                   icon={
-                    analyzingAttachments ? (
+                    requestStopping ? (
+                      <LoadingButtonIcon />
+                    ) : requestPending ? (
+                      <StopIcon />
+                    ) : analyzingAttachments ? (
                       <LoadingButtonIcon />
                     ) : (
                       <SendWhiteIcon />
                     )
                   }
-                  text={Locale.Chat.Send}
+                  text={
+                    requestStopping
+                      ? "正在停止…"
+                      : requestPending
+                      ? "停止"
+                      : Locale.Chat.Send
+                  }
                   className={styles["chat-input-send"]}
                   type="primary"
-                  disabled={analyzingAttachments || uploading}
-                  onClick={() => void doSubmit(userInput)}
+                  disabled={requestStopping || (!requestPending && uploading)}
+                  onClick={() => {
+                    if (requestPending) {
+                      ChatControllerPool.stopSession(session.id);
+                    } else {
+                      void doSubmit(userInput);
+                    }
+                  }}
                 />
               </label>
             </div>

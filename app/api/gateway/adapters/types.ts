@@ -10,6 +10,7 @@ export interface GatewayAdapterContext {
   bodyText?: string;
   model: CompanyModel;
   credential: ProviderCredential;
+  signal: AbortSignal;
 }
 
 export function normalizeBaseUrl(

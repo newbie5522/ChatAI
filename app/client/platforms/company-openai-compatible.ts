@@ -17,7 +17,14 @@ import {
 } from "@/app/utils";
 import { fetch } from "@/app/utils/stream";
 
-import { ChatOptions, LLMApi, LLMModel, LLMUsage, SpeechOptions } from "../api";
+import {
+  ChatOptions,
+  LLMApi,
+  LLMModel,
+  LLMUsage,
+  SpeechOptions,
+  linkAbortSignal,
+} from "../api";
 
 export type CompanyOpenAICompatibleProvider =
   | "xai"
@@ -139,6 +146,7 @@ export class CompanyOpenAICompatibleApi implements LLMApi {
     }
 
     const controller = new AbortController();
+    linkAbortSignal(options.signal, controller);
     options.onController?.(controller);
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -151,6 +159,7 @@ export class CompanyOpenAICompatibleApi implements LLMApi {
         body: JSON.stringify({
           model: options.config.model,
           prompt,
+          messages: options.messages,
         }),
       });
       const json: unknown = await res.json();
@@ -193,10 +202,11 @@ export class CompanyOpenAICompatibleApi implements LLMApi {
         modelConfig.providerName,
       );
       const vision = accountModel?.capabilities?.vision === true;
+      const preserveImages = useAccountStore.getState().authenticated || vision;
       const messages: ChatOptions["messages"] = [];
       for (const message of options.messages) {
-        const content = vision
-          ? await preProcessImageContent(message.content)
+        const content = preserveImages
+          ? await preProcessImageContent(message.content, options.signal)
           : message.role === "assistant"
           ? getMessageTextContentWithoutThinking(message)
           : getMessageTextContent(message);
@@ -212,6 +222,7 @@ export class CompanyOpenAICompatibleApi implements LLMApi {
         max_tokens: modelConfig.max_tokens,
       };
       const controller = new AbortController();
+      linkAbortSignal(options.signal, controller);
       options.onController?.(controller);
       const headers = { "Content-Type": "application/json" };
       const chatPath = CHAT_PATHS[this.provider];

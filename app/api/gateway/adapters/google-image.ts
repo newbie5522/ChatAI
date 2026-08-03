@@ -7,18 +7,20 @@ import {
   normalizeBaseUrl,
 } from "./types";
 
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
-
   return content
     .map((part) => {
       if (typeof part === "string") return part;
-      if (part && typeof part === "object") {
-        const item = part as { text?: unknown };
-        return typeof item.text === "string" ? item.text : "";
-      }
-      return "";
+      const item = objectValue(part);
+      return typeof item?.text === "string" ? item.text : "";
     })
     .filter(Boolean)
     .join("\n");
@@ -26,51 +28,47 @@ function textFromContent(content: unknown): string {
 
 function promptFromMessages(messages: unknown) {
   if (!Array.isArray(messages)) return "";
-
-  const userMessages = messages
-    .filter(
-      (message) =>
-        message &&
-        typeof message === "object" &&
-        (message as { role?: string }).role === "user",
-    )
-    .map((message) =>
-      textFromContent((message as { content?: unknown }).content),
-    )
-    .filter(Boolean);
-
-  return userMessages.at(-1) ?? "";
+  return (
+    messages
+      .filter((message) => objectValue(message)?.role === "user")
+      .map((message) => textFromContent(objectValue(message)?.content))
+      .filter(Boolean)
+      .at(-1) ?? ""
+  );
 }
 
-function promptFromContents(contents: unknown) {
-  if (!Array.isArray(contents)) return "";
-
-  const textItems = contents
-    .filter(
-      (content) =>
-        content &&
-        typeof content === "object" &&
-        (content as { role?: string }).role !== "model",
-    )
-    .map((content) => textFromContent((content as { parts?: unknown }).parts))
-    .filter(Boolean);
-
-  return textItems.at(-1) ?? "";
-}
-
-function extractPrompt(bodyText?: string) {
-  if (!bodyText) return "";
-
+function extractRequest(bodyText?: string) {
+  const images: Array<{ mimeType: string; data: string }> = [];
+  if (!bodyText) return { prompt: "", images };
   try {
-    const body = JSON.parse(bodyText) as Record<string, unknown>;
-    return (
-      textFromContent(body.prompt).trim() ||
-      textFromContent(body.input).trim() ||
-      promptFromMessages(body.messages).trim() ||
-      promptFromContents(body.contents).trim()
-    );
+    const value: unknown = JSON.parse(bodyText);
+    const body = objectValue(value) ?? {};
+    const visit = (item: unknown) => {
+      if (Array.isArray(item)) {
+        item.forEach(visit);
+        return;
+      }
+      const record = objectValue(item);
+      if (!record) return;
+      const imageUrl = objectValue(record.image_url);
+      if (typeof imageUrl?.url === "string") {
+        const match = imageUrl.url.match(
+          /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=]+)$/i,
+        );
+        if (match) images.push({ mimeType: match[1], data: match[2] });
+      }
+      Object.values(record).forEach(visit);
+    };
+    visit(body);
+    return {
+      prompt:
+        textFromContent(body.prompt).trim() ||
+        textFromContent(body.input).trim() ||
+        promptFromMessages(body.messages).trim(),
+      images,
+    };
   } catch {
-    return "";
+    return { prompt: "", images };
   }
 }
 
@@ -81,30 +79,32 @@ function googleBaseRoot(baseUrl?: string) {
   );
 }
 
-function imageDataFromGoogle(json: any) {
-  const parts = Array.isArray(json?.candidates)
-    ? json.candidates.flatMap((candidate: any) =>
-        Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [],
-      )
-    : [];
-
-  const imageData = parts
-    .map((part: any) => part?.inlineData?.data ?? part?.inline_data?.data)
-    .filter(
-      (data: unknown): data is string => typeof data === "string" && !!data,
-    );
-
-  return imageData.map((b64_json: string) => ({ b64_json }));
+function imageDataFromGoogle(value: unknown) {
+  const json = objectValue(value);
+  const candidateValue = json?.candidates;
+  const candidates = Array.isArray(candidateValue) ? candidateValue : [];
+  const parts = candidates.flatMap((candidate) => {
+    const content = objectValue(objectValue(candidate)?.content);
+    const partValue = content?.parts;
+    return Array.isArray(partValue) ? partValue : [];
+  });
+  return parts
+    .map((part) => {
+      const record = objectValue(part);
+      return (
+        objectValue(record?.inlineData)?.data ??
+        objectValue(record?.inline_data)?.data
+      );
+    })
+    .filter((data): data is string => typeof data === "string" && !!data)
+    .map((b64_json) => ({ b64_json }));
 }
 
 export async function callGoogleImage(
   ctx: GatewayAdapterContext,
 ): Promise<Response> {
-  const prompt = extractPrompt(ctx.bodyText);
-  if (!prompt) {
-    return gatewayJsonError(400, "image prompt is required");
-  }
-
+  const { prompt, images } = extractRequest(ctx.bodyText);
+  if (!prompt) return gatewayJsonError(400, "image prompt is required");
   const baseUrl = googleBaseRoot(ctx.credential.baseUrl);
   const res = await fetch(
     `${baseUrl}/v1/models/${encodeURIComponent(
@@ -112,6 +112,7 @@ export async function callGoogleImage(
     )}:generateContent`,
     {
       method: "POST",
+      signal: ctx.signal,
       headers: {
         "Content-Type": "application/json",
         "x-goog-api-key": ctx.credential.apiKey,
@@ -120,19 +121,20 @@ export async function callGoogleImage(
         contents: [
           {
             parts: [
-              {
-                text: prompt,
-              },
+              { text: prompt },
+              ...images.map((image) => ({
+                inlineData: {
+                  mimeType: image.mimeType,
+                  data: image.data,
+                },
+              })),
             ],
           },
         ],
-        generationConfig: {
-          responseModalities: ["IMAGE"],
-        },
+        generationConfig: { responseModalities: ["IMAGE"] },
       }),
     },
   );
-
   if (!res.ok) {
     return new Response(res.body, {
       status: res.status,
@@ -140,21 +142,15 @@ export async function callGoogleImage(
       headers: copyResponseHeaders(res),
     });
   }
-
-  const json = await res.json();
-  const data = imageDataFromGoogle(json);
-  if (data.length === 0) {
+  const data = imageDataFromGoogle(await res.json());
+  if (!data.length) {
     return gatewayJsonError(
       502,
       "google image response did not include image data",
     );
   }
-
   return Response.json(
-    {
-      created: Math.floor(Date.now() / 1000),
-      data,
-    },
+    { created: Math.floor(Date.now() / 1000), data },
     { status: 200 },
   );
 }

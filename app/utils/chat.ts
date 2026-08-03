@@ -73,17 +73,22 @@ export function compressImage(file: Blob, maxSize: number): Promise<string> {
 export async function preProcessImageContentBase(
   content: RequestMessage["content"],
   transformImageUrl: (url: string) => Promise<{ [key: string]: any }>,
+  signal?: AbortSignal,
 ) {
   if (typeof content === "string") {
     return content;
   }
   const result = [];
   for (const part of content) {
+    if (signal?.aborted) {
+      throw new DOMException("Request aborted", "AbortError");
+    }
     if (part?.type == "image_url" && part?.image_url?.url) {
       try {
-        const url = await cacheImageToBase64Image(part?.image_url?.url);
+        const url = await cacheImageToBase64Image(part?.image_url?.url, signal);
         result.push(await transformImageUrl(url));
       } catch (error) {
+        if (signal?.aborted) throw error;
         console.error("Error processing image URL:", error);
       }
     } else {
@@ -95,11 +100,16 @@ export async function preProcessImageContentBase(
 
 export async function preProcessImageContent(
   content: RequestMessage["content"],
+  signal?: AbortSignal,
 ) {
-  return preProcessImageContentBase(content, async (url) => ({
-    type: "image_url",
-    image_url: { url },
-  })) as Promise<MultimodalContent[] | string>;
+  return preProcessImageContentBase(
+    content,
+    async (url) => ({
+      type: "image_url",
+      image_url: { url },
+    }),
+    signal,
+  ) as Promise<MultimodalContent[] | string>;
 }
 
 export async function preProcessImageContentForAlibabaDashScope(
@@ -111,7 +121,10 @@ export async function preProcessImageContentForAlibabaDashScope(
 }
 
 const imageCaches: Record<string, string> = {};
-export function cacheImageToBase64Image(imageUrl: string) {
+export function cacheImageToBase64Image(
+  imageUrl: string,
+  signal?: AbortSignal,
+) {
   if (imageUrl.includes(CACHE_URL_PREFIX)) {
     if (!imageCaches[imageUrl]) {
       const reader = new FileReader();
@@ -119,6 +132,7 @@ export function cacheImageToBase64Image(imageUrl: string) {
         method: "GET",
         mode: "cors",
         credentials: "include",
+        signal,
       })
         .then((res) => res.blob())
         .then(
@@ -221,6 +235,11 @@ export function stream(
 
   const finish = () => {
     if (!finished) {
+      if (controller.signal.aborted) {
+        finished = true;
+        options.onFinish(responseText + remainText, responseRes);
+        return;
+      }
       if (!running && runTools.length > 0) {
         const toolCallMessage = {
           role: "assistant",
@@ -238,6 +257,7 @@ export function stream(
                 tool?.function?.arguments
                   ? JSON.parse(tool?.function?.arguments)
                   : {},
+                { signal: controller.signal },
               ),
             )
               .then((res) => {
@@ -276,8 +296,10 @@ export function stream(
               }));
           }),
         ).then((toolCallResult) => {
+          if (controller.signal.aborted) return;
           processToolMessage(requestPayload, toolCallMessage, toolCallResult);
           setTimeout(() => {
+            if (controller.signal.aborted) return;
             // call again
             console.debug("[ChatAPI] restart");
             running = false;
@@ -447,6 +469,11 @@ export function streamWithThink(
 
   const finish = () => {
     if (!finished) {
+      if (controller.signal.aborted) {
+        finished = true;
+        options.onFinish(responseText + remainText, responseRes);
+        return;
+      }
       if (!running && runTools.length > 0) {
         const toolCallMessage = {
           role: "assistant",
@@ -464,6 +491,7 @@ export function streamWithThink(
                 tool?.function?.arguments
                   ? JSON.parse(tool?.function?.arguments)
                   : {},
+                { signal: controller.signal },
               ),
             )
               .then((res) => {
@@ -502,8 +530,10 @@ export function streamWithThink(
               }));
           }),
         ).then((toolCallResult) => {
+          if (controller.signal.aborted) return;
           processToolMessage(requestPayload, toolCallMessage, toolCallResult);
           setTimeout(() => {
+            if (controller.signal.aborted) return;
             // call again
             console.debug("[ChatAPI] restart");
             running = false;

@@ -80,6 +80,7 @@ export interface SpeechOptions {
 export interface ChatOptions {
   messages: RequestMessage[];
   config: LLMConfig;
+  signal?: AbortSignal;
 
   onUpdate?: (message: string, chunk: string) => void;
   onFinish: (message: string, responseRes: Response) => void;
@@ -87,6 +88,17 @@ export interface ChatOptions {
   onController?: (controller: AbortController) => void;
   onBeforeTool?: (tool: ChatMessageTool) => void;
   onAfterTool?: (tool: ChatMessageTool) => void;
+}
+
+export function linkAbortSignal(
+  signal: AbortSignal | undefined,
+  controller: AbortController,
+) {
+  if (!signal) return;
+  if (signal.aborted) controller.abort();
+  else {
+    signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
 }
 
 export interface LLMUsage {
@@ -442,7 +454,12 @@ export function getClientApi(provider: ServiceProvider | string): ClientApi {
           )
         : new ClientApi(ModelProvider.XAI);
     case ServiceProvider.Mistral:
-      return new ClientApi(ModelProvider.Mistral);
+      return useAccountStore.getState().authenticated
+        ? new ClientApi(
+            ModelProvider.Mistral,
+            new CompanyOpenAICompatibleApi("mistral"),
+          )
+        : new ClientApi(ModelProvider.Mistral);
     case "智谱 GLM":
       return new ClientApi(
         ModelProvider.Zhipu,

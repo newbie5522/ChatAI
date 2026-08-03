@@ -33,6 +33,10 @@ export function toStoredAttachmentMetadata(
     columnCount,
     sheetCount,
     chunkCount,
+    mediaId,
+    width,
+    height,
+    previewAvailable,
   } = attachment;
   return {
     id,
@@ -46,6 +50,10 @@ export function toStoredAttachmentMetadata(
     columnCount,
     sheetCount,
     chunkCount,
+    mediaId,
+    width,
+    height,
+    previewAvailable,
   };
 }
 

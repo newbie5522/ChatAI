@@ -20,6 +20,7 @@ export async function callPerplexitySonar(ctx: GatewayAdapterContext) {
         Authorization: `Bearer ${ctx.credential.apiKey}`,
       },
       body: ctx.bodyText,
+      signal: ctx.signal,
       redirect: "manual",
     }),
   );

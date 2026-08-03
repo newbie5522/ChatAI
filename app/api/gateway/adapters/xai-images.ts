@@ -40,6 +40,7 @@ export async function callXAIImages(
       response_format: "url",
       n: 1,
     }),
+    signal: ctx.signal,
     redirect: "manual",
   });
 

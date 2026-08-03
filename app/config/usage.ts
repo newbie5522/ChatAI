@@ -237,9 +237,9 @@ export async function reserveCategoryQuota(
       account.id,
       month,
     ).filter((record) => record.category === input.category);
-    const used = categoryRecords.filter(
-      (record) => record.status === "success" && record.usageUnits === 1,
-    ).length;
+    const used = categoryRecords
+      .filter((record) => record.status === "success")
+      .reduce((total, record) => total + Number(record.usageUnits ?? 0), 0);
     const pending = categoryRecords.filter(
       (record) => record.status === "pending",
     ).length;
@@ -308,6 +308,7 @@ export async function reserveCategoryQuota(
 export async function confirmCategoryQuota(
   requestId: string,
   httpStatus?: number,
+  usageUnits = 1,
 ) {
   return enqueueWrite(async () => {
     const store = await readStoreUnsafe();
@@ -315,8 +316,8 @@ export async function confirmCategoryQuota(
     if (!record || record.status !== "pending") return record;
 
     record.status = "success";
-    record.usageUnits = 1;
-    record.quotaUnits = 1;
+    record.usageUnits = Math.max(1, Math.floor(usageUnits));
+    record.quotaUnits = record.usageUnits;
     record.httpStatus = httpStatus;
     record.errorMessage = undefined;
     await writeStoreUnsafe(store);
@@ -473,10 +474,12 @@ export async function getAccountUsageSummary(
     month,
   );
   const successfulRecords = records.filter(
-    (record) => record.status === "success" && record.usageUnits === 1,
+    (record) => record.status === "success" && Number(record.usageUnits) > 0,
   );
   const usedByCategory = (category: ModelCategory) =>
-    successfulRecords.filter((record) => record.category === category).length;
+    successfulRecords
+      .filter((record) => record.category === category)
+      .reduce((total, record) => total + Number(record.usageUnits ?? 0), 0);
 
   return {
     accountId: account.id,

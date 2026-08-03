@@ -10,6 +10,7 @@ import {
   getHeaders,
   LLMApi,
   LLMModel,
+  linkAbortSignal,
   SpeechOptions,
 } from "../api";
 import {
@@ -103,6 +104,7 @@ export class ClaudeApi implements LLMApi {
     const visionModel = accountStore.authenticated
       ? accountModel?.capabilities?.vision === true
       : isVisionModel(options.config.model);
+    const preserveImages = accountStore.authenticated || visionModel;
 
     const accessStore = useAccessStore.getState();
 
@@ -119,8 +121,8 @@ export class ClaudeApi implements LLMApi {
     // try get base64image from local cache image_url
     const messages: ChatOptions["messages"] = [];
     for (const v of options.messages) {
-      const content = visionModel
-        ? await preProcessImageContent(v.content)
+      const content = preserveImages
+        ? await preProcessImageContent(v.content, options.signal)
         : getMessageTextContent(v);
       messages.push({ role: v.role, content });
     }
@@ -154,7 +156,10 @@ export class ClaudeApi implements LLMApi {
         const { role, content } = v;
         const insideRole = ClaudeMapper[role] ?? "user";
 
-        if (!visionModel || typeof content === "string") {
+        if (
+          (!visionModel && !accountStore.authenticated) ||
+          typeof content === "string"
+        ) {
           return {
             role: insideRole,
             content: getMessageTextContent(v),
@@ -214,6 +219,7 @@ export class ClaudeApi implements LLMApi {
     const path = this.path(Anthropic.ChatPath);
 
     const controller = new AbortController();
+    linkAbortSignal(options.signal, controller);
     options.onController?.(controller);
 
     if (shouldStream) {

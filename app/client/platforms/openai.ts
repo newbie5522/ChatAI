@@ -37,6 +37,7 @@ import {
   LLMApi,
   LLMModel,
   LLMUsage,
+  linkAbortSignal,
   MultimodalContent,
   SpeechOptions,
 } from "../api";
@@ -77,6 +78,7 @@ export interface DalleRequestPayload {
   prompt: string;
   response_format?: "url" | "b64_json";
   n: number;
+  messages?: ChatOptions["messages"];
   size: ModelSize;
   quality?: DalleQuality;
   style?: DalleStyle;
@@ -219,6 +221,7 @@ export class ChatGPTApi implements LLMApi {
         prompt,
         n: 1,
         size: "1024x1024",
+        messages: options.messages,
       };
     } else {
       const accountStore = useAccountStore.getState();
@@ -230,10 +233,11 @@ export class ChatGPTApi implements LLMApi {
       const visionModel = accountStore.authenticated
         ? accountModel?.capabilities?.vision === true
         : isVisionModel(options.config.model);
+      const preserveImages = accountStore.authenticated || visionModel;
       const messages: ChatOptions["messages"] = [];
       for (const v of options.messages) {
-        const content = visionModel
-          ? await preProcessImageContent(v.content)
+        const content = preserveImages
+          ? await preProcessImageContent(v.content, options.signal)
           : getMessageTextContent(v);
         if (!(isO1OrO3 && v.role === "system"))
           messages.push({ role: v.role, content });
@@ -278,6 +282,7 @@ export class ChatGPTApi implements LLMApi {
 
     const shouldStream = !isImageModel && !!options.config.stream;
     const controller = new AbortController();
+    linkAbortSignal(options.signal, controller);
     options.onController?.(controller);
 
     try {

@@ -67,6 +67,7 @@ export async function callOpenAICompatibleChat(
       Authorization: `Bearer ${ctx.credential.apiKey}`,
     },
     body: JSON.stringify(body),
+    signal: ctx.signal,
     redirect: "manual",
   });
 
