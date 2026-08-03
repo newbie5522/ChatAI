@@ -43,6 +43,7 @@ import { createEmptyMask, Mask } from "./mask";
 import { executeMcpAction, getAllTools, isMcpEnabled } from "../mcp/actions";
 import { extractMcpJson, isMcpJson } from "../mcp/utils";
 import type {
+  AttachmentContextResponse,
   AttachmentKind,
   StoredAttachmentMetadata,
   TransientChatAttachment,
@@ -216,6 +217,28 @@ function stripTransientMessageData(message: ChatMessage): ChatMessage {
           truncated:
             typeof attachment.truncated === "boolean"
               ? attachment.truncated
+              : undefined,
+          analysisMode:
+            attachment.analysisMode === "direct" ||
+            attachment.analysisMode === "document_index" ||
+            attachment.analysisMode === "table_analysis"
+              ? attachment.analysisMode
+              : undefined,
+          rowCount:
+            typeof attachment.rowCount === "number"
+              ? attachment.rowCount
+              : undefined,
+          columnCount:
+            typeof attachment.columnCount === "number"
+              ? attachment.columnCount
+              : undefined,
+          sheetCount:
+            typeof attachment.sheetCount === "number"
+              ? attachment.sheetCount
+              : undefined,
+          chunkCount:
+            typeof attachment.chunkCount === "number"
+              ? attachment.chunkCount
               : undefined,
         }))
     : undefined;
@@ -498,14 +521,47 @@ export const useChatStore = createPersistStore(
         const modelConfig = session.mask.modelConfig;
 
         const attachmentList = isMcpResponse ? [] : attachments ?? [];
+        const queryContent =
+          !isMcpResponse && !content.trim() && attachmentList.length > 0
+            ? "请完整分析这些附件，并总结关键数据、异常和可执行结论。"
+            : content;
+        const analysisIds = attachmentList
+          .map((attachment) => attachment.analysisId)
+          .filter((analysisId): analysisId is string => Boolean(analysisId));
+        let analysisContext = "";
+        if (analysisIds.length > 0) {
+          const response = await fetch("/api/account/attachments/context", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: queryContent, analysisIds }),
+          });
+          const body = (await response.json()) as AttachmentContextResponse;
+          if (!response.ok || body.error || !body.contexts) {
+            throw new Error(body.message || "附件分析失败，请稍后重试。");
+          }
+          analysisContext = body.contexts
+            .map((context) => {
+              const content = context.content.replace(
+                /\[附件(?:开始|结束)\]/g,
+                "[附件标记]",
+              );
+              return `[附件开始]\n文件名：${context.name}\n文件类型：服务器临时分析上下文\n覆盖范围：${context.coverage}\n内容：\n${content}\n[附件结束]`;
+            })
+            .join("\n\n");
+        }
         const attachmentContext = buildAttachmentContext(attachmentList);
         const imageUrls = attachmentList
           .map((attachment) => attachment.dataUrl)
           .filter((url): url is string => !!url);
         const templatedContent = isMcpResponse
           ? content
-          : fillTemplateWith(content, modelConfig);
-        const requestText = [templatedContent, attachmentContext]
+          : fillTemplateWith(queryContent, modelConfig);
+        const requestText = [
+          templatedContent,
+          attachmentContext,
+          analysisContext,
+        ]
           .filter(Boolean)
           .join("\n\n");
         const requestContent: string | MultimodalContent[] =

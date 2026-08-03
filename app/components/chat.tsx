@@ -1038,6 +1038,7 @@ function _Chat() {
   const navigate = useNavigate();
   const [attachments, setAttachments] = useState<TransientChatAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [analyzingAttachments, setAnalyzingAttachments] = useState(false);
 
   // prompt hints
   const promptStore = usePromptStore();
@@ -1107,8 +1108,9 @@ function _Chat() {
     }
   };
 
-  const doSubmit = (userInput: string) => {
+  const doSubmit = async (userInput: string) => {
     if (userInput.trim() === "" && attachments.length === 0) return;
+    if (analyzingAttachments) return;
     const matchCommand = chatCommands.match(userInput);
     if (matchCommand.matched) {
       setUserInput("");
@@ -1143,16 +1145,28 @@ function _Chat() {
       showToast("当前模型不支持图片输入，请更换支持图片的模型。");
       return;
     }
+    const hasIndexedAttachment = attachments.some(
+      (attachment) => attachment.analysisId,
+    );
     setIsLoading(true);
-    chatStore
-      .onUserInput(userInput, attachments)
-      .then(() => setIsLoading(false));
-    setAttachments([]);
-    chatStore.setLastInput(userInput);
-    setUserInput("");
-    setPromptHints([]);
-    if (!isMobileScreen) inputRef.current?.focus();
-    setAutoScroll(true);
+    setAnalyzingAttachments(hasIndexedAttachment);
+    try {
+      await chatStore.onUserInput(userInput, attachments);
+      deleteAttachmentAnalysis(attachments);
+      setAttachments([]);
+      chatStore.setLastInput(userInput);
+      setUserInput("");
+      setPromptHints([]);
+      if (!isMobileScreen) inputRef.current?.focus();
+      setAutoScroll(true);
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "附件分析失败，请稍后重试。",
+      );
+    } finally {
+      setAnalyzingAttachments(false);
+      setIsLoading(false);
+    }
   };
 
   const onPromptSelect = (prompt: RenderPrompt) => {
@@ -1560,15 +1574,24 @@ function _Chat() {
         showToast("单次最多选择 4 个文件。");
         return;
       }
-      if (files.some((file) => file.size > 10 * 1024 * 1024)) {
-        showToast("单个文件不能超过 10 MB。");
+      const oversizedFile = files.find((file) => {
+        const extension = file.name.toLowerCase().match(/\.[^.]+$/)?.[0] ?? "";
+        const limit = file.type.startsWith("image/")
+          ? 10 * 1024 * 1024
+          : [".pdf", ".docx", ".xls", ".xlsx"].includes(extension)
+          ? 25 * 1024 * 1024
+          : 30 * 1024 * 1024;
+        return file.size > limit;
+      });
+      if (oversizedFile) {
+        showToast("文件大小超过当前格式限制。");
         return;
       }
       const totalSize =
         attachments.reduce((sum, attachment) => sum + attachment.size, 0) +
         files.reduce((sum, file) => sum + file.size, 0);
-      if (totalSize > 20 * 1024 * 1024) {
-        showToast("单次附件总大小不能超过 20 MB。");
+      if (totalSize > 50 * 1024 * 1024) {
+        showToast("单次附件总大小不能超过 50 MB。");
         return;
       }
 
@@ -1600,6 +1623,22 @@ function _Chat() {
     ],
   );
 
+  const deleteAttachmentAnalysis = useCallback(
+    (items: TransientChatAttachment[]) => {
+      const analysisIds = items
+        .map((attachment) => attachment.analysisId)
+        .filter((analysisId): analysisId is string => Boolean(analysisId));
+      if (analysisIds.length === 0) return;
+      void fetch("/api/account/attachments", {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ analysisIds }),
+      }).catch(() => undefined);
+    },
+    [],
+  );
+
   const handlePaste = useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
       const files = Array.from(event.clipboardData.items)
@@ -1626,9 +1665,13 @@ function _Chat() {
   }
 
   useEffect(() => {
-    setAttachments([]);
+    setAttachments((current) => {
+      deleteAttachmentAnalysis(current);
+      return [];
+    });
     setUploading(false);
-  }, [session.id]);
+    setAnalyzingAttachments(false);
+  }, [deleteAttachmentAnalysis, session.id]);
 
   // 快捷键 shortcut keys
   const [showShortcutKeyModal, setShowShortcutKeyModal] = useState(false);
@@ -2125,10 +2168,39 @@ function _Chat() {
                           <strong title={attachment.name}>
                             {attachment.name}
                           </strong>
-                          <span>
-                            {formatAttachmentSize(attachment.size)}
-                            {attachment.truncated ? " · 已截断" : ""}
-                          </span>
+                          {attachment.analysisMode === "document_index" ? (
+                            <>
+                              <span>已建立全文索引</span>
+                              <small>
+                                将根据问题提取相关内容
+                                {attachment.chunkCount
+                                  ? ` · ${attachment.chunkCount} 个分段`
+                                  : ""}
+                              </small>
+                            </>
+                          ) : attachment.analysisMode === "table_analysis" ? (
+                            <>
+                              <span>
+                                {attachment.sheetCount &&
+                                attachment.sheetCount > 1
+                                  ? `${attachment.sheetCount} 个工作表 · ${
+                                      attachment.rowCount?.toLocaleString(
+                                        "zh-CN",
+                                      ) ?? 0
+                                    } 行`
+                                  : `已解析 ${
+                                      attachment.rowCount?.toLocaleString(
+                                        "zh-CN",
+                                      ) ?? 0
+                                    } 行`}
+                              </span>
+                              <small>
+                                完整数据已解析，系统将根据问题生成全量统计并提取相关记录。
+                              </small>
+                            </>
+                          ) : (
+                            <span>{formatAttachmentSize(attachment.size)}</span>
+                          )}
                         </div>
                         <button
                           type="button"
@@ -2136,6 +2208,7 @@ function _Chat() {
                           aria-label={`删除附件 ${attachment.name}`}
                           onClick={(event) => {
                             event.preventDefault();
+                            deleteAttachmentAnalysis([attachment]);
                             setAttachments((current) =>
                               current.filter(
                                 (item) => item.id !== attachment.id,
@@ -2147,6 +2220,11 @@ function _Chat() {
                         </button>
                       </div>
                     ))}
+                  </div>
+                )}
+                {analyzingAttachments && (
+                  <div className={styles["attachment-analysis-loading"]}>
+                    正在分析附件…
                   </div>
                 )}
                 <textarea
@@ -2168,11 +2246,18 @@ function _Chat() {
                   }}
                 />
                 <IconButton
-                  icon={<SendWhiteIcon />}
+                  icon={
+                    analyzingAttachments ? (
+                      <LoadingButtonIcon />
+                    ) : (
+                      <SendWhiteIcon />
+                    )
+                  }
                   text={Locale.Chat.Send}
                   className={styles["chat-input-send"]}
                   type="primary"
-                  onClick={() => doSubmit(userInput)}
+                  disabled={analyzingAttachments || uploading}
+                  onClick={() => void doSubmit(userInput)}
                 />
               </label>
             </div>

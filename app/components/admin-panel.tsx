@@ -257,6 +257,31 @@ export function AdminPanel() {
     [models],
   );
 
+  const extraPermissionModels = useMemo(
+    () =>
+      accountForm
+        ? visiblePermissionModels.filter(
+            (model) => !accountForm.allowedCategories.includes(model.category),
+          )
+        : [],
+    [accountForm, visiblePermissionModels],
+  );
+
+  const currentPermissionSummary = useMemo(() => {
+    if (!accountForm || accountForm.role !== "employee") return [];
+    const categoryPermissions = accountForm.allowedCategories.map(
+      (category) => `全部${getCategoryDisplayName(category)}模型`,
+    );
+    const modelPermissions = visiblePermissionModels
+      .filter(
+        (model) =>
+          accountForm.allowedModelIds.includes(model.id) &&
+          !accountForm.allowedCategories.includes(model.category),
+      )
+      .map((model) => model.displayName);
+    return [...categoryPermissions, ...modelPermissions];
+  }, [accountForm, visiblePermissionModels]);
+
   const loadUsageLogs = async (month = logMonth, accountId = logAccountId) => {
     if (!isSuperAdmin) {
       setUsageRecords([]);
@@ -346,13 +371,47 @@ export function AdminPanel() {
       ? (["admin", "employee"] as AccountRole[])
       : (["employee"] as AccountRole[]);
 
-  const openNewAccount = () => {
+  const closeTransientPanels = () => {
+    setAccountForm(null);
+    setResetAccount(null);
+    setResetPassword("");
+    setProviderForm(null);
     setAccountFormError("");
+    setProviderFormError("");
+    setResetPasswordError("");
+    setMessage("");
+  };
+
+  const switchAdminTab = (tab: AdminTab) => {
+    if (tab === activeTab) return;
+    closeTransientPanels();
+    setActiveTab(tab);
+  };
+
+  const prepareAccountPanel = () => {
+    setResetAccount(null);
+    setResetPassword("");
+    setProviderForm(null);
+    setResetPasswordError("");
+    setProviderFormError("");
+    setAccountFormError("");
+    setMessage("");
+  };
+
+  const openNewAccount = () => {
+    prepareAccountPanel();
     setAccountForm(emptyAccountForm());
   };
 
   const openEditAccount = (account: AdminAccount) => {
-    setAccountFormError("");
+    prepareAccountPanel();
+    const allowedCategories = account.allowedCategories ?? [];
+    const allowedModelIds = (account.allowedModelIds ?? []).filter(
+      (modelId) => {
+        const model = models.find((item) => item.id === modelId);
+        return !model || !allowedCategories.includes(model.category);
+      },
+    );
     setAccountForm({
       id: account.id,
       username: account.username,
@@ -364,8 +423,35 @@ export function AdminPanel() {
       monthlySearchTurns: String(account.monthlySearchTurns ?? 100),
       monthlyImageCount: String(account.monthlyImageCount ?? 50),
       monthlyVideoCount: String(account.monthlyVideoCount ?? 10),
-      allowedModelIds: account.allowedModelIds ?? [],
-      allowedCategories: account.allowedCategories ?? [],
+      allowedModelIds,
+      allowedCategories,
+    });
+  };
+
+  const openResetAccount = (account: AdminAccount) => {
+    setAccountForm(null);
+    setProviderForm(null);
+    setAccountFormError("");
+    setProviderFormError("");
+    setResetPasswordError("");
+    setMessage("");
+    setResetAccount(account);
+    setResetPassword("");
+  };
+
+  const toggleCategoryPermission = (category: ModelCategory) => {
+    if (!accountForm) return;
+    const selected = accountForm.allowedCategories.includes(category);
+    setAccountForm({
+      ...accountForm,
+      allowedCategories: toggleValue(accountForm.allowedCategories, category),
+      allowedModelIds: selected
+        ? accountForm.allowedModelIds
+        : accountForm.allowedModelIds.filter(
+            (modelId) =>
+              models.find((model) => model.id === modelId)?.category !==
+              category,
+          ),
     });
   };
 
@@ -486,6 +572,12 @@ export function AdminPanel() {
 
   const openProvider = (provider: ModelProvider) => {
     const credential = primaryCredential(provider);
+    setAccountForm(null);
+    setResetAccount(null);
+    setResetPassword("");
+    setAccountFormError("");
+    setResetPasswordError("");
+    setMessage("");
     setProviderFormError("");
     setProviderForm({
       id: credential?.id,
@@ -577,8 +669,10 @@ export function AdminPanel() {
 
     const allowedCategories = account.allowedCategories ?? [];
     const allowedModelIds = account.allowedModelIds ?? [];
-    const authorizedModels = visiblePermissionModels.filter((model) =>
-      allowedModelIds.includes(model.id),
+    const authorizedModels = visiblePermissionModels.filter(
+      (model) =>
+        allowedModelIds.includes(model.id) &&
+        !allowedCategories.includes(model.category),
     );
     return {
       categories:
@@ -627,7 +721,8 @@ export function AdminPanel() {
             type="button"
             key={tab.id}
             className={activeTab === tab.id ? styles.active : ""}
-            onClick={() => setActiveTab(tab.id)}
+            disabled={savingAccount || savingProvider}
+            onClick={() => switchAdminTab(tab.id)}
           >
             {tab.label}
           </button>
@@ -720,9 +815,7 @@ export function AdminPanel() {
                             type="button"
                             disabled={processingAccountId === account.id}
                             onClick={() => {
-                              setResetAccount(account);
-                              setResetPassword("");
-                              setResetPasswordError("");
+                              openResetAccount(account);
                             }}
                           >
                             重置密码
@@ -959,7 +1052,7 @@ export function AdminPanel() {
         </section>
       )}
 
-      {accountForm && (
+      {activeTab === "members" && accountForm && (
         <Modal
           title={accountForm.id ? "编辑成员" : "新增成员"}
           onClose={() => {
@@ -1092,36 +1185,48 @@ export function AdminPanel() {
                     ))}
                   </div>
                 )}
-                <fieldset>
-                  <legend>分类权限</legend>
-                  <div className={styles.checkboxes}>
+                <fieldset className={styles["permission-fieldset"]}>
+                  <legend>开放分类</legend>
+                  <p className={styles["permission-help"]}>
+                    勾选后，该成员可以使用此分类下全部当前可用模型。
+                  </p>
+                  <div className={styles["permission-options"]}>
                     {CATEGORIES.map((category) => (
-                      <label key={category}>
+                      <label
+                        key={category}
+                        className={
+                          accountForm.allowedCategories.includes(category)
+                            ? styles.selected
+                            : ""
+                        }
+                      >
                         <input
                           type="checkbox"
                           checked={accountForm.allowedCategories.includes(
                             category,
                           )}
-                          onChange={() =>
-                            setAccountForm({
-                              ...accountForm,
-                              allowedCategories: toggleValue(
-                                accountForm.allowedCategories,
-                                category,
-                              ),
-                            })
-                          }
+                          onChange={() => toggleCategoryPermission(category)}
                         />
-                        {getCategoryDisplayName(category)}
+                        <span>{getCategoryDisplayName(category)}</span>
                       </label>
                     ))}
                   </div>
                 </fieldset>
-                <fieldset>
-                  <legend>额外模型权限</legend>
-                  <div className={styles.checkboxes}>
-                    {visiblePermissionModels.map((model) => (
-                      <label key={model.id}>
+                <fieldset className={styles["permission-fieldset"]}>
+                  <legend>额外开放模型</legend>
+                  <p className={styles["permission-help"]}>
+                    用于单独开放未勾选分类中的模型。
+                  </p>
+                  <div className={styles["permission-options"]}>
+                    {extraPermissionModels.map((model) => (
+                      <label
+                        key={model.id}
+                        className={
+                          accountForm.allowedModelIds.includes(model.id)
+                            ? styles.selected
+                            : ""
+                        }
+                      >
                         <input
                           type="checkbox"
                           checked={accountForm.allowedModelIds.includes(
@@ -1137,16 +1242,36 @@ export function AdminPanel() {
                             })
                           }
                         />
-                        {model.displayName}（{PROVIDER_NAMES[model.provider]}）
+                        <span>
+                          <strong>{model.displayName}</strong>
+                          <small>{PROVIDER_NAMES[model.provider]}</small>
+                        </span>
                       </label>
                     ))}
-                    {visiblePermissionModels.length === 0 && (
-                      <span className={styles.subtle}>
-                        暂无可授权模型，请先配置服务商并启用模型
+                    {visiblePermissionModels.length === 0 ? (
+                      <span className={styles["permission-empty"]}>
+                        暂无可授权模型，请先配置并启用服务商和模型。
                       </span>
-                    )}
+                    ) : extraPermissionModels.length === 0 ? (
+                      <span className={styles["permission-empty"]}>
+                        已开放分类包含全部可用模型，无需额外选择。
+                      </span>
+                    ) : null}
                   </div>
                 </fieldset>
+                <div className={styles["permission-summary"]}>
+                  <strong>当前成员最终权限</strong>
+                  <span>
+                    {currentPermissionSummary.length
+                      ? currentPermissionSummary.join("、")
+                      : "未开放任何模型"}
+                  </span>
+                </div>
+                {currentPermissionSummary.length === 0 && (
+                  <div className={styles["permission-warning"]}>
+                    该成员保存后将没有可用模型。
+                  </div>
+                )}
               </>
             ) : (
               <div className={styles["permission-summary"]}>
@@ -1161,7 +1286,7 @@ export function AdminPanel() {
         </Modal>
       )}
 
-      {resetAccount && (
+      {activeTab === "members" && resetAccount && (
         <Modal
           title={`重置 ${resetAccount.username} 的密码`}
           onClose={() => {
@@ -1207,7 +1332,7 @@ export function AdminPanel() {
         </Modal>
       )}
 
-      {providerForm && (
+      {activeTab === "providers" && providerForm && (
         <Modal
           title={`配置 ${PROVIDER_NAMES[providerForm.provider]}`}
           onClose={() => {

@@ -3,20 +3,31 @@ import { randomUUID } from "crypto";
 import mammoth from "mammoth";
 import { NextRequest, NextResponse } from "next/server";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
-import * as XLSX from "xlsx";
 
 import { requireAccount } from "@/app/config/account-auth";
+import {
+  createAttachmentAnalysisSession,
+  deleteAttachmentAnalysisSessions,
+} from "@/app/config/attachment-analysis-store";
 import type {
   AttachmentKind,
   TransientChatAttachment,
 } from "@/app/types/attachment";
-import { ATTACHMENT_TRUNCATION_MARKER } from "@/app/utils/attachments";
+import {
+  buildDocumentChunks,
+  buildTableProfile,
+  estimateTableBytes,
+  parseTableWorkbook,
+} from "@/app/utils/attachment-analysis";
 
 const MAX_FILE_COUNT = 4;
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const MAX_TOTAL_SIZE = 20 * 1024 * 1024;
-const MAX_FILE_TEXT = 50_000;
-const MAX_TOTAL_TEXT = 100_000;
+const MAX_TOTAL_SIZE = 50 * 1024 * 1024;
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+const MAX_TEXT_SIZE = 30 * 1024 * 1024;
+const MAX_DOCUMENT_SIZE = 25 * 1024 * 1024;
+const MAX_TEXT_CHARACTERS = 10_000_000;
+const MAX_DIRECT_FILE_TEXT = 80_000;
+const MAX_DIRECT_TOTAL_TEXT = 120_000;
 
 const IMAGE_MIME: Record<string, string> = {
   ".png": "image/png",
@@ -28,7 +39,6 @@ const IMAGE_MIME: Record<string, string> = {
 const TEXT_EXTENSIONS = new Set([
   ".txt",
   ".md",
-  ".csv",
   ".json",
   ".log",
   ".js",
@@ -42,12 +52,11 @@ const TEXT_EXTENSIONS = new Set([
   ".yaml",
   ".yml",
 ]);
+const TABLE_EXTENSIONS = new Set([".csv", ".xls", ".xlsx"]);
 
 const TEXT_MIME = new Set([
   "text/plain",
   "text/markdown",
-  "text/csv",
-  "application/csv",
   "application/json",
   "application/javascript",
   "text/javascript",
@@ -67,7 +76,8 @@ const DOCUMENT_MIME: Record<string, string[]> = {
   ],
 };
 
-const SPREADSHEET_MIME: Record<string, string[]> = {
+const TABLE_MIME: Record<string, string[]> = {
+  ".csv": ["text/csv", "application/csv", "text/plain"],
   ".xls": ["application/vnd.ms-excel"],
   ".xlsx": [
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -86,9 +96,9 @@ function safeName(name: string) {
 
 function resolveKind(extension: string): AttachmentKind | undefined {
   if (extension in IMAGE_MIME) return "image";
+  if (TABLE_EXTENSIONS.has(extension)) return "spreadsheet";
   if (TEXT_EXTENSIONS.has(extension)) return "text";
   if (extension in DOCUMENT_MIME) return "document";
-  if (extension in SPREADSHEET_MIME) return "spreadsheet";
   return undefined;
 }
 
@@ -99,9 +109,7 @@ function validMime(extension: string, mimeType: string) {
   if (TEXT_EXTENSIONS.has(extension)) return TEXT_MIME.has(mime);
   if (extension in DOCUMENT_MIME)
     return DOCUMENT_MIME[extension].includes(mime);
-  if (extension in SPREADSHEET_MIME) {
-    return SPREADSHEET_MIME[extension].includes(mime);
-  }
+  if (extension in TABLE_MIME) return TABLE_MIME[extension].includes(mime);
   return false;
 }
 
@@ -109,7 +117,7 @@ function resolvedMime(extension: string, mimeType: string) {
   if (mimeType && mimeType !== "application/octet-stream") return mimeType;
   if (extension in IMAGE_MIME) return IMAGE_MIME[extension];
   if (extension in DOCUMENT_MIME) return DOCUMENT_MIME[extension][0];
-  if (extension in SPREADSHEET_MIME) return SPREADSHEET_MIME[extension][0];
+  if (extension in TABLE_MIME) return TABLE_MIME[extension][0];
   return "text/plain";
 }
 
@@ -148,7 +156,6 @@ function decodeTextFile(buffer: Buffer) {
       throw new AttachmentError("文件内容与扩展名不匹配。");
     }
   }
-
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
   } catch {
@@ -172,9 +179,8 @@ function validateFileContent(extension: string, buffer: Buffer) {
       buffer.subarray(8, 12).toString("ascii") === "WEBP"
     );
   }
-  if (extension === ".pdf") {
+  if (extension === ".pdf")
     return buffer.subarray(0, 5).toString("ascii") === "%PDF-";
-  }
   if (extension === ".xls") {
     return startsWithBytes(
       buffer,
@@ -195,83 +201,51 @@ function validateFileContent(extension: string, buffer: Buffer) {
       includesAscii(buffer, "xl/")
     );
   }
-  if (TEXT_EXTENSIONS.has(extension)) {
+  if (TEXT_EXTENSIONS.has(extension) || extension === ".csv") {
     decodeTextFile(buffer);
     return true;
   }
   return false;
 }
 
-function truncateText(text: string, limit: number) {
-  if (text.length <= limit) return { text, truncated: false };
-  if (limit <= 0) return { text: "", truncated: true };
-  const suffix = `\n${ATTACHMENT_TRUNCATION_MARKER}`;
-  if (suffix.length >= limit) {
-    return {
-      text: ATTACHMENT_TRUNCATION_MARKER.slice(0, limit),
-      truncated: true,
-    };
-  }
-  return {
-    text: `${text.slice(0, limit - suffix.length)}${suffix}`,
-    truncated: true,
-  };
-}
-
-function spreadsheetText(buffer: Buffer) {
-  const workbook = XLSX.read(buffer, { type: "buffer" });
-  return workbook.SheetNames.map((name) => {
-    const sheet = workbook.Sheets[name];
-    return `工作表：${name}\n${XLSX.utils.sheet_to_csv(sheet, {
-      blankrows: false,
-    })}`;
-  }).join("\n\n");
+function maxSizeFor(kind: AttachmentKind, extension: string) {
+  if (kind === "image") return MAX_IMAGE_SIZE;
+  if (kind === "text" || extension === ".csv") return MAX_TEXT_SIZE;
+  return MAX_DOCUMENT_SIZE;
 }
 
 async function extractText(extension: string, buffer: Buffer) {
   if (TEXT_EXTENSIONS.has(extension)) return decodeTextFile(buffer);
   if (extension === ".pdf") return (await pdfParse(buffer)).text;
-  if (extension === ".docx") {
+  if (extension === ".docx")
     return (await mammoth.extractRawText({ buffer })).value;
-  }
-  if (extension === ".xls" || extension === ".xlsx") {
-    return spreadsheetText(buffer);
-  }
   return "";
 }
 
-function errorResponse(message: string) {
-  return NextResponse.json({ error: true, message }, { status: 400 });
+function errorResponse(message: string, status = 400) {
+  return NextResponse.json({ error: true, message }, { status });
 }
 
 export async function POST(req: NextRequest) {
   const { account, response } = requireAccount(req);
   if (response) return response;
-  if (!account) {
-    return NextResponse.json(
-      { error: true, message: "请先登录。" },
-      { status: 401 },
-    );
-  }
+  if (!account) return errorResponse("请先登录。", 401);
 
   let formData: FormData;
+  const createdAnalysisIds: string[] = [];
   try {
     formData = await req.formData();
   } catch {
     return errorResponse("文件内容无法解析。");
   }
-
   const files = formData
     .getAll("files")
     .filter((value): value is File => value instanceof File);
   if (files.length === 0) return errorResponse("请选择附件。");
-  if (files.length > MAX_FILE_COUNT) {
+  if (files.length > MAX_FILE_COUNT)
     return errorResponse("单次最多选择 4 个文件。");
-  }
-
-  const totalSize = files.reduce((sum, file) => sum + file.size, 0);
-  if (totalSize > MAX_TOTAL_SIZE) {
-    return errorResponse("附件总大小超过限制。");
+  if (files.reduce((sum, file) => sum + file.size, 0) > MAX_TOTAL_SIZE) {
+    return errorResponse("附件总大小超过 50 MB 限制。");
   }
 
   try {
@@ -282,25 +256,24 @@ export async function POST(req: NextRequest) {
       if (!kind || !validMime(extension, file.type)) {
         throw new AttachmentError("暂不支持该文件格式。");
       }
-      if (file.size > MAX_FILE_SIZE) {
+      if (file.size > maxSizeFor(kind, extension)) {
         throw new AttachmentError("文件大小超过限制。");
       }
       return { file, name, extension, kind };
     });
 
-    let extractedCharacters = 0;
+    let directCharacters = 0;
     const attachments: TransientChatAttachment[] = [];
-
     for (const item of validated) {
       const buffer = Buffer.from(await item.file.arrayBuffer());
       if (!validateFileContent(item.extension, buffer)) {
         throw new AttachmentError("文件内容与扩展名不匹配。");
       }
-
+      const id = randomUUID();
       const mimeType = resolvedMime(item.extension, item.file.type);
       if (item.kind === "image") {
         attachments.push({
-          id: randomUUID(),
+          id,
           name: item.name,
           mimeType,
           size: item.file.size,
@@ -310,30 +283,129 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const perFile = truncateText(
-        await extractText(item.extension, buffer),
-        MAX_FILE_TEXT,
-      );
-      const remaining = Math.max(0, MAX_TOTAL_TEXT - extractedCharacters);
-      const totalLimited = truncateText(perFile.text, remaining);
-      extractedCharacters += totalLimited.text.length;
+      if (item.kind === "spreadsheet") {
+        let sheets;
+        try {
+          sheets = parseTableWorkbook(buffer, item.extension);
+        } catch (error) {
+          throw new AttachmentError(
+            error instanceof Error ? error.message : "文件内容无法解析。",
+          );
+        }
+        const profile = buildTableProfile(sheets);
+        const analysisId = randomUUID();
+        const session = createAttachmentAnalysisSession({
+          id: analysisId,
+          accountId: account.id,
+          name: item.name,
+          kind: item.kind,
+          mode: "table_analysis",
+          bytes: estimateTableBytes(sheets),
+          tableProfile: profile,
+          tableSheets: sheets,
+        });
+        if (!session)
+          throw new AttachmentError("附件分析容量已满，请稍后重试。");
+        createdAnalysisIds.push(analysisId);
+        attachments.push({
+          id,
+          name: item.name,
+          mimeType,
+          size: item.file.size,
+          kind: item.kind,
+          analysisId,
+          analysisMode: "table_analysis",
+          analysisStatus: "indexed",
+          rowCount: profile.rowCount,
+          columnCount: profile.columnCount,
+          sheetCount: profile.sheetCount,
+          expiresAt: new Date(session.expiresAt).toISOString(),
+        });
+        continue;
+      }
+
+      const text = await extractText(item.extension, buffer);
+      if (text.length > MAX_TEXT_CHARACTERS) {
+        throw new AttachmentError(
+          "文件文本内容超过当前分析上限，请拆分后重新上传。",
+        );
+      }
+      const canUseDirect =
+        text.length <= MAX_DIRECT_FILE_TEXT &&
+        directCharacters + text.length <= MAX_DIRECT_TOTAL_TEXT;
+      if (canUseDirect) {
+        directCharacters += text.length;
+        attachments.push({
+          id,
+          name: item.name,
+          mimeType,
+          size: item.file.size,
+          kind: item.kind,
+          text,
+          truncated: false,
+          analysisMode: "direct",
+          analysisStatus: "ready",
+        });
+        continue;
+      }
+
+      const chunks = buildDocumentChunks(text);
+      const analysisId = randomUUID();
+      const session = createAttachmentAnalysisSession({
+        id: analysisId,
+        accountId: account.id,
+        name: item.name,
+        kind: item.kind,
+        mode: "document_index",
+        bytes: Buffer.byteLength(text, "utf8"),
+        chunks,
+      });
+      if (!session) throw new AttachmentError("附件分析容量已满，请稍后重试。");
+      createdAnalysisIds.push(analysisId);
       attachments.push({
-        id: randomUUID(),
+        id,
         name: item.name,
         mimeType,
         size: item.file.size,
         kind: item.kind,
-        text: totalLimited.text,
-        truncated: perFile.truncated || totalLimited.truncated,
+        analysisId,
+        analysisMode: "document_index",
+        analysisStatus: "indexed",
+        chunkCount: chunks.length,
+        expiresAt: new Date(session.expiresAt).toISOString(),
       });
     }
 
     return NextResponse.json({ error: false, attachments });
   } catch (error) {
+    deleteAttachmentAnalysisSessions(account.id, createdAnalysisIds);
     return errorResponse(
       error instanceof AttachmentError ? error.message : "文件内容无法解析。",
     );
   }
+}
+
+export async function DELETE(req: NextRequest) {
+  const { account, response } = requireAccount(req);
+  if (response) return response;
+  if (!account) return errorResponse("请先登录。", 401);
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    body = {};
+  }
+  const analysisIds =
+    typeof body === "object" &&
+    body !== null &&
+    "analysisIds" in body &&
+    Array.isArray(body.analysisIds)
+      ? body.analysisIds.filter(
+          (value): value is string => typeof value === "string",
+        )
+      : [];
+  deleteAttachmentAnalysisSessions(account.id, analysisIds);
+  return NextResponse.json({ error: false });
 }
 
 export const runtime = "nodejs";

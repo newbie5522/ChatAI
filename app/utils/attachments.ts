@@ -3,10 +3,9 @@ import type {
   TransientChatAttachment,
 } from "../types/attachment";
 
-export const ATTACHMENT_TRUNCATION_MARKER = "内容已截断。";
-
 export function buildAttachmentContext(attachments: TransientChatAttachment[]) {
   return attachments
+    .filter((attachment) => !attachment.analysisId)
     .map(
       (attachment) =>
         `[附件开始]\n文件名：${attachment.name}\n文件类型：${
@@ -22,8 +21,32 @@ export function buildAttachmentContext(attachments: TransientChatAttachment[]) {
 export function toStoredAttachmentMetadata(
   attachment: TransientChatAttachment,
 ): StoredAttachmentMetadata {
-  const { id, name, mimeType, size, kind, truncated } = attachment;
-  return { id, name, mimeType, size, kind, truncated };
+  const {
+    id,
+    name,
+    mimeType,
+    size,
+    kind,
+    truncated,
+    analysisMode,
+    rowCount,
+    columnCount,
+    sheetCount,
+    chunkCount,
+  } = attachment;
+  return {
+    id,
+    name,
+    mimeType,
+    size,
+    kind,
+    truncated,
+    analysisMode,
+    rowCount,
+    columnCount,
+    sheetCount,
+    chunkCount,
+  };
 }
 
 export function formatAttachmentSize(size: number) {

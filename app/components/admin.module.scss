@@ -357,6 +357,99 @@
   min-height: auto;
 }
 
+.permission-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.permission-help {
+  margin: 0;
+  color: var(--newbie-text-secondary, #737b91);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.permission-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+
+  label {
+    min-width: 0;
+    min-height: 46px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 10px;
+    border: 1px solid var(--newbie-border, #e4e6f0);
+    border-radius: 6px;
+    background: var(--newbie-card, var(--white));
+    cursor: pointer;
+    box-sizing: border-box;
+    transition:
+      border-color 0.16s ease,
+      background-color 0.16s ease;
+
+    &:hover {
+      border-color: rgba(91, 75, 255, 0.45);
+      background: rgba(91, 75, 255, 0.04);
+    }
+
+    &:focus-within {
+      outline: 2px solid rgba(91, 75, 255, 0.22);
+      outline-offset: 1px;
+    }
+
+    &.selected {
+      border-color: rgba(91, 75, 255, 0.58);
+      background: rgba(91, 75, 255, 0.08);
+    }
+
+    > span {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    small {
+      color: var(--newbie-text-secondary, #737b91);
+      font-size: 11px;
+      font-weight: 400;
+    }
+  }
+
+  input {
+    width: 17px;
+    height: 17px;
+    min-height: auto;
+    flex: 0 0 17px;
+    margin: 0;
+    accent-color: #5b4bff;
+    cursor: pointer;
+  }
+}
+
+.permission-empty {
+  grid-column: 1 / -1;
+  padding: 8px 0;
+  color: var(--newbie-text-secondary, #737b91);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.permission-warning {
+  padding: 9px 11px;
+  border: 1px solid rgba(194, 65, 12, 0.25);
+  border-radius: 6px;
+  background: rgba(194, 65, 12, 0.06);
+  color: #9a3412;
+  font-size: 12px;
+}
+
 .permission-summary {
   display: flex;
   padding: 10px 12px;
@@ -365,6 +458,12 @@
   flex-direction: column;
   gap: 4px;
   font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .permission-options {
+    grid-template-columns: 1fr;
+  }
 }
 
 .quota-fields {
