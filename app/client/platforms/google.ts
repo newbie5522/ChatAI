@@ -5,7 +5,6 @@ import {
   LLMApi,
   LLMModel,
   LLMUsage,
-  linkAbortSignal,
   SpeechOptions,
 } from "../api";
 import {
@@ -30,8 +29,18 @@ import { nanoid } from "nanoid";
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
 
-const REQUEST_FAILED_MESSAGE =
-  "请求失败，请检查服务商 Key、模型 API ID、余额或接口地址。";
+function responseError(value: any, fallback: string) {
+  const error = value?.error;
+  const message =
+    (typeof error?.message === "string" && error.message) ||
+    (typeof value?.message === "string" && value.message) ||
+    fallback;
+  const code =
+    (typeof error?.code === "string" && error.code) ||
+    (typeof value?.code === "string" && value.code) ||
+    "";
+  return [code, message].filter(Boolean).join(": ");
+}
 
 export class GeminiProApi implements LLMApi {
   path(path: string, shouldStream = false): string {
@@ -68,8 +77,6 @@ export class GeminiProApi implements LLMApi {
     return chatPath;
   }
   extractMessage(res: any) {
-    if (res?.error) return REQUEST_FAILED_MESSAGE;
-
     const getTextFromParts = (parts: any[]) => {
       if (!Array.isArray(parts)) return "";
 
@@ -89,13 +96,14 @@ export class GeminiProApi implements LLMApi {
     return (
       getTextFromParts(res?.candidates?.at(0)?.content?.parts) ||
       content || //getTextFromParts(res?.at(0)?.candidates?.at(0)?.content?.parts) ||
+      res?.error?.message ||
       ""
     );
   }
 
   async extractImageMessage(res: any) {
     if (res?.error) {
-      return REQUEST_FAILED_MESSAGE;
+      return res?.message || res?.error?.message || "";
     }
 
     let url = res?.data?.at(0)?.url ?? "";
@@ -130,7 +138,6 @@ export class GeminiProApi implements LLMApi {
 
     if (modelCategory === "image") {
       const controller = new AbortController();
-      linkAbortSignal(options.signal, controller);
       options.onController?.(controller);
       try {
         const prompt = getMessageTextContent(
@@ -139,7 +146,6 @@ export class GeminiProApi implements LLMApi {
         const requestPayload = {
           model: options.config.model,
           prompt,
-          messages: options.messages,
         };
         const requestTimeoutId = setTimeout(
           () => controller.abort(),
@@ -155,7 +161,7 @@ export class GeminiProApi implements LLMApi {
 
         const resJson = await res.json();
         if (!res.ok || resJson?.error) {
-          throw new Error(REQUEST_FAILED_MESSAGE);
+          throw new Error(responseError(resJson, res.statusText));
         }
         const message = await apiClient.extractImageMessage(resJson);
         options.onFinish(message as any, res);
@@ -175,20 +181,19 @@ export class GeminiProApi implements LLMApi {
     const visionModel = accountStore.authenticated
       ? accountModel?.capabilities?.vision === true
       : isVisionModel(options.config.model);
-    const preserveImages = accountStore.authenticated || visionModel;
     let multimodal = false;
 
     // try get base64image from local cache image_url
     const _messages: ChatOptions["messages"] = [];
     for (const v of options.messages) {
-      const content = preserveImages
-        ? await preProcessImageContent(v.content, options.signal)
+      const content = visionModel
+        ? await preProcessImageContent(v.content)
         : getMessageTextContent(v);
       _messages.push({ role: v.role, content });
     }
     const messages = _messages.map((v) => {
       let parts: any[] = [{ text: getMessageTextContent(v) }];
-      if (preserveImages) {
+      if (visionModel) {
         const images = getMessageImages(v);
         if (images.length > 0) {
           multimodal = true;
@@ -276,7 +281,6 @@ export class GeminiProApi implements LLMApi {
 
     let shouldStream = !!options.config.stream;
     const controller = new AbortController();
-    linkAbortSignal(options.signal, controller);
     options.onController?.(controller);
     try {
       // https://github.com/google-gemini/cookbook/blob/main/quickstarts/rest/Streaming_REST.ipynb
@@ -385,7 +389,7 @@ export class GeminiProApi implements LLMApi {
         clearTimeout(requestTimeoutId);
         const resJson = await res.json();
         if (!res.ok || resJson?.error) {
-          throw new Error(REQUEST_FAILED_MESSAGE);
+          throw new Error(responseError(resJson, res.statusText));
         }
         if (resJson?.promptFeedback?.blockReason) {
           // being blocked

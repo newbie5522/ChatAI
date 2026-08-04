@@ -37,7 +37,6 @@ import {
   LLMApi,
   LLMModel,
   LLMUsage,
-  linkAbortSignal,
   MultimodalContent,
   SpeechOptions,
 } from "../api";
@@ -84,8 +83,18 @@ export interface DalleRequestPayload {
   style?: DalleStyle;
 }
 
-const REQUEST_FAILED_MESSAGE =
-  "请求失败，请检查服务商 Key、模型 API ID、余额或接口地址。";
+function responseError(value: any, fallback: string) {
+  const error = value?.error;
+  const message =
+    (typeof error?.message === "string" && error.message) ||
+    (typeof value?.message === "string" && value.message) ||
+    fallback;
+  const code =
+    (typeof error?.code === "string" && error.code) ||
+    (typeof value?.code === "string" && value.code) ||
+    "";
+  return [code, message].filter(Boolean).join(": ");
+}
 
 export class ChatGPTApi implements LLMApi {
   private disableListModels = true;
@@ -133,7 +142,7 @@ export class ChatGPTApi implements LLMApi {
 
   async extractMessage(res: any) {
     if (res.error) {
-      return REQUEST_FAILED_MESSAGE;
+      return responseError(res, "request failed");
     }
     // dalle3 model return url, using url create image message
     if (res.data) {
@@ -223,8 +232,8 @@ export class ChatGPTApi implements LLMApi {
         model: options.config.model,
         prompt,
         n: 1,
-        size: "1024x1024",
         messages: options.messages,
+        size: "1024x1024",
       };
     } else {
       const accountStore = useAccountStore.getState();
@@ -236,11 +245,10 @@ export class ChatGPTApi implements LLMApi {
       const visionModel = accountStore.authenticated
         ? accountModel?.capabilities?.vision === true
         : isVisionModel(options.config.model);
-      const preserveImages = accountStore.authenticated || visionModel;
       const messages: ChatOptions["messages"] = [];
       for (const v of options.messages) {
-        const content = preserveImages
-          ? await preProcessImageContent(v.content, options.signal)
+        const content = visionModel
+          ? await preProcessImageContent(v.content)
           : getMessageTextContent(v);
         if (!(isO1OrO3 && v.role === "system"))
           messages.push({ role: v.role, content });
@@ -285,7 +293,6 @@ export class ChatGPTApi implements LLMApi {
 
     const shouldStream = !isImageModel && !!options.config.stream;
     const controller = new AbortController();
-    linkAbortSignal(options.signal, controller);
     options.onController?.(controller);
 
     try {
@@ -436,7 +443,7 @@ export class ChatGPTApi implements LLMApi {
 
         const resJson = await res.json();
         if (!res.ok || resJson?.error) {
-          throw new Error(REQUEST_FAILED_MESSAGE);
+          throw new Error(responseError(resJson, res.statusText));
         }
         const message = await this.extractMessage(resJson);
         options.onFinish(message, res);

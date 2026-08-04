@@ -7,7 +7,6 @@ import React, {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 
 import SendWhiteIcon from "../icons/send-white.svg";
@@ -129,14 +128,6 @@ import type {
   TransientChatAttachment,
 } from "../types/attachment";
 import { formatAttachmentSize } from "../utils/attachments";
-import {
-  deleteMessageMedia,
-  deleteUnreferencedMessageMedia,
-  saveMessageMedia,
-} from "../utils/message-media-store";
-import { ProviderAvatar } from "./provider-avatar";
-import { ImagePreview } from "./image-preview";
-import { MessageAttachments } from "./message-attachments";
 
 const localStorage = safeLocalStorage();
 
@@ -1046,19 +1037,9 @@ function _Chat() {
   const isMobileScreen = useMobileScreen();
   const navigate = useNavigate();
   const [attachments, setAttachments] = useState<TransientChatAttachment[]>([]);
-  const attachmentDraftRef = useRef<TransientChatAttachment[]>([]);
-  const uploadControllerRef = useRef<AbortController | undefined>(undefined);
   const [uploading, setUploading] = useState(false);
   const [analyzingAttachments, setAnalyzingAttachments] = useState(false);
-  const requestState = useSyncExternalStore(
-    ChatControllerPool.subscribe,
-    () => ChatControllerPool.getSnapshot(session.id),
-    () => "finished",
-  );
-  const requestPending = ["preparing", "streaming", "stopping"].includes(
-    requestState,
-  );
-  const requestStopping = requestState === "stopping";
+  const requestPending = ChatControllerPool.hasPending();
 
   // prompt hints
   const promptStore = usePromptStore();
@@ -1130,7 +1111,7 @@ function _Chat() {
 
   const doSubmit = async (userInput: string) => {
     if (userInput.trim() === "" && attachments.length === 0) return;
-    if (requestPending) return;
+    if (analyzingAttachments) return;
     const matchCommand = chatCommands.match(userInput);
     if (matchCommand.matched) {
       setUserInput("");
@@ -1152,29 +1133,21 @@ function _Chat() {
     setIsLoading(true);
     setAnalyzingAttachments(hasIndexedAttachment);
     try {
-      const handle = await chatStore.onUserInput(userInput, attachments);
-      if (!handle.accepted) return;
+      await chatStore.onUserInput(userInput, attachments);
       deleteAttachmentAnalysis(attachments);
-      attachmentDraftRef.current = [];
       setAttachments([]);
       chatStore.setLastInput(userInput);
       setUserInput("");
       setPromptHints([]);
       if (!isMobileScreen) inputRef.current?.focus();
       setAutoScroll(true);
-      setIsLoading(false);
     } catch (error) {
-      const canceled =
-        error instanceof Error &&
-        (error.name === "AbortError" || /abort|cancel/i.test(error.message));
-      if (!canceled) {
-        showToast(
-          error instanceof Error ? error.message : "附件分析失败，请稍后重试。",
-        );
-      }
-      setIsLoading(false);
+      showToast(
+        error instanceof Error ? error.message : "附件分析失败，请稍后重试。",
+      );
     } finally {
       setAnalyzingAttachments(false);
+      setIsLoading(false);
     }
   };
 
@@ -1204,14 +1177,6 @@ function _Chat() {
     chatStore.updateTargetSession(session, (session) => {
       const stopTiming = Date.now() - REQUEST_TIMEOUT_MS;
       session.messages.forEach((m) => {
-        if (m.canceled) {
-          m.streaming = false;
-          m.isError = false;
-          if (!getMessageTextContent(m).trim()) {
-            m.content = "已停止生成";
-          }
-          return;
-        }
         // check if should stop all stale messages
         if (m.isError || new Date(m.date).getTime() < stopTiming) {
           if (m.streaming) {
@@ -1220,8 +1185,10 @@ function _Chat() {
 
           if (m.content.length === 0) {
             m.isError = true;
-            m.content =
-              "请求失败，请检查服务商 Key、模型 API ID、余额或接口地址。";
+            m.content = prettyObject({
+              error: true,
+              message: "empty response",
+            });
           }
         }
       });
@@ -1247,7 +1214,7 @@ function _Chat() {
       return;
     }
     if (shouldSubmit(e) && promptHints.length === 0) {
-      if (!requestPending) void doSubmit(userInput);
+      doSubmit(userInput);
       e.preventDefault();
     }
   };
@@ -1263,28 +1230,11 @@ function _Chat() {
   };
 
   const deleteMessage = (msgId?: string) => {
-    const removed = session.messages.find((message) => message.id === msgId);
-    const candidates = (removed?.attachments ?? [])
-      .map((attachment) => attachment.mediaId)
-      .filter((mediaId): mediaId is string => Boolean(mediaId));
     chatStore.updateTargetSession(
       session,
       (session) =>
         (session.messages = session.messages.filter((m) => m.id !== msgId)),
     );
-    const accountId = accountStore.user?.userId;
-    if (accountId && candidates.length > 0) {
-      const referenced = new Set(
-        chatStore.sessions.flatMap((chatSession) =>
-          chatSession.messages.flatMap((message) =>
-            (message.attachments ?? [])
-              .map((attachment) => attachment.mediaId)
-              .filter((mediaId): mediaId is string => Boolean(mediaId)),
-          ),
-        ),
-      );
-      void deleteUnreferencedMessageMedia(accountId, candidates, referenced);
-    }
   };
 
   const onDelete = (msgId: string) => {
@@ -1346,10 +1296,7 @@ function _Chat() {
     // resend the message
     setIsLoading(true);
     const textContent = getMessageTextContent(userMessage);
-    void chatStore
-      .onUserInput(textContent)
-      .then(() => setIsLoading(false))
-      .catch(() => setIsLoading(false));
+    chatStore.onUserInput(textContent).then(() => setIsLoading(false));
     inputRef.current?.focus();
   };
 
@@ -1614,89 +1561,25 @@ function _Chat() {
 
       const formData = new FormData();
       files.forEach((file) => formData.append("files", file));
-      const uploadController = new AbortController();
-      uploadControllerRef.current = uploadController;
       setUploading(true);
       try {
         const response = await fetch("/api/account/attachments", {
           method: "POST",
           credentials: "same-origin",
           body: formData,
-          signal: uploadController.signal,
         });
         const body = (await response.json()) as AttachmentUploadResponse;
         if (!response.ok || body.error || !body.attachments) {
           throw new Error(body.message || "附件解析失败。");
         }
-        const createdMediaIds: string[] = [];
-        try {
-          const protectedMediaIds = new Set(
-            session.messages.flatMap((message) =>
-              (message.attachments ?? [])
-                .map((attachment) => attachment.mediaId)
-                .filter((mediaId): mediaId is string => Boolean(mediaId)),
-            ),
-          );
-          attachments.forEach((attachment) => {
-            if (attachment.mediaId) protectedMediaIds.add(attachment.mediaId);
-          });
-          const uploaded: TransientChatAttachment[] = [];
-          for (let index = 0; index < body.attachments.length; index += 1) {
-            const attachment = body.attachments[index];
-            const file = files[index];
-            if (attachment.kind !== "image" || !file) {
-              uploaded.push(attachment);
-              continue;
-            }
-            const accountId = accountStore.user?.userId;
-            if (!accountId) throw new Error("账号会话已失效。");
-            const media = await saveMessageMedia(
-              file,
-              accountId,
-              protectedMediaIds,
-            );
-            createdMediaIds.push(media.mediaId);
-            protectedMediaIds.add(media.mediaId);
-            uploaded.push({
-              ...attachment,
-              mediaId: media.mediaId,
-              width: media.width,
-              height: media.height,
-              previewAvailable: true,
-            });
-          }
-          if (uploadController.signal.aborted) {
-            throw new DOMException("Upload aborted", "AbortError");
-          }
-          setAttachments((current) => {
-            const next = [...current, ...uploaded];
-            attachmentDraftRef.current = next;
-            return next;
-          });
-        } catch (error) {
-          const accountId = accountStore.user?.userId;
-          if (accountId) {
-            await Promise.all(
-              createdMediaIds.map((mediaId) =>
-                deleteMessageMedia(accountId, mediaId),
-              ),
-            );
-          }
-          throw error;
-        }
+        setAttachments((current) => [...current, ...body.attachments!]);
       } catch (error) {
-        const canceled = error instanceof Error && error.name === "AbortError";
-        if (!canceled) {
-          showToast(error instanceof Error ? error.message : "附件解析失败。");
-        }
+        showToast(error instanceof Error ? error.message : "附件解析失败。");
       } finally {
-        if (uploadControllerRef.current === uploadController) {
-          uploadControllerRef.current = undefined;
-        }
         setUploading(false);
       }
     },
-    [accountStore.user?.userId, attachments],
+    [attachments],
   );
 
   const deleteAttachmentAnalysis = useCallback(
@@ -1740,24 +1623,14 @@ function _Chat() {
     fileInput.click();
   }
 
-  useEffect(
-    () => () => {
-      uploadControllerRef.current?.abort();
-      const draft = attachmentDraftRef.current;
-      deleteAttachmentAnalysis(draft);
-      const accountId = accountStore.user?.userId;
-      if (accountId) {
-        void Promise.all(
-          draft
-            .map((attachment) => attachment.mediaId)
-            .filter((mediaId): mediaId is string => Boolean(mediaId))
-            .map((mediaId) => deleteMessageMedia(accountId, mediaId)),
-        );
-      }
-      attachmentDraftRef.current = [];
-    },
-    [accountStore.user?.userId, deleteAttachmentAnalysis],
-  );
+  useEffect(() => {
+    setAttachments((current) => {
+      deleteAttachmentAnalysis(current);
+      return [];
+    });
+    setUploading(false);
+    setAnalyzingAttachments(false);
+  }, [deleteAttachmentAnalysis, session.id]);
 
   // 快捷键 shortcut keys
   const [showShortcutKeyModal, setShowShortcutKeyModal] = useState(false);
@@ -1948,19 +1821,6 @@ function _Chat() {
                 .map((message, i) => {
                   const isUser = message.role === "user";
                   const isContext = i < context.length;
-                  const generatedImages = getMessageImages(message);
-                  const matchingModels = accountStore.models.filter(
-                    (model) => model.name === message.model,
-                  );
-                  const companyModel = message.providerName
-                    ? matchingModels.find(
-                        (model) =>
-                          model.provider.providerName === message.providerName,
-                      )
-                    : matchingModels.length === 1
-                    ? matchingModels[0]
-                    : undefined;
-                  const modelName = companyModel?.displayName || message.model;
                   const showActions =
                     i > 0 &&
                     !(message.preview || message.content.length === 0) &&
@@ -2029,11 +1889,6 @@ function _Chat() {
                                 <>
                                   {["system"].includes(message.role) ? (
                                     <Avatar avatar="2699-fe0f" />
-                                  ) : accountStore.authenticated ? (
-                                    <ProviderAvatar
-                                      providerName={message.providerName}
-                                      model={message.model}
-                                    />
                                   ) : (
                                     <MaskAvatar
                                       avatar={session.mask.avatar}
@@ -2048,7 +1903,7 @@ function _Chat() {
                             </div>
                             {!isUser && (
                               <div className={styles["chat-model-name"]}>
-                                {modelName}
+                                {message.model}
                               </div>
                             )}
 
@@ -2165,24 +2020,41 @@ function _Chat() {
                               parentRef={scrollRef}
                               defaultShow={i >= messages.length - 6}
                             />
-                            <MessageAttachments
-                              attachments={message.attachments}
-                            />
-                            <ImagePreview
-                              images={generatedImages.map((image, index) => ({
-                                src: image,
-                                alt: `${modelName ?? "NewbieChat"} ${
-                                  index + 1
-                                }`,
-                              }))}
-                            />
-                            {message.canceled &&
-                              getMessageTextContent(message).trim() !==
-                                "已停止生成" && (
-                                <div className={styles["chat-message-status"]}>
-                                  已停止生成
-                                </div>
-                              )}
+                            {getMessageImages(message).length == 1 && (
+                              <img
+                                className={styles["chat-message-item-image"]}
+                                src={getMessageImages(message)[0]}
+                                alt=""
+                              />
+                            )}
+                            {getMessageImages(message).length > 1 && (
+                              <div
+                                className={styles["chat-message-item-images"]}
+                                style={
+                                  {
+                                    "--image-count":
+                                      getMessageImages(message).length,
+                                  } as React.CSSProperties
+                                }
+                              >
+                                {getMessageImages(message).map(
+                                  (image, index) => {
+                                    return (
+                                      <img
+                                        className={
+                                          styles[
+                                            "chat-message-item-image-multi"
+                                          ]
+                                        }
+                                        key={index}
+                                        src={image}
+                                        alt=""
+                                      />
+                                    );
+                                  },
+                                )}
+                              </div>
+                            )}
                           </div>
                           {message?.audio_url && (
                             <div className={styles["chat-message-audio"]}>
@@ -2241,14 +2113,10 @@ function _Chat() {
                     {attachments.map((attachment) => (
                       <div className={styles.attachment} key={attachment.id}>
                         {attachment.kind === "image" && attachment.dataUrl ? (
-                          <ImagePreview
-                            compact
-                            images={[
-                              {
-                                src: attachment.dataUrl,
-                                alt: attachment.name,
-                              },
-                            ]}
+                          <img
+                            className={styles["attachment-thumbnail"]}
+                            src={attachment.dataUrl}
+                            alt=""
                           />
                         ) : (
                           <div className={styles["attachment-file-icon"]}>
@@ -2300,20 +2168,11 @@ function _Chat() {
                           onClick={(event) => {
                             event.preventDefault();
                             deleteAttachmentAnalysis([attachment]);
-                            const accountId = accountStore.user?.userId;
-                            if (accountId && attachment.mediaId) {
-                              void deleteMessageMedia(
-                                accountId,
-                                attachment.mediaId,
-                              );
-                            }
-                            setAttachments((current) => {
-                              const next = current.filter(
+                            setAttachments((current) =>
+                              current.filter(
                                 (item) => item.id !== attachment.id,
-                              );
-                              attachmentDraftRef.current = next;
-                              return next;
-                            });
+                              ),
+                            );
                           }}
                         >
                           <DeleteIcon />
@@ -2347,9 +2206,7 @@ function _Chat() {
                 />
                 <IconButton
                   icon={
-                    requestStopping ? (
-                      <LoadingButtonIcon />
-                    ) : requestPending ? (
+                    requestPending ? (
                       <StopIcon />
                     ) : analyzingAttachments ? (
                       <LoadingButtonIcon />
@@ -2358,22 +2215,20 @@ function _Chat() {
                     )
                   }
                   text={
-                    requestStopping
-                      ? "正在停止…"
-                      : requestPending
-                      ? "停止"
+                    requestPending
+                      ? Locale.Chat.InputActions.Stop
                       : Locale.Chat.Send
                   }
                   className={styles["chat-input-send"]}
                   type="primary"
-                  disabled={requestStopping || (!requestPending && uploading)}
-                  onClick={() => {
-                    if (requestPending) {
-                      ChatControllerPool.stopSession(session.id);
-                    } else {
-                      void doSubmit(userInput);
-                    }
-                  }}
+                  disabled={
+                    !requestPending && (analyzingAttachments || uploading)
+                  }
+                  onClick={() =>
+                    requestPending
+                      ? ChatControllerPool.stopAll()
+                      : void doSubmit(userInput)
+                  }
                 />
               </label>
             </div>

@@ -2,6 +2,7 @@ import { OPENAI_BASE_URL } from "@/app/constant";
 
 import {
   GatewayAdapterContext,
+  copyResponseHeaders,
   gatewayJsonError,
   normalizeBaseUrl,
 } from "./types";
@@ -269,7 +270,11 @@ export async function callOpenAIResponses(ctx: GatewayAdapterContext) {
   });
 
   if (!res.ok) {
-    return gatewayJsonError(res.status, "OpenAI request failed");
+    return new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: copyResponseHeaders(res),
+    });
   }
 
   if (shouldStream) return transformedResponsesStream(res, ctx.model.model);

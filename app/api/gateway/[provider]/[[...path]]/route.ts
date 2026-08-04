@@ -173,83 +173,143 @@ function nonEmptyText(value: unknown) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function hasImageInput(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(hasImageInput);
-  const record = objectValue(value);
-  if (!record) return false;
-
-  const imageUrl = objectValue(record.image_url);
-  if (nonEmptyText(imageUrl?.url)) return true;
-
-  const inlineData =
-    objectValue(record.inlineData) ?? objectValue(record.inline_data);
-  if (
-    nonEmptyText(inlineData?.data) &&
-    nonEmptyText(inlineData?.mimeType ?? inlineData?.mime_type)
-  ) {
-    return true;
-  }
-
-  const source = objectValue(record.source);
-  if (
-    record.type === "image" &&
-    source?.type === "base64" &&
-    nonEmptyText(source.media_type) &&
-    nonEmptyText(source.data)
-  ) {
-    return true;
-  }
-
-  return Object.values(record).some(hasImageInput);
+function nonEmptyObjects(value: unknown) {
+  return (
+    Array.isArray(value) &&
+    value.some((item) => {
+      const record = objectValue(item);
+      return !!record && Object.keys(record).length > 0;
+    })
+  );
 }
 
-function requestHasImageInput(bodyText?: string) {
-  if (!bodyText) return false;
+function validOpenAIChat(value: unknown, stream: boolean) {
+  const body = objectValue(value);
+  const choicesValue = body?.choices;
+  const choices = Array.isArray(choicesValue) ? choicesValue : [];
+  return choices.some((choiceValue) => {
+    const choice = objectValue(choiceValue);
+    const message = objectValue(stream ? choice?.delta : choice?.message);
+    return (
+      nonEmptyText(message?.content) || nonEmptyObjects(message?.tool_calls)
+    );
+  });
+}
+
+function validAnthropic(value: unknown, stream: boolean) {
+  const body = objectValue(value);
+  if (stream) {
+    const delta = objectValue(body?.delta);
+    const block = objectValue(body?.content_block);
+    return (
+      nonEmptyText(delta?.text) ||
+      block?.type === "tool_use" ||
+      (body?.type === "content_block_start" && block?.type === "tool_use")
+    );
+  }
+  const contentValue = body?.content;
+  const content = Array.isArray(contentValue) ? contentValue : [];
+  return content.some((partValue) => {
+    const part = objectValue(partValue);
+    return nonEmptyText(part?.text) || part?.type === "tool_use";
+  });
+}
+
+function validGoogle(value: unknown) {
+  if (Array.isArray(value)) return value.some(validGoogle);
+  const body = objectValue(value);
+  const candidatesValue = body?.candidates;
+  const candidates = Array.isArray(candidatesValue) ? candidatesValue : [];
+  return candidates.some((candidateValue) => {
+    const candidate = objectValue(candidateValue);
+    const content = objectValue(candidate?.content);
+    const partsValue = content?.parts;
+    const parts = Array.isArray(partsValue) ? partsValue : [];
+    return parts.some((partValue) => {
+      const part = objectValue(partValue);
+      return nonEmptyText(part?.text) || !!objectValue(part?.functionCall);
+    });
+  });
+}
+
+function validImage(value: unknown) {
+  const body = objectValue(value);
+  const dataValue = body?.data;
+  const data = Array.isArray(dataValue) ? dataValue : [];
+  return data.some((itemValue) => {
+    const item = objectValue(itemValue);
+    return nonEmptyText(item?.url) || nonEmptyText(item?.b64_json);
+  });
+}
+
+function validVideo(value: unknown) {
+  const body = objectValue(value);
+  if (!body) return false;
+  if (nonEmptyText(body.video_url) || nonEmptyText(body.url)) return true;
+  const output = objectValue(body.output);
+  return (
+    (body.status === "completed" || body.status === "succeeded") &&
+    (nonEmptyText(output?.video_url) || nonEmptyText(output?.url))
+  );
+}
+
+function hasValidJson(model: CompanyModel, value: unknown) {
+  if (model.category === "image") return validImage(value);
+  if (model.category === "video") return validVideo(value);
+  if (model.endpointType === "anthropic_messages") {
+    return validAnthropic(value, false);
+  }
+  if (
+    model.endpointType === "google_generate_content" ||
+    model.endpointType === "google_interactions"
+  ) {
+    return validGoogle(value);
+  }
+  return validOpenAIChat(value, false);
+}
+
+function hasValidStreamEvent(model: CompanyModel, data: string) {
+  if (!data || data === "[DONE]") return false;
   try {
-    const value: unknown = JSON.parse(bodyText);
-    return hasImageInput(value);
+    const value: unknown = JSON.parse(data);
+    if (model.endpointType === "anthropic_messages") {
+      return validAnthropic(value, true);
+    }
+    if (
+      model.endpointType === "google_generate_content" ||
+      model.endpointType === "google_interactions"
+    ) {
+      return validGoogle(value);
+    }
+    return validOpenAIChat(value, true);
   } catch {
     return false;
   }
 }
 
-function modelSupportsImageInput(model: CompanyModel) {
-  if (model.category === "image") {
-    return (
-      model.capabilities?.imageEditing === true ||
-      model.capabilities?.referenceImages === true
-    );
-  }
-  if (model.category === "video") {
-    return model.capabilities?.imageToVideo === true;
-  }
-  return model.capabilities?.vision === true;
-}
-
-function unsupportedImageInputMessage(model: CompanyModel) {
-  return model.category === "image"
-    ? "当前模型官方接口暂未接入参考图生图。"
-    : "当前模型官方接口暂未接入图片输入。";
-}
-
-function validImageCount(value: unknown) {
-  const body = objectValue(value);
-  const dataValue = body?.data;
-  const data = Array.isArray(dataValue) ? dataValue : [];
-  return data.filter((itemValue) => {
-    const item = objectValue(itemValue);
-    return nonEmptyText(item?.url) || nonEmptyText(item?.b64_json);
-  }).length;
+function inspectSseEvents(model: CompanyModel, text: string) {
+  return text.split(/\r?\n\r?\n/).some((event) => {
+    const data = event
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    return hasValidStreamEvent(model, data);
+  });
 }
 
 function trackedEventStream(
   res: Response,
+  model: CompanyModel,
   requestId: string,
-  signal: AbortSignal,
 ) {
   if (!res.body) return undefined;
   const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let eventBuffer = "";
+  let valid = false;
   let settled = false;
+  const maxEventBuffer = 256 * 1024;
 
   const settle = async (status: "success" | "failed" | "canceled") => {
     if (settled) return;
@@ -273,14 +333,23 @@ function trackedEventStream(
       try {
         const chunk = await reader.read();
         if (chunk.done) {
-          await settle("success");
+          eventBuffer += decoder.decode();
+          valid = valid || inspectSseEvents(model, `${eventBuffer}\n\n`);
+          await settle(valid ? "success" : "failed");
           controller.close();
           return;
         }
 
+        eventBuffer += decoder.decode(chunk.value, { stream: true });
+        if (eventBuffer.length > maxEventBuffer) {
+          throw new Error("stream event was too large");
+        }
+        const events = eventBuffer.split(/\r?\n\r?\n/);
+        eventBuffer = events.pop() ?? "";
+        valid = valid || inspectSseEvents(model, events.join("\n\n"));
         controller.enqueue(chunk.value);
       } catch (error) {
-        await settle(signal.aborted ? "canceled" : "failed");
+        await settle("failed");
         controller.error(error);
       }
     },
@@ -304,40 +373,25 @@ async function validateJsonResponse(
   res: Response,
   model: CompanyModel,
   requestId: string,
-  signal: AbortSignal,
 ) {
   try {
     const value: unknown = await res.clone().json();
-    if (signal.aborted) {
+    if (hasValidJson(model, value)) {
+      await confirmCategoryQuota(requestId, res.status);
+    } else {
       await releaseCategoryQuota(
         requestId,
-        "canceled",
-        "request canceled",
-        499,
+        "failed",
+        "response did not contain valid content",
+        res.status,
       );
-      return res;
-    }
-    if (model.category === "image") {
-      const usageUnits = validImageCount(value);
-      if (usageUnits > 0) {
-        await confirmCategoryQuota(requestId, res.status, usageUnits);
-      } else {
-        await releaseCategoryQuota(
-          requestId,
-          "failed",
-          "image response did not contain valid data",
-          res.status,
-        );
-      }
-    } else {
-      await confirmCategoryQuota(requestId, res.status, 1);
     }
   } catch {
     await releaseCategoryQuota(
       requestId,
-      signal.aborted ? "canceled" : "failed",
-      signal.aborted ? "request canceled" : "response could not be parsed",
-      signal.aborted ? 499 : res.status,
+      "failed",
+      "response could not be parsed",
+      res.status,
     );
   }
   return res;
@@ -413,21 +467,6 @@ async function handle(
     return gatewayError(provider, 403, message);
   }
 
-  if (
-    requestHasImageInput(bodyText) &&
-    !modelSupportsImageInput(companyModel)
-  ) {
-    const message = unsupportedImageInputMessage(companyModel);
-    await recordBlockedUsage(account, companyModel, {
-      ...baseUsage,
-      httpStatus: 400,
-      errorMessage: message,
-    });
-    return gatewayError(provider, 400, message);
-  }
-
-  const adapterBodyText = bodyText;
-
   const adapter = adapterFor(companyModel.endpointType);
   if (!adapter) {
     const message = "model adapter is not implemented";
@@ -459,7 +498,7 @@ async function handle(
     req,
     path,
     search: req.nextUrl.search || "",
-    bodyText: adapterBodyText,
+    bodyText,
     model: companyModel,
     credential,
     signal: req.signal,
@@ -488,10 +527,10 @@ async function handle(
 
     const contentType = res.headers.get("content-type")?.toLowerCase() ?? "";
     if (contentType.includes("text/event-stream")) {
-      return trackedEventStream(res, requestId, req.signal) ?? res;
+      return trackedEventStream(res, companyModel, requestId) ?? res;
     }
     if (contentType.includes("json")) {
-      return validateJsonResponse(res, companyModel, requestId, req.signal);
+      return validateJsonResponse(res, companyModel, requestId);
     }
 
     await releaseCategoryQuota(
@@ -504,16 +543,12 @@ async function handle(
   } catch {
     await releaseCategoryQuota(
       requestId,
-      req.signal.aborted ? "canceled" : "failed",
-      req.signal.aborted ? "request canceled" : "gateway request failed",
-      req.signal.aborted ? 499 : 502,
+      "failed",
+      "gateway request failed",
+      502,
     );
-    if (!req.signal.aborted) console.error("[Gateway] request failed");
-    return gatewayError(
-      provider,
-      req.signal.aborted ? 499 : 502,
-      req.signal.aborted ? "request canceled" : "gateway request failed",
-    );
+    console.error("[Gateway] request failed");
+    return gatewayError(provider, 502, "gateway request failed");
   }
 }
 

@@ -11,8 +11,84 @@ import {
 } from "@fortaine/fetch-event-source";
 import { fetch as tauriFetch } from "./stream";
 
-const CHAT_REQUEST_FAILED_MESSAGE =
-  "请求失败，请检查服务商 Key、模型 API ID、余额或接口地址。";
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function textValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function providerLabel(value: string) {
+  const labels: Record<string, string> = {
+    openai: "OpenAI",
+    google: "Google",
+    anthropic: "Anthropic",
+    perplexity: "Perplexity",
+    xai: "xAI",
+    deepseek: "DeepSeek",
+    qwen: "Qwen",
+    mistral: "Mistral",
+    zhipu: "Zhipu",
+  };
+  return labels[value.toLowerCase()] ?? value;
+}
+
+function providerFromPath(path: string) {
+  const match = path.match(
+    /\/api\/(?:gateway\/)?(openai|google|anthropic|perplexity|xai|deepseek|qwen|mistral|zhipu)(?:\/|\?|$)/i,
+  );
+  return match ? providerLabel(match[1]) : "Gateway";
+}
+
+function sanitizeErrorText(value: string) {
+  return value
+    .replace(/data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi, "[image]")
+    .replace(/\b[A-Za-z0-9+/]{120,}={0,2}\b/g, "[redacted]")
+    .replace(
+      /(authorization|api[_-]?key|x-api-key)(["'\s:=]+)([^"',\s}]+)/gi,
+      "$1$2[redacted]",
+    )
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 360);
+}
+
+async function responseErrorMessage(res: Response, chatPath: string) {
+  const status = res.status || 500;
+  const fallbackProvider = providerFromPath(chatPath);
+  const rawText = await res
+    .clone()
+    .text()
+    .catch(() => "");
+
+  try {
+    const body = objectValue(JSON.parse(rawText));
+    const error = objectValue(body?.error);
+    const provider = textValue(body?.provider) || fallbackProvider;
+    const code = textValue(error?.code ?? body?.code);
+    const reportedStatus = textValue(error?.status ?? body?.status);
+    const message =
+      textValue(error?.message) ||
+      textValue(body?.message) ||
+      textValue(body?.error_description);
+    const detail = [reportedStatus, code, message].filter(Boolean).join(": ");
+    if (detail) {
+      return `${providerLabel(provider)} ${status}: ${sanitizeErrorText(
+        detail,
+      )}`;
+    }
+  } catch {
+    // Fall back to the text body below.
+  }
+
+  const text = sanitizeErrorText(rawText);
+  return `${fallbackProvider} ${status}: ${
+    text || res.statusText || "request failed"
+  }`;
+}
 
 export function compressImage(file: Blob, maxSize: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -75,22 +151,17 @@ export function compressImage(file: Blob, maxSize: number): Promise<string> {
 export async function preProcessImageContentBase(
   content: RequestMessage["content"],
   transformImageUrl: (url: string) => Promise<{ [key: string]: any }>,
-  signal?: AbortSignal,
 ) {
   if (typeof content === "string") {
     return content;
   }
   const result = [];
   for (const part of content) {
-    if (signal?.aborted) {
-      throw new DOMException("Request aborted", "AbortError");
-    }
     if (part?.type == "image_url" && part?.image_url?.url) {
       try {
-        const url = await cacheImageToBase64Image(part?.image_url?.url, signal);
+        const url = await cacheImageToBase64Image(part?.image_url?.url);
         result.push(await transformImageUrl(url));
       } catch (error) {
-        if (signal?.aborted) throw error;
         console.error("Error processing image URL:", error);
       }
     } else {
@@ -102,16 +173,11 @@ export async function preProcessImageContentBase(
 
 export async function preProcessImageContent(
   content: RequestMessage["content"],
-  signal?: AbortSignal,
 ) {
-  return preProcessImageContentBase(
-    content,
-    async (url) => ({
-      type: "image_url",
-      image_url: { url },
-    }),
-    signal,
-  ) as Promise<MultimodalContent[] | string>;
+  return preProcessImageContentBase(content, async (url) => ({
+    type: "image_url",
+    image_url: { url },
+  })) as Promise<MultimodalContent[] | string>;
 }
 
 export async function preProcessImageContentForAlibabaDashScope(
@@ -123,10 +189,7 @@ export async function preProcessImageContentForAlibabaDashScope(
 }
 
 const imageCaches: Record<string, string> = {};
-export function cacheImageToBase64Image(
-  imageUrl: string,
-  signal?: AbortSignal,
-) {
+export function cacheImageToBase64Image(imageUrl: string) {
   if (imageUrl.includes(CACHE_URL_PREFIX)) {
     if (!imageCaches[imageUrl]) {
       const reader = new FileReader();
@@ -134,7 +197,6 @@ export function cacheImageToBase64Image(
         method: "GET",
         mode: "cors",
         credentials: "include",
-        signal,
       })
         .then((res) => res.blob())
         .then(
@@ -237,11 +299,6 @@ export function stream(
 
   const finish = () => {
     if (!finished) {
-      if (controller.signal.aborted) {
-        finished = true;
-        options.onFinish(responseText + remainText, responseRes);
-        return;
-      }
       if (!running && runTools.length > 0) {
         const toolCallMessage = {
           role: "assistant",
@@ -259,7 +316,6 @@ export function stream(
                 tool?.function?.arguments
                   ? JSON.parse(tool?.function?.arguments)
                   : {},
-                { signal: controller.signal },
               ),
             )
               .then((res) => {
@@ -298,10 +354,8 @@ export function stream(
               }));
           }),
         ).then((toolCallResult) => {
-          if (controller.signal.aborted) return;
           processToolMessage(requestPayload, toolCallMessage, toolCallResult);
           setTimeout(() => {
-            if (controller.signal.aborted) return;
             // call again
             console.debug("[ChatAPI] restart");
             running = false;
@@ -353,7 +407,7 @@ export function stream(
           throw new Error(
             res.status === 401
               ? Locale.Error.Unauthorized
-              : CHAT_REQUEST_FAILED_MESSAGE,
+              : await responseErrorMessage(res, chatPath),
           );
         }
 
@@ -365,7 +419,7 @@ export function stream(
         if (
           !res.headers.get("content-type")?.startsWith(EventStreamContentType)
         ) {
-          throw new Error(CHAT_REQUEST_FAILED_MESSAGE);
+          throw new Error(await responseErrorMessage(res, chatPath));
         }
       },
       onmessage(msg) {
@@ -391,7 +445,7 @@ export function stream(
       },
       onerror(e) {
         responseText =
-          e instanceof Error ? e.message : CHAT_REQUEST_FAILED_MESSAGE;
+          e instanceof Error ? e.message : "Gateway 500: request failed";
         finished = true;
         options?.onError?.(e);
         throw e;
@@ -461,11 +515,6 @@ export function streamWithThink(
 
   const finish = () => {
     if (!finished) {
-      if (controller.signal.aborted) {
-        finished = true;
-        options.onFinish(responseText + remainText, responseRes);
-        return;
-      }
       if (!running && runTools.length > 0) {
         const toolCallMessage = {
           role: "assistant",
@@ -483,7 +532,6 @@ export function streamWithThink(
                 tool?.function?.arguments
                   ? JSON.parse(tool?.function?.arguments)
                   : {},
-                { signal: controller.signal },
               ),
             )
               .then((res) => {
@@ -522,10 +570,8 @@ export function streamWithThink(
               }));
           }),
         ).then((toolCallResult) => {
-          if (controller.signal.aborted) return;
           processToolMessage(requestPayload, toolCallMessage, toolCallResult);
           setTimeout(() => {
-            if (controller.signal.aborted) return;
             // call again
             console.debug("[ChatAPI] restart");
             running = false;
@@ -577,7 +623,7 @@ export function streamWithThink(
           throw new Error(
             res.status === 401
               ? Locale.Error.Unauthorized
-              : CHAT_REQUEST_FAILED_MESSAGE,
+              : await responseErrorMessage(res, chatPath),
           );
         }
 
@@ -589,7 +635,7 @@ export function streamWithThink(
         if (
           !res.headers.get("content-type")?.startsWith(EventStreamContentType)
         ) {
-          throw new Error(CHAT_REQUEST_FAILED_MESSAGE);
+          throw new Error(await responseErrorMessage(res, chatPath));
         }
       },
       onmessage(msg) {
@@ -666,7 +712,7 @@ export function streamWithThink(
       },
       onerror(e) {
         responseText =
-          e instanceof Error ? e.message : CHAT_REQUEST_FAILED_MESSAGE;
+          e instanceof Error ? e.message : "Gateway 500: request failed";
         finished = true;
         options?.onError?.(e);
         throw e;

@@ -17,14 +17,7 @@ import {
 } from "@/app/utils";
 import { fetch } from "@/app/utils/stream";
 
-import {
-  ChatOptions,
-  LLMApi,
-  LLMModel,
-  LLMUsage,
-  SpeechOptions,
-  linkAbortSignal,
-} from "../api";
+import { ChatOptions, LLMApi, LLMModel, LLMUsage, SpeechOptions } from "../api";
 
 export type CompanyOpenAICompatibleProvider =
   | "xai"
@@ -42,8 +35,6 @@ const CHAT_PATHS: Record<CompanyOpenAICompatibleProvider, string> = {
 };
 
 const XAI_IMAGE_PATH = `${COMPANY_API_PATH.XAI}/v1/images/generations`;
-const REQUEST_FAILED_MESSAGE =
-  "请求失败，请检查服务商 Key、模型 API ID、余额或接口地址。";
 
 interface CompatibleRequest {
   model: string;
@@ -81,6 +72,13 @@ function jsonObject(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function responseError(value: unknown, fallback: string) {
+  const body = jsonObject(value);
+  const error = jsonObject(body?.error);
+  const message = error?.message ?? body?.message;
+  return typeof message === "string" && message.trim() ? message : fallback;
 }
 
 function responseMessage(value: unknown) {
@@ -141,7 +139,6 @@ export class CompanyOpenAICompatibleApi implements LLMApi {
     }
 
     const controller = new AbortController();
-    linkAbortSignal(options.signal, controller);
     options.onController?.(controller);
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -154,12 +151,11 @@ export class CompanyOpenAICompatibleApi implements LLMApi {
         body: JSON.stringify({
           model: options.config.model,
           prompt,
-          messages: options.messages,
         }),
       });
       const json: unknown = await res.json();
       if (!res.ok) {
-        throw new Error(REQUEST_FAILED_MESSAGE);
+        throw new Error(responseError(json, res.statusText));
       }
 
       const url = responseImageUrl(json);
@@ -197,11 +193,10 @@ export class CompanyOpenAICompatibleApi implements LLMApi {
         modelConfig.providerName,
       );
       const vision = accountModel?.capabilities?.vision === true;
-      const preserveImages = useAccountStore.getState().authenticated || vision;
       const messages: ChatOptions["messages"] = [];
       for (const message of options.messages) {
-        const content = preserveImages
-          ? await preProcessImageContent(message.content, options.signal)
+        const content = vision
+          ? await preProcessImageContent(message.content)
           : message.role === "assistant"
           ? getMessageTextContentWithoutThinking(message)
           : getMessageTextContent(message);
@@ -217,7 +212,6 @@ export class CompanyOpenAICompatibleApi implements LLMApi {
         max_tokens: modelConfig.max_tokens,
       };
       const controller = new AbortController();
-      linkAbortSignal(options.signal, controller);
       options.onController?.(controller);
       const headers = { "Content-Type": "application/json" };
       const chatPath = CHAT_PATHS[this.provider];
@@ -259,7 +253,7 @@ export class CompanyOpenAICompatibleApi implements LLMApi {
         });
         const json: unknown = await res.json();
         if (!res.ok) {
-          throw new Error(REQUEST_FAILED_MESSAGE);
+          throw new Error(responseError(json, res.statusText));
         }
         options.onFinish(responseMessage(json), res);
       } finally {

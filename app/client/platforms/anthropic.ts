@@ -10,7 +10,6 @@ import {
   getHeaders,
   LLMApi,
   LLMModel,
-  linkAbortSignal,
   SpeechOptions,
 } from "../api";
 import {
@@ -85,8 +84,20 @@ const ClaudeMapper = {
 } as const;
 
 const keys = ["claude-2, claude-instant-1"];
-const REQUEST_FAILED_MESSAGE =
-  "请求失败，请检查服务商 Key、模型 API ID、余额或接口地址。";
+
+function responseError(value: any, fallback: string) {
+  const error = value?.error;
+  const message =
+    (typeof error?.message === "string" && error.message) ||
+    (typeof value?.message === "string" && value.message) ||
+    fallback;
+  const code =
+    (typeof error?.type === "string" && error.type) ||
+    (typeof error?.code === "string" && error.code) ||
+    (typeof value?.code === "string" && value.code) ||
+    "";
+  return [code, message].filter(Boolean).join(": ");
+}
 
 export class ClaudeApi implements LLMApi {
   speech(options: SpeechOptions): Promise<ArrayBuffer> {
@@ -94,7 +105,6 @@ export class ClaudeApi implements LLMApi {
   }
 
   extractMessage(res: any) {
-    if (res?.error) return REQUEST_FAILED_MESSAGE;
     return res?.content?.[0]?.text;
   }
   async chat(options: ChatOptions): Promise<void> {
@@ -107,7 +117,6 @@ export class ClaudeApi implements LLMApi {
     const visionModel = accountStore.authenticated
       ? accountModel?.capabilities?.vision === true
       : isVisionModel(options.config.model);
-    const preserveImages = accountStore.authenticated || visionModel;
 
     const accessStore = useAccessStore.getState();
 
@@ -124,8 +133,8 @@ export class ClaudeApi implements LLMApi {
     // try get base64image from local cache image_url
     const messages: ChatOptions["messages"] = [];
     for (const v of options.messages) {
-      const content = preserveImages
-        ? await preProcessImageContent(v.content, options.signal)
+      const content = visionModel
+        ? await preProcessImageContent(v.content)
         : getMessageTextContent(v);
       messages.push({ role: v.role, content });
     }
@@ -159,10 +168,7 @@ export class ClaudeApi implements LLMApi {
         const { role, content } = v;
         const insideRole = ClaudeMapper[role] ?? "user";
 
-        if (
-          (!visionModel && !accountStore.authenticated) ||
-          typeof content === "string"
-        ) {
+        if (!visionModel || typeof content === "string") {
           return {
             role: insideRole,
             content: getMessageTextContent(v),
@@ -222,7 +228,6 @@ export class ClaudeApi implements LLMApi {
     const path = this.path(Anthropic.ChatPath);
 
     const controller = new AbortController();
-    linkAbortSignal(options.signal, controller);
     options.onController?.(controller);
 
     if (shouldStream) {
@@ -367,7 +372,7 @@ export class ClaudeApi implements LLMApi {
         const res = await fetch(path, payload);
         const resJson = await res.json();
         if (!res.ok || resJson?.error) {
-          throw new Error(REQUEST_FAILED_MESSAGE);
+          throw new Error(responseError(resJson, res.statusText));
         }
 
         const message = this.extractMessage(resJson);

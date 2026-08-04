@@ -9,6 +9,7 @@ import { indexedDBStorage } from "@/app/utils/indexedDB-storage";
 import { nanoid } from "nanoid";
 import type {
   ClientApi,
+  LLMModel,
   MultimodalContent,
   RequestMessage,
 } from "../client/api";
@@ -51,10 +52,6 @@ import {
   buildAttachmentContext,
   toStoredAttachmentMetadata,
 } from "../utils/attachments";
-import {
-  clearMessageMedia,
-  deleteUnreferencedMessageMedia,
-} from "../utils/message-media-store";
 
 const localStorage = safeLocalStorage();
 
@@ -81,17 +78,7 @@ export type ChatMessage = RequestMessage & {
   audio_url?: string;
   isMcpResponse?: boolean;
   attachments?: StoredAttachmentMetadata[];
-  providerName?: string;
-  canceled?: boolean;
 };
-
-export interface ChatRequestHandle {
-  requestId: string;
-  sessionId: string;
-  messageId: string;
-  accepted: boolean;
-  completion: Promise<"finished" | "failed" | "canceled">;
-}
 
 export function createMessage(override: Partial<ChatMessage>): ChatMessage {
   return {
@@ -128,8 +115,35 @@ export const BOT_HELLO: ChatMessage = createMessage({
   role: "assistant",
   content: Locale.Store.BotHello,
 });
-const CHAT_REQUEST_FAILED_MESSAGE =
-  "请求失败，请检查服务商 Key、模型 API ID、余额或接口地址。";
+
+function sanitizeChatErrorMessage(message: string) {
+  return message
+    .replace(/data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi, "[image]")
+    .replace(/\b[A-Za-z0-9+/]{120,}={0,2}\b/g, "[redacted]")
+    .replace(
+      /(authorization|api[_-]?key|x-api-key)(["'\s:=]+)([^"',\s}]+)/gi,
+      "$1$2[redacted]",
+    )
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 360);
+}
+
+function imageInputUnavailableMessage(model?: LLMModel) {
+  if (!model) return "当前模型官方接口暂未接入图片输入。";
+  if (model.category === "image") {
+    return model.capabilities?.imageEditing ||
+      model.capabilities?.referenceImages
+      ? ""
+      : "当前模型官方接口暂未接入参考图生图。";
+  }
+  if (model.category === "video") {
+    return model.capabilities?.imageToVideo
+      ? ""
+      : "当前模型官方接口暂未接入图片输入。";
+  }
+  return model.capabilities?.vision ? "" : "当前模型官方接口暂未接入图片输入。";
+}
 
 function createEmptySession(): ChatSession {
   return {
@@ -147,20 +161,6 @@ function createEmptySession(): ChatSession {
 
     mask: createEmptyMask(),
   };
-}
-
-function messageMediaIds(messages: ChatMessage[]) {
-  return messages.flatMap((message) =>
-    (message.attachments ?? [])
-      .map((attachment) => attachment.mediaId)
-      .filter((mediaId): mediaId is string => Boolean(mediaId)),
-  );
-}
-
-function referencedMediaIds(sessions: ChatSession[]) {
-  return new Set(
-    sessions.flatMap((session) => messageMediaIds(session.messages)),
-  );
 }
 
 function getSummarizeModel(
@@ -268,20 +268,6 @@ function stripTransientMessageData(message: ChatMessage): ChatMessage {
           chunkCount:
             typeof attachment.chunkCount === "number"
               ? attachment.chunkCount
-              : undefined,
-          mediaId:
-            typeof attachment.mediaId === "string"
-              ? attachment.mediaId
-              : undefined,
-          width:
-            typeof attachment.width === "number" ? attachment.width : undefined,
-          height:
-            typeof attachment.height === "number"
-              ? attachment.height
-              : undefined,
-          previewAvailable:
-            typeof attachment.previewAvailable === "boolean"
-              ? attachment.previewAvailable
               : undefined,
         }))
     : undefined;
@@ -418,21 +404,10 @@ export const useChatStore = createPersistStore(
       },
 
       clearSessions() {
-        const candidates = get().sessions.flatMap((session) =>
-          messageMediaIds(session.messages),
-        );
         set(() => ({
           sessions: [createEmptySession()],
           currentSessionIndex: 0,
         }));
-        const accountId = useAccountStore.getState().user?.userId;
-        if (accountId) {
-          void deleteUnreferencedMessageMedia(
-            accountId,
-            candidates,
-            referencedMediaIds(get().sessions),
-          );
-        }
       },
 
       selectSession(index: number) {
@@ -527,18 +502,6 @@ export const useChatStore = createPersistStore(
           sessions,
         }));
 
-        const accountId = useAccountStore.getState().user?.userId;
-        const candidates = messageMediaIds(deletedSession.messages);
-        if (accountId && candidates.length > 0) {
-          window.setTimeout(() => {
-            void deleteUnreferencedMessageMedia(
-              accountId,
-              candidates,
-              referencedMediaIds(get().sessions),
-            );
-          }, 5200);
-        }
-
         showToast(
           Locale.Home.DeleteToast,
           {
@@ -582,232 +545,172 @@ export const useChatStore = createPersistStore(
         content: string,
         attachments?: TransientChatAttachment[],
         isMcpResponse?: boolean,
-      ): Promise<ChatRequestHandle> {
+      ) {
         const session = get().currentSession();
         const modelConfig = session.mask.modelConfig;
+
         const attachmentList = isMcpResponse ? [] : attachments ?? [];
+        const queryContent =
+          !isMcpResponse && !content.trim() && attachmentList.length > 0
+            ? "请完整分析这些附件，并总结关键数据、异常和可执行结论。"
+            : content;
+        const analysisIds = attachmentList
+          .map((attachment) => attachment.analysisId)
+          .filter((analysisId): analysisId is string => Boolean(analysisId));
+        let analysisContext = "";
+        if (analysisIds.length > 0) {
+          const response = await fetch("/api/account/attachments/context", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: queryContent, analysisIds }),
+          });
+          const body = (await response.json()) as AttachmentContextResponse;
+          if (!response.ok || body.error || !body.contexts) {
+            throw new Error(body.message || "附件分析失败，请稍后重试。");
+          }
+          analysisContext = body.contexts
+            .map((context) => {
+              const content = context.content.replace(
+                /\[附件(?:开始|结束)\]/g,
+                "[附件标记]",
+              );
+              return `[附件开始]\n文件名：${context.name}\n文件类型：服务器临时分析上下文\n覆盖范围：${context.coverage}\n内容：\n${content}\n[附件结束]`;
+            })
+            .join("\n\n");
+        }
+        const attachmentContext = buildAttachmentContext(attachmentList);
+        const imageUrls = attachmentList
+          .map((attachment) => attachment.dataUrl)
+          .filter((url): url is string => !!url);
+        if (imageUrls.length > 0) {
+          const accountState = useAccountStore.getState();
+          if (accountState.authenticated) {
+            const targetModel = findAccountModel(
+              accountState.models,
+              modelConfig.model,
+              modelConfig.providerName,
+            );
+            const unavailableMessage =
+              imageInputUnavailableMessage(targetModel);
+            if (unavailableMessage) throw new Error(unavailableMessage);
+          }
+        }
+        const templatedContent = isMcpResponse
+          ? content
+          : fillTemplateWith(queryContent, modelConfig);
+        const requestText = [
+          templatedContent,
+          attachmentContext,
+          analysisContext,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+        const requestContent: string | MultimodalContent[] =
+          imageUrls.length > 0
+            ? [
+                ...(requestText
+                  ? [{ type: "text" as const, text: requestText }]
+                  : []),
+                ...imageUrls.map((url) => ({
+                  type: "image_url" as const,
+                  image_url: { url },
+                })),
+              ]
+            : requestText;
+
+        let userMessage: ChatMessage = createMessage({
+          role: "user",
+          content,
+          attachments: attachmentList.map(toStoredAttachmentMetadata),
+          isMcpResponse,
+        });
+        const requestUserMessage: ChatMessage = {
+          ...userMessage,
+          content: requestContent,
+        };
+
         const botMessage: ChatMessage = createMessage({
           role: "assistant",
           streaming: true,
           model: modelConfig.model,
-          providerName: modelConfig.providerName,
         });
-        const rootController = new AbortController();
-        if (
-          !ChatControllerPool.begin(session.id, botMessage.id, rootController)
-        ) {
-          throw new Error("当前会话已有请求正在生成。");
-        }
-        let resolveCompletion:
-          | ((state: "finished" | "failed" | "canceled") => void)
-          | undefined;
-        const completion = new Promise<"finished" | "failed" | "canceled">(
-          (resolve) => {
-            resolveCompletion = resolve;
+
+        // get recent messages
+        const recentMessages = await get().getMessagesWithMemory();
+        const sendMessages = recentMessages.concat(requestUserMessage);
+        const messageIndex = session.messages.length + 1;
+
+        // save the original visible input separately from the model request.
+        get().updateTargetSession(session, (session) => {
+          session.messages = session.messages.concat([userMessage, botMessage]);
+        });
+
+        const api: ClientApi = getClientApi(modelConfig.providerName);
+        // make request
+        api.llm.chat({
+          messages: sendMessages,
+          config: { ...modelConfig, stream: true },
+          onUpdate(message) {
+            botMessage.streaming = true;
+            if (message) {
+              botMessage.content = message;
+            }
+            get().updateTargetSession(session, (session) => {
+              session.messages = session.messages.concat();
+            });
           },
-        );
-        const handle: ChatRequestHandle = {
-          requestId: botMessage.id,
-          sessionId: session.id,
-          messageId: botMessage.id,
-          accepted: false,
-          completion,
-        };
-        let settled = false;
-        const settle = (state: "finished" | "failed" | "canceled") => {
-          if (settled) return;
-          settled = true;
-          ChatControllerPool.setState(session.id, botMessage.id, state);
-          ChatControllerPool.remove(session.id, botMessage.id);
-          resolveCompletion?.(state);
-        };
-
-        try {
-          const queryContent =
-            !isMcpResponse && !content.trim() && attachmentList.length > 0
-              ? "请完整分析这些附件，并总结关键数据、异常和可执行结论。"
-              : content;
-          const analysisIds = attachmentList
-            .map((attachment) => attachment.analysisId)
-            .filter((analysisId): analysisId is string => Boolean(analysisId));
-          let analysisContext = "";
-          if (analysisIds.length > 0) {
-            const response = await fetch("/api/account/attachments/context", {
-              method: "POST",
-              credentials: "same-origin",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ query: queryContent, analysisIds }),
-              signal: rootController.signal,
-            });
-            const body = (await response.json()) as AttachmentContextResponse;
-            if (!response.ok || body.error || !body.contexts) {
-              throw new Error(body.message || "附件分析失败，请稍后重试。");
-            }
-            analysisContext = body.contexts
-              .map((context) => {
-                const content = context.content.replace(
-                  /\[附件(?:开始|结束)\]/g,
-                  "[附件标记]",
-                );
-                return `[附件开始]\n文件名：${context.name}\n文件类型：服务器临时分析上下文\n覆盖范围：${context.coverage}\n内容：\n${content}\n[附件结束]`;
-              })
-              .join("\n\n");
-          }
-          if (rootController.signal.aborted) {
-            throw new DOMException("Request aborted", "AbortError");
-          }
-          const attachmentContext = buildAttachmentContext(attachmentList);
-          const imageUrls = attachmentList
-            .map((attachment) => attachment.dataUrl)
-            .filter((url): url is string => !!url);
-          const templatedContent = isMcpResponse
-            ? content
-            : fillTemplateWith(queryContent, modelConfig);
-          const requestText = [
-            templatedContent,
-            attachmentContext,
-            analysisContext,
-          ]
-            .filter(Boolean)
-            .join("\n\n");
-          const requestContent: string | MultimodalContent[] =
-            imageUrls.length > 0
-              ? [
-                  ...(requestText
-                    ? [{ type: "text" as const, text: requestText }]
-                    : []),
-                  ...imageUrls.map((url) => ({
-                    type: "image_url" as const,
-                    image_url: { url },
-                  })),
-                ]
-              : requestText;
-
-          const userMessage: ChatMessage = createMessage({
-            role: "user",
-            content,
-            attachments: attachmentList.map(toStoredAttachmentMetadata),
-            isMcpResponse,
-          });
-          const requestUserMessage: ChatMessage = {
-            ...userMessage,
-            content: requestContent,
-          };
-
-          // get recent messages
-          const recentMessages = await get().getMessagesWithMemory();
-          if (rootController.signal.aborted) {
-            throw new DOMException("Request aborted", "AbortError");
-          }
-          const sendMessages = recentMessages.concat(requestUserMessage);
-          // save the original visible input separately from the model request.
-          get().updateTargetSession(session, (session) => {
-            session.messages = session.messages.concat([
-              userMessage,
-              botMessage,
-            ]);
-          });
-          handle.accepted = true;
-          ChatControllerPool.setState(session.id, botMessage.id, "streaming");
-
-          const api: ClientApi = getClientApi(modelConfig.providerName);
-          const onRequestError = (error: Error) => {
-            const canceled =
-              rootController.signal.aborted ||
-              error.name === "AbortError" ||
-              /abort|cancel/i.test(error.message);
+          async onFinish(message) {
             botMessage.streaming = false;
-            if (canceled) {
-              botMessage.canceled = true;
-              botMessage.isError = false;
-              userMessage.isError = false;
-              if (!getMessageTextContent(botMessage).trim()) {
-                botMessage.content = "已停止生成";
-              }
-            } else {
-              botMessage.content = CHAT_REQUEST_FAILED_MESSAGE;
-              userMessage.isError = true;
-              botMessage.isError = true;
-              console.error("[Chat] request failed");
+            if (message) {
+              botMessage.content = message;
+              botMessage.date = new Date().toLocaleString();
+              get().onNewMessage(botMessage, session);
             }
-            get().updateTargetSession(session, (target) => {
-              target.messages = target.messages.concat();
+            ChatControllerPool.remove(session.id, botMessage.id);
+          },
+          onBeforeTool(tool: ChatMessageTool) {
+            (botMessage.tools = botMessage?.tools || []).push(tool);
+            get().updateTargetSession(session, (session) => {
+              session.messages = session.messages.concat();
             });
-            settle(canceled ? "canceled" : "failed");
-          };
-          void api.llm
-            .chat({
-              messages: sendMessages,
-              config: { ...modelConfig, stream: true },
-              signal: rootController.signal,
-              onUpdate(message) {
-                if (rootController.signal.aborted) return;
-                botMessage.streaming = true;
-                if (message) {
-                  botMessage.content = message;
-                }
-                get().updateTargetSession(session, (session) => {
-                  session.messages = session.messages.concat();
-                });
-              },
-              async onFinish(message) {
-                if (rootController.signal.aborted) {
-                  if (message) botMessage.content = message;
-                  onRequestError(
-                    new DOMException("Request aborted", "AbortError"),
-                  );
-                  return;
-                }
-                botMessage.streaming = false;
-                if (message) {
-                  botMessage.content = message;
-                  botMessage.date = new Date().toLocaleString();
-                  get().onNewMessage(botMessage, session);
-                }
-                settle("finished");
-              },
-              onBeforeTool(tool: ChatMessageTool) {
-                if (rootController.signal.aborted) return;
-                (botMessage.tools = botMessage?.tools || []).push(tool);
-                get().updateTargetSession(session, (session) => {
-                  session.messages = session.messages.concat();
-                });
-              },
-              onAfterTool(tool: ChatMessageTool) {
-                if (rootController.signal.aborted) return;
-                botMessage?.tools?.forEach((t, i, tools) => {
-                  if (tool.id == t.id) {
-                    tools[i] = { ...tool };
-                  }
-                });
-                get().updateTargetSession(session, (session) => {
-                  session.messages = session.messages.concat();
-                });
-              },
-              onError(error) {
-                onRequestError(error);
-              },
-              onController(controller) {
-                ChatControllerPool.addController(
-                  session.id,
-                  botMessage.id,
-                  controller,
-                );
-              },
-            })
-            .catch((error: unknown) =>
-              onRequestError(
-                error instanceof Error ? error : new Error(String(error)),
-              ),
+          },
+          onAfterTool(tool: ChatMessageTool) {
+            botMessage?.tools?.forEach((t, i, tools) => {
+              if (tool.id == t.id) {
+                tools[i] = { ...tool };
+              }
+            });
+            get().updateTargetSession(session, (session) => {
+              session.messages = session.messages.concat();
+            });
+          },
+          onError(error) {
+            const isAborted = error.message?.includes?.("aborted");
+            botMessage.content =
+              sanitizeChatErrorMessage(error.message) || "请求失败。";
+            botMessage.streaming = false;
+            userMessage.isError = !isAborted;
+            botMessage.isError = !isAborted;
+            get().updateTargetSession(session, (session) => {
+              session.messages = session.messages.concat();
+            });
+            ChatControllerPool.remove(
+              session.id,
+              botMessage.id ?? messageIndex,
             );
-          return handle;
-        } catch (error) {
-          const canceled =
-            rootController.signal.aborted ||
-            (error instanceof Error && error.name === "AbortError");
-          settle(canceled ? "canceled" : "failed");
-          throw error;
-        }
+
+            console.error("[Chat] request failed");
+          },
+          onController(controller) {
+            // collect controller for stop/retry
+            ChatControllerPool.addController(
+              session.id,
+              botMessage.id ?? messageIndex,
+              controller,
+            );
+          },
+        });
       },
 
       getMemoryPrompt() {
@@ -933,19 +836,10 @@ export const useChatStore = createPersistStore(
       },
 
       resetSession(session: ChatSession) {
-        const candidates = messageMediaIds(session.messages);
         get().updateTargetSession(session, (session) => {
           session.messages = [];
           session.memoryPrompt = "";
         });
-        const accountId = useAccountStore.getState().user?.userId;
-        if (accountId) {
-          void deleteUnreferencedMessageMedia(
-            accountId,
-            candidates,
-            referencedMediaIds(get().sessions),
-          );
-        }
       },
 
       summarizeSession(
@@ -1103,7 +997,6 @@ export const useChatStore = createPersistStore(
         set(() => ({ sessions }));
       },
       async clearAllData() {
-        await clearMessageMedia();
         await indexedDBStorage.clear();
         localStorage.clear();
         location.reload();
@@ -1129,13 +1022,11 @@ export const useChatStore = createPersistStore(
                     typeof result === "object"
                       ? JSON.stringify(result)
                       : String(result);
-                  return get()
-                    .onUserInput(
-                      `\`\`\`json:mcp-response:${mcpRequest.clientId}\n${mcpResponse}\n\`\`\``,
-                      [],
-                      true,
-                    )
-                    .then((handle) => handle.completion);
+                  get().onUserInput(
+                    `\`\`\`json:mcp-response:${mcpRequest.clientId}\n${mcpResponse}\n\`\`\``,
+                    [],
+                    true,
+                  );
                 })
                 .catch((error) => showToast("MCP execution failed", error));
             }
