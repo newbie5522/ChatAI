@@ -42,6 +42,7 @@ import {
 } from "../api";
 import Locale from "../../locales";
 import {
+  getMessageImages,
   getMessageTextContent,
   isVisionModel,
   getTimeoutMSByModel,
@@ -75,6 +76,7 @@ export interface RequestPayload {
 export interface DalleRequestPayload {
   model: string;
   prompt: string;
+  image_urls?: string[];
   response_format?: "url" | "b64_json";
   n: number;
   size: ModelSize;
@@ -211,12 +213,13 @@ export class ChatGPTApi implements LLMApi {
       requestedModel.startsWith("o4-mini");
     const isGpt5 = requestedModel.startsWith("gpt-5");
     if (isImageModel) {
-      const prompt = getMessageTextContent(
-        options.messages.slice(-1)?.pop() as any,
-      );
+      const lastMessage = options.messages.slice(-1)?.pop() as any;
+      const prompt = getMessageTextContent(lastMessage);
+      const imageUrls = getMessageImages(lastMessage).filter(Boolean);
       requestPayload = {
         model: options.config.model,
         prompt,
+        ...(imageUrls.length > 0 ? { image_urls: imageUrls } : {}),
         n: 1,
         size: "1024x1024",
       };

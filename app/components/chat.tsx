@@ -1134,12 +1134,20 @@ function _Chat() {
     const imageAttachments = attachments.filter(
       (attachment) => attachment.kind === "image",
     );
-    if (selectedModel?.category === "image" && imageAttachments.length > 0) {
-      showToast("当前生图接口暂不支持参考图片。");
+    const supportsReferenceImageGeneration =
+      selectedModel?.category === "image" &&
+      selectedModel?.provider?.id === "openai";
+    if (
+      selectedModel?.category === "image" &&
+      !supportsReferenceImageGeneration &&
+      imageAttachments.length > 0
+    ) {
+      showToast("当前模型官方接口暂未接入参考图生图。");
       return;
     }
     if (
       imageAttachments.length > 0 &&
+      !supportsReferenceImageGeneration &&
       selectedModel?.capabilities?.vision !== true
     ) {
       showToast("当前模型不支持图片输入，请更换支持图片的模型。");

@@ -25,6 +25,20 @@ function textFromContent(content: unknown): string {
     .join("\n");
 }
 
+function imageUrlsFromContent(content: unknown): string[] {
+  if (!Array.isArray(content)) return [];
+
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      const item = part as { type?: string; image_url?: unknown };
+      if (item.type !== "image_url") return "";
+      const imageUrl = item.image_url as { url?: unknown } | undefined;
+      return typeof imageUrl?.url === "string" ? imageUrl.url : "";
+    })
+    .filter(Boolean);
+}
+
 function promptFromMessages(messages: unknown) {
   if (!Array.isArray(messages)) return "";
 
@@ -43,18 +57,37 @@ function promptFromMessages(messages: unknown) {
   return userMessages.at(-1) ?? "";
 }
 
-function extractPrompt(bodyText?: string) {
-  if (!bodyText) return "";
+function imageUrlsFromMessages(messages: unknown) {
+  if (!Array.isArray(messages)) return [];
+
+  return messages.flatMap((message) =>
+    message && typeof message === "object"
+      ? imageUrlsFromContent((message as { content?: unknown }).content)
+      : [],
+  );
+}
+
+function extractImageUrls(body: Record<string, unknown>) {
+  const directUrls = Array.isArray(body.image_urls)
+    ? body.image_urls.filter((url): url is string => typeof url === "string")
+    : [];
+  return directUrls.length > 0
+    ? directUrls
+    : imageUrlsFromMessages(body.messages);
+}
+
+function extractPayload(bodyText?: string) {
+  if (!bodyText) return { prompt: "", imageUrls: [] };
 
   try {
     const body = JSON.parse(bodyText) as Record<string, unknown>;
-    return (
+    const prompt =
       textFromContent(body.prompt).trim() ||
       textFromContent(body.input).trim() ||
-      promptFromMessages(body.messages).trim()
-    );
+      promptFromMessages(body.messages).trim();
+    return { prompt, imageUrls: extractImageUrls(body) };
   } catch {
-    return "";
+    return { prompt: "", imageUrls: [] };
   }
 }
 
@@ -77,31 +110,71 @@ function normalizedImageData(json: any) {
   };
 }
 
+function referenceImageFromDataUrl(imageUrl: string, index: number) {
+  const match = imageUrl.match(
+    /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=]+)$/i,
+  );
+  if (!match) return undefined;
+
+  const mimeType = match[1].toLowerCase();
+  const extension = mimeType === "image/jpeg" ? "jpg" : mimeType.split("/")[1];
+  return {
+    blob: new Blob([Buffer.from(match[2], "base64")], { type: mimeType }),
+    filename: `reference-${index + 1}.${extension}`,
+  };
+}
+
 export async function callOpenAIImages(
   ctx: GatewayAdapterContext,
 ): Promise<Response> {
-  const prompt = extractPrompt(ctx.bodyText);
+  const { prompt, imageUrls } = extractPayload(ctx.bodyText);
   if (!prompt) {
     return gatewayJsonError(400, "image prompt is required");
   }
 
   const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, OPENAI_BASE_URL);
-  const res = await fetch(`${baseUrl}/v1/images/generations`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${ctx.credential.apiKey}`,
-      ...(ctx.credential.orgId
-        ? { "OpenAI-Organization": ctx.credential.orgId }
-        : {}),
-    },
-    body: JSON.stringify({
-      model: ctx.model.model,
-      prompt,
-      n: 1,
-      size: "1024x1024",
-    }),
-  });
+  const headers = {
+    Authorization: `Bearer ${ctx.credential.apiKey}`,
+    ...(ctx.credential.orgId
+      ? { "OpenAI-Organization": ctx.credential.orgId }
+      : {}),
+  };
+  const referenceImages = imageUrls
+    .map(referenceImageFromDataUrl)
+    .filter((image): image is { blob: Blob; filename: string } => !!image);
+  if (imageUrls.length > 0 && referenceImages.length !== imageUrls.length) {
+    return gatewayJsonError(400, "valid reference image data URL is required");
+  }
+  const res =
+    referenceImages.length > 0
+      ? await fetch(`${baseUrl}/v1/images/edits`, {
+          method: "POST",
+          headers,
+          body: (() => {
+            const formData = new FormData();
+            formData.append("model", ctx.model.model);
+            formData.append("prompt", prompt);
+            formData.append("n", "1");
+            formData.append("size", "1024x1024");
+            referenceImages.forEach((image) => {
+              formData.append("image", image.blob, image.filename);
+            });
+            return formData;
+          })(),
+        })
+      : await fetch(`${baseUrl}/v1/images/generations`, {
+          method: "POST",
+          headers: {
+            ...headers,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: ctx.model.model,
+            prompt,
+            n: 1,
+            size: "1024x1024",
+          }),
+        });
 
   if (!res.ok) {
     return new Response(res.body, {
