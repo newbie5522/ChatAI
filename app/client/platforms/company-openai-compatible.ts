@@ -42,6 +42,8 @@ const CHAT_PATHS: Record<CompanyOpenAICompatibleProvider, string> = {
 };
 
 const XAI_IMAGE_PATH = `${COMPANY_API_PATH.XAI}/v1/images/generations`;
+const REQUEST_FAILED_MESSAGE =
+  "请求失败，请检查服务商 Key、模型 API ID、余额或接口地址。";
 
 interface CompatibleRequest {
   model: string;
@@ -79,13 +81,6 @@ function jsonObject(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)
     : undefined;
-}
-
-function responseError(value: unknown, fallback: string) {
-  const body = jsonObject(value);
-  const error = jsonObject(body?.error);
-  const message = error?.message ?? body?.message;
-  return typeof message === "string" && message.trim() ? message : fallback;
 }
 
 function responseMessage(value: unknown) {
@@ -164,7 +159,7 @@ export class CompanyOpenAICompatibleApi implements LLMApi {
       });
       const json: unknown = await res.json();
       if (!res.ok) {
-        throw new Error(responseError(json, res.statusText));
+        throw new Error(REQUEST_FAILED_MESSAGE);
       }
 
       const url = responseImageUrl(json);
@@ -264,7 +259,7 @@ export class CompanyOpenAICompatibleApi implements LLMApi {
         });
         const json: unknown = await res.json();
         if (!res.ok) {
-          throw new Error(responseError(json, res.statusText));
+          throw new Error(REQUEST_FAILED_MESSAGE);
         }
         options.onFinish(responseMessage(json), res);
       } finally {

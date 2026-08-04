@@ -30,6 +30,9 @@ import { nanoid } from "nanoid";
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
 
+const REQUEST_FAILED_MESSAGE =
+  "请求失败，请检查服务商 Key、模型 API ID、余额或接口地址。";
+
 export class GeminiProApi implements LLMApi {
   path(path: string, shouldStream = false): string {
     const accessStore = useAccessStore.getState();
@@ -65,6 +68,8 @@ export class GeminiProApi implements LLMApi {
     return chatPath;
   }
   extractMessage(res: any) {
+    if (res?.error) return REQUEST_FAILED_MESSAGE;
+
     const getTextFromParts = (parts: any[]) => {
       if (!Array.isArray(parts)) return "";
 
@@ -84,14 +89,13 @@ export class GeminiProApi implements LLMApi {
     return (
       getTextFromParts(res?.candidates?.at(0)?.content?.parts) ||
       content || //getTextFromParts(res?.at(0)?.candidates?.at(0)?.content?.parts) ||
-      res?.error?.message ||
       ""
     );
   }
 
   async extractImageMessage(res: any) {
     if (res?.error) {
-      return res?.message || res?.error?.message || "";
+      return REQUEST_FAILED_MESSAGE;
     }
 
     let url = res?.data?.at(0)?.url ?? "";
@@ -150,6 +154,9 @@ export class GeminiProApi implements LLMApi {
         clearTimeout(requestTimeoutId);
 
         const resJson = await res.json();
+        if (!res.ok || resJson?.error) {
+          throw new Error(REQUEST_FAILED_MESSAGE);
+        }
         const message = await apiClient.extractImageMessage(resJson);
         options.onFinish(message as any, res);
       } catch (e) {
@@ -377,6 +384,9 @@ export class GeminiProApi implements LLMApi {
         const res = await fetch(chatPath, chatPayload);
         clearTimeout(requestTimeoutId);
         const resJson = await res.json();
+        if (!res.ok || resJson?.error) {
+          throw new Error(REQUEST_FAILED_MESSAGE);
+        }
         if (resJson?.promptFeedback?.blockReason) {
           // being blocked
           options.onError?.(

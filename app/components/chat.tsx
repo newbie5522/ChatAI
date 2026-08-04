@@ -1220,10 +1220,8 @@ function _Chat() {
 
           if (m.content.length === 0) {
             m.isError = true;
-            m.content = prettyObject({
-              error: true,
-              message: "empty response",
-            });
+            m.content =
+              "请求失败，请检查服务商 Key、模型 API ID、余额或接口地址。";
           }
         }
       });

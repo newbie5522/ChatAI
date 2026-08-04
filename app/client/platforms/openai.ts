@@ -84,6 +84,9 @@ export interface DalleRequestPayload {
   style?: DalleStyle;
 }
 
+const REQUEST_FAILED_MESSAGE =
+  "请求失败，请检查服务商 Key、模型 API ID、余额或接口地址。";
+
 export class ChatGPTApi implements LLMApi {
   private disableListModels = true;
 
@@ -130,7 +133,7 @@ export class ChatGPTApi implements LLMApi {
 
   async extractMessage(res: any) {
     if (res.error) {
-      return "```\n" + JSON.stringify(res, null, 4) + "\n```";
+      return REQUEST_FAILED_MESSAGE;
     }
     // dalle3 model return url, using url create image message
     if (res.data) {
@@ -432,6 +435,9 @@ export class ChatGPTApi implements LLMApi {
         clearTimeout(requestTimeoutId);
 
         const resJson = await res.json();
+        if (!res.ok || resJson?.error) {
+          throw new Error(REQUEST_FAILED_MESSAGE);
+        }
         const message = await this.extractMessage(resJson);
         options.onFinish(message, res);
       }

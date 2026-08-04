@@ -34,7 +34,6 @@ import { callOpenAIResponses } from "../../adapters/openai-responses";
 import { callPerplexitySonar } from "../../adapters/perplexity-sonar";
 import type { GatewayAdapterContext } from "../../adapters/types";
 import { callXAIImages } from "../../adapters/xai-images";
-import { prepareGatewayImageInput } from "../../image-bridge";
 
 type GatewayProvider = ModelProvider;
 
@@ -174,73 +173,63 @@ function nonEmptyText(value: unknown) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function nonEmptyObjects(value: unknown) {
-  return (
-    Array.isArray(value) &&
-    value.some((item) => {
-      const record = objectValue(item);
-      return !!record && Object.keys(record).length > 0;
-    })
-  );
+function hasImageInput(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasImageInput);
+  const record = objectValue(value);
+  if (!record) return false;
+
+  const imageUrl = objectValue(record.image_url);
+  if (nonEmptyText(imageUrl?.url)) return true;
+
+  const inlineData =
+    objectValue(record.inlineData) ?? objectValue(record.inline_data);
+  if (
+    nonEmptyText(inlineData?.data) &&
+    nonEmptyText(inlineData?.mimeType ?? inlineData?.mime_type)
+  ) {
+    return true;
+  }
+
+  const source = objectValue(record.source);
+  if (
+    record.type === "image" &&
+    source?.type === "base64" &&
+    nonEmptyText(source.media_type) &&
+    nonEmptyText(source.data)
+  ) {
+    return true;
+  }
+
+  return Object.values(record).some(hasImageInput);
 }
 
-function validOpenAIChat(value: unknown, stream: boolean) {
-  const body = objectValue(value);
-  const choicesValue = body?.choices;
-  const choices = Array.isArray(choicesValue) ? choicesValue : [];
-  return choices.some((choiceValue) => {
-    const choice = objectValue(choiceValue);
-    const message = objectValue(stream ? choice?.delta : choice?.message);
-    return (
-      nonEmptyText(message?.content) || nonEmptyObjects(message?.tool_calls)
-    );
-  });
+function requestHasImageInput(bodyText?: string) {
+  if (!bodyText) return false;
+  try {
+    const value: unknown = JSON.parse(bodyText);
+    return hasImageInput(value);
+  } catch {
+    return false;
+  }
 }
 
-function validAnthropic(value: unknown, stream: boolean) {
-  const body = objectValue(value);
-  if (stream) {
-    const delta = objectValue(body?.delta);
-    const block = objectValue(body?.content_block);
+function modelSupportsImageInput(model: CompanyModel) {
+  if (model.category === "image") {
     return (
-      nonEmptyText(delta?.text) ||
-      block?.type === "tool_use" ||
-      (body?.type === "content_block_start" && block?.type === "tool_use")
+      model.capabilities?.imageEditing === true ||
+      model.capabilities?.referenceImages === true
     );
   }
-  const contentValue = body?.content;
-  const content = Array.isArray(contentValue) ? contentValue : [];
-  return content.some((partValue) => {
-    const part = objectValue(partValue);
-    return nonEmptyText(part?.text) || part?.type === "tool_use";
-  });
+  if (model.category === "video") {
+    return model.capabilities?.imageToVideo === true;
+  }
+  return model.capabilities?.vision === true;
 }
 
-function validGoogle(value: unknown) {
-  if (Array.isArray(value)) return value.some(validGoogle);
-  const body = objectValue(value);
-  const candidatesValue = body?.candidates;
-  const candidates = Array.isArray(candidatesValue) ? candidatesValue : [];
-  return candidates.some((candidateValue) => {
-    const candidate = objectValue(candidateValue);
-    const content = objectValue(candidate?.content);
-    const partsValue = content?.parts;
-    const parts = Array.isArray(partsValue) ? partsValue : [];
-    return parts.some((partValue) => {
-      const part = objectValue(partValue);
-      return nonEmptyText(part?.text) || !!objectValue(part?.functionCall);
-    });
-  });
-}
-
-function validImage(value: unknown) {
-  const body = objectValue(value);
-  const dataValue = body?.data;
-  const data = Array.isArray(dataValue) ? dataValue : [];
-  return data.some((itemValue) => {
-    const item = objectValue(itemValue);
-    return nonEmptyText(item?.url) || nonEmptyText(item?.b64_json);
-  });
+function unsupportedImageInputMessage(model: CompanyModel) {
+  return model.category === "image"
+    ? "当前模型官方接口暂未接入参考图生图。"
+    : "当前模型官方接口暂未接入图片输入。";
 }
 
 function validImageCount(value: unknown) {
@@ -253,75 +242,14 @@ function validImageCount(value: unknown) {
   }).length;
 }
 
-function validVideo(value: unknown) {
-  const body = objectValue(value);
-  if (!body) return false;
-  if (nonEmptyText(body.video_url) || nonEmptyText(body.url)) return true;
-  const output = objectValue(body.output);
-  return (
-    (body.status === "completed" || body.status === "succeeded") &&
-    (nonEmptyText(output?.video_url) || nonEmptyText(output?.url))
-  );
-}
-
-function hasValidJson(model: CompanyModel, value: unknown) {
-  if (model.category === "image") return validImage(value);
-  if (model.category === "video") return validVideo(value);
-  if (model.endpointType === "anthropic_messages") {
-    return validAnthropic(value, false);
-  }
-  if (
-    model.endpointType === "google_generate_content" ||
-    model.endpointType === "google_interactions"
-  ) {
-    return validGoogle(value);
-  }
-  return validOpenAIChat(value, false);
-}
-
-function hasValidStreamEvent(model: CompanyModel, data: string) {
-  if (!data || data === "[DONE]") return false;
-  try {
-    const value: unknown = JSON.parse(data);
-    if (model.endpointType === "anthropic_messages") {
-      return validAnthropic(value, true);
-    }
-    if (
-      model.endpointType === "google_generate_content" ||
-      model.endpointType === "google_interactions"
-    ) {
-      return validGoogle(value);
-    }
-    return validOpenAIChat(value, true);
-  } catch {
-    return false;
-  }
-}
-
-function inspectSseEvents(model: CompanyModel, text: string) {
-  return text.split(/\r?\n\r?\n/).some((event) => {
-    const data = event
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trimStart())
-      .join("\n");
-    return hasValidStreamEvent(model, data);
-  });
-}
-
 function trackedEventStream(
   res: Response,
-  model: CompanyModel,
   requestId: string,
   signal: AbortSignal,
 ) {
   if (!res.body) return undefined;
   const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let eventBuffer = "";
-  let valid = false;
   let settled = false;
-  const maxEventBuffer = 256 * 1024;
 
   const settle = async (status: "success" | "failed" | "canceled") => {
     if (settled) return;
@@ -345,20 +273,11 @@ function trackedEventStream(
       try {
         const chunk = await reader.read();
         if (chunk.done) {
-          eventBuffer += decoder.decode();
-          valid = valid || inspectSseEvents(model, `${eventBuffer}\n\n`);
-          await settle(valid ? "success" : "failed");
+          await settle("success");
           controller.close();
           return;
         }
 
-        eventBuffer += decoder.decode(chunk.value, { stream: true });
-        if (eventBuffer.length > maxEventBuffer) {
-          throw new Error("stream event was too large");
-        }
-        const events = eventBuffer.split(/\r?\n\r?\n/);
-        eventBuffer = events.pop() ?? "";
-        valid = valid || inspectSseEvents(model, events.join("\n\n"));
         controller.enqueue(chunk.value);
       } catch (error) {
         await settle(signal.aborted ? "canceled" : "failed");
@@ -398,17 +317,20 @@ async function validateJsonResponse(
       );
       return res;
     }
-    if (hasValidJson(model, value)) {
-      const usageUnits =
-        model.category === "image" ? validImageCount(value) : 1;
-      await confirmCategoryQuota(requestId, res.status, usageUnits);
+    if (model.category === "image") {
+      const usageUnits = validImageCount(value);
+      if (usageUnits > 0) {
+        await confirmCategoryQuota(requestId, res.status, usageUnits);
+      } else {
+        await releaseCategoryQuota(
+          requestId,
+          "failed",
+          "image response did not contain valid data",
+          res.status,
+        );
+      }
     } else {
-      await releaseCategoryQuota(
-        requestId,
-        "failed",
-        "response did not contain valid content",
-        res.status,
-      );
+      await confirmCategoryQuota(requestId, res.status, 1);
     }
   } catch {
     await releaseCategoryQuota(
@@ -491,25 +413,20 @@ async function handle(
     return gatewayError(provider, 403, message);
   }
 
-  let adapterBodyText = bodyText;
-  try {
-    adapterBodyText = (
-      await prepareGatewayImageInput({
-        bodyText,
-        targetModel: companyModel,
-        signal: req.signal,
-      })
-    ).bodyText;
-  } catch (error) {
-    if (req.signal.aborted) {
-      return gatewayError(provider, 499, "request canceled");
-    }
-    return gatewayError(
-      provider,
-      502,
-      error instanceof Error ? error.message : "image bridge failed",
-    );
+  if (
+    requestHasImageInput(bodyText) &&
+    !modelSupportsImageInput(companyModel)
+  ) {
+    const message = unsupportedImageInputMessage(companyModel);
+    await recordBlockedUsage(account, companyModel, {
+      ...baseUsage,
+      httpStatus: 400,
+      errorMessage: message,
+    });
+    return gatewayError(provider, 400, message);
   }
+
+  const adapterBodyText = bodyText;
 
   const adapter = adapterFor(companyModel.endpointType);
   if (!adapter) {
@@ -571,9 +488,7 @@ async function handle(
 
     const contentType = res.headers.get("content-type")?.toLowerCase() ?? "";
     if (contentType.includes("text/event-stream")) {
-      return (
-        trackedEventStream(res, companyModel, requestId, req.signal) ?? res
-      );
+      return trackedEventStream(res, requestId, req.signal) ?? res;
     }
     if (contentType.includes("json")) {
       return validateJsonResponse(res, companyModel, requestId, req.signal);

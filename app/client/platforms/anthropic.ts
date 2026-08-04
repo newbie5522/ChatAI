@@ -85,6 +85,8 @@ const ClaudeMapper = {
 } as const;
 
 const keys = ["claude-2, claude-instant-1"];
+const REQUEST_FAILED_MESSAGE =
+  "请求失败，请检查服务商 Key、模型 API ID、余额或接口地址。";
 
 export class ClaudeApi implements LLMApi {
   speech(options: SpeechOptions): Promise<ArrayBuffer> {
@@ -92,6 +94,7 @@ export class ClaudeApi implements LLMApi {
   }
 
   extractMessage(res: any) {
+    if (res?.error) return REQUEST_FAILED_MESSAGE;
     return res?.content?.[0]?.text;
   }
   async chat(options: ChatOptions): Promise<void> {
@@ -363,6 +366,9 @@ export class ClaudeApi implements LLMApi {
 
         const res = await fetch(path, payload);
         const resJson = await res.json();
+        if (!res.ok || resJson?.error) {
+          throw new Error(REQUEST_FAILED_MESSAGE);
+        }
 
         const message = this.extractMessage(resJson);
         options.onFinish(message, res);

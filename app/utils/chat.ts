@@ -9,8 +9,10 @@ import {
   EventStreamContentType,
   fetchEventSource,
 } from "@fortaine/fetch-event-source";
-import { prettyObject } from "./format";
 import { fetch as tauriFetch } from "./stream";
+
+const CHAT_REQUEST_FAILED_MESSAGE =
+  "请求失败，请检查服务商 Key、模型 API ID、余额或接口地址。";
 
 export function compressImage(file: Blob, maxSize: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -347,36 +349,23 @@ export function stream(
         console.log("[Request] response content type: ", contentType);
         responseRes = res;
 
+        if (!res.ok || res.status !== 200) {
+          throw new Error(
+            res.status === 401
+              ? Locale.Error.Unauthorized
+              : CHAT_REQUEST_FAILED_MESSAGE,
+          );
+        }
+
         if (contentType?.startsWith("text/plain")) {
           responseText = await res.clone().text();
           return finish();
         }
 
         if (
-          !res.ok ||
-          !res.headers
-            .get("content-type")
-            ?.startsWith(EventStreamContentType) ||
-          res.status !== 200
+          !res.headers.get("content-type")?.startsWith(EventStreamContentType)
         ) {
-          const responseTexts = [responseText];
-          let extraInfo = await res.clone().text();
-          try {
-            const resJson = await res.clone().json();
-            extraInfo = prettyObject(resJson);
-          } catch {}
-
-          if (res.status === 401) {
-            responseTexts.push(Locale.Error.Unauthorized);
-          }
-
-          if (extraInfo) {
-            responseTexts.push(extraInfo);
-          }
-
-          responseText = responseTexts.join("\n\n");
-
-          return finish();
+          throw new Error(CHAT_REQUEST_FAILED_MESSAGE);
         }
       },
       onmessage(msg) {
@@ -401,6 +390,9 @@ export function stream(
         finish();
       },
       onerror(e) {
+        responseText =
+          e instanceof Error ? e.message : CHAT_REQUEST_FAILED_MESSAGE;
+        finished = true;
         options?.onError?.(e);
         throw e;
       },
@@ -581,36 +573,23 @@ export function streamWithThink(
         console.log("[Request] response content type: ", contentType);
         responseRes = res;
 
+        if (!res.ok || res.status !== 200) {
+          throw new Error(
+            res.status === 401
+              ? Locale.Error.Unauthorized
+              : CHAT_REQUEST_FAILED_MESSAGE,
+          );
+        }
+
         if (contentType?.startsWith("text/plain")) {
           responseText = await res.clone().text();
           return finish();
         }
 
         if (
-          !res.ok ||
-          !res.headers
-            .get("content-type")
-            ?.startsWith(EventStreamContentType) ||
-          res.status !== 200
+          !res.headers.get("content-type")?.startsWith(EventStreamContentType)
         ) {
-          const responseTexts = [responseText];
-          let extraInfo = await res.clone().text();
-          try {
-            const resJson = await res.clone().json();
-            extraInfo = prettyObject(resJson);
-          } catch {}
-
-          if (res.status === 401) {
-            responseTexts.push(Locale.Error.Unauthorized);
-          }
-
-          if (extraInfo) {
-            responseTexts.push(extraInfo);
-          }
-
-          responseText = responseTexts.join("\n\n");
-
-          return finish();
+          throw new Error(CHAT_REQUEST_FAILED_MESSAGE);
         }
       },
       onmessage(msg) {
@@ -686,6 +665,9 @@ export function streamWithThink(
         finish();
       },
       onerror(e) {
+        responseText =
+          e instanceof Error ? e.message : CHAT_REQUEST_FAILED_MESSAGE;
+        finished = true;
         options?.onError?.(e);
         throw e;
       },

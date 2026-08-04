@@ -29,7 +29,6 @@ import {
   SUMMARIZE_MODEL,
 } from "../constant";
 import Locale, { getLang } from "../locales";
-import { prettyObject } from "../utils/format";
 import { createPersistStore } from "../utils/store";
 import { estimateTokenLength } from "../utils/token";
 import { ModelConfig, ModelType, useAppConfig } from "./config";
@@ -129,6 +128,8 @@ export const BOT_HELLO: ChatMessage = createMessage({
   role: "assistant",
   content: Locale.Store.BotHello,
 });
+const CHAT_REQUEST_FAILED_MESSAGE =
+  "请求失败，请检查服务商 Key、模型 API ID、余额或接口地址。";
 
 function createEmptySession(): ChatSession {
   return {
@@ -724,8 +725,7 @@ export const useChatStore = createPersistStore(
                 botMessage.content = "已停止生成";
               }
             } else {
-              botMessage.content +=
-                "\n\n" + prettyObject({ error: true, message: error.message });
+              botMessage.content = CHAT_REQUEST_FAILED_MESSAGE;
               userMessage.isError = true;
               botMessage.isError = true;
               console.error("[Chat] request failed");
