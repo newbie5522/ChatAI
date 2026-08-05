@@ -2,10 +2,15 @@ import { GEMINI_BASE_URL } from "@/app/constant";
 
 import {
   GatewayAdapterContext,
-  copyResponseHeaders,
   gatewayJsonError,
   normalizeBaseUrl,
 } from "./types";
+
+interface InteractionImageBlock {
+  type: "image";
+  data: string;
+  mime_type: string;
+}
 
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -114,34 +119,127 @@ function googleBaseRoot(baseUrl?: string) {
   );
 }
 
-function imageDataFromGoogle(json: any) {
-  const parts = Array.isArray(json?.candidates)
-    ? json.candidates.flatMap((candidate: any) =>
-        Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [],
-      )
-    : [];
-
-  const imageData = parts
-    .map((part: any) => part?.inlineData?.data ?? part?.inline_data?.data)
-    .filter(
-      (data: unknown): data is string => typeof data === "string" && !!data,
-    );
-
-  return imageData.map((b64_json: string) => ({ b64_json }));
+function objectValue(value: unknown) {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
-function dataUrlToGoogleInlineData(imageUrl: string) {
+function stringValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function dataUrlToInteractionImage(imageUrl: string) {
   const match = imageUrl.match(
     /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=]+)$/i,
   );
   if (!match) return undefined;
 
   return {
-    inline_data: {
-      mime_type: match[1].toLowerCase(),
-      data: match[2],
-    },
+    type: "image" as const,
+    data: match[2],
+    mime_type: match[1].toLowerCase(),
   };
+}
+
+function collectImageData(value: unknown, output: Set<string>) {
+  const item = objectValue(value);
+  if (!item) return;
+
+  const data = stringValue(item.data);
+  const mimeType = stringValue(item.mime_type) ?? stringValue(item.mimeType);
+  if (item.type === "image" && data) {
+    output.add(data);
+  } else if (data && mimeType?.startsWith("image/")) {
+    output.add(data);
+  }
+
+  const outputImage = objectValue(item.output_image);
+  const outputImageData = stringValue(outputImage?.data);
+  if (outputImageData) {
+    output.add(outputImageData);
+  }
+
+  const steps = Array.isArray(item.steps) ? item.steps : [];
+  steps.forEach((step) => {
+    const stepObject = objectValue(step);
+    if (!stepObject) return;
+    for (const field of ["content", "summary"]) {
+      const blocks = stepObject[field];
+      if (Array.isArray(blocks)) {
+        blocks.forEach((block) => collectImageData(block, output));
+      }
+    }
+  });
+
+  for (const field of ["output", "outputs", "output_images", "images"]) {
+    const nested = item[field];
+    if (Array.isArray(nested)) {
+      nested.forEach((block) => collectImageData(block, output));
+    } else {
+      collectImageData(nested, output);
+    }
+  }
+}
+
+function extractInteractionImages(json: unknown) {
+  const imageData = new Set<string>();
+  collectImageData(json, imageData);
+
+  return Array.from(imageData).map((b64_json) => ({ b64_json }));
+}
+
+function sanitizeGoogleError(message: string) {
+  return message
+    .replace(/data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi, "[image]")
+    .replace(/\bAIza[0-9A-Za-z_-]{20,}\b/g, "[redacted]")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [redacted]")
+    .replace(/\b[A-Za-z0-9+/]{120,}={0,2}\b/g, "[image]")
+    .trim()
+    .slice(0, 600);
+}
+
+function errorMessageFromDetails(value: unknown): string | undefined {
+  const item = objectValue(value);
+  if (!item) return stringValue(value);
+
+  for (const key of ["message", "detail", "reason"]) {
+    const message = stringValue(item[key]);
+    if (message) return message;
+  }
+
+  const details = item.details;
+  if (Array.isArray(details)) {
+    for (const detail of details) {
+      const message = errorMessageFromDetails(detail);
+      if (message) return message;
+    }
+  } else {
+    const message = errorMessageFromDetails(details);
+    if (message) return message;
+  }
+
+  return undefined;
+}
+
+async function googleErrorMessage(res: Response) {
+  const fallback = `google image request failed (${res.status})`;
+  const text = await res.text();
+  if (!text) return fallback;
+
+  try {
+    const json = JSON.parse(text) as Record<string, unknown>;
+    const error = objectValue(json.error);
+    const message =
+      stringValue(error?.message) ??
+      stringValue(json.message) ??
+      errorMessageFromDetails(json.details) ??
+      errorMessageFromDetails(error?.details);
+
+    return message ? sanitizeGoogleError(message) : fallback;
+  } catch {
+    return sanitizeGoogleError(text) || fallback;
+  }
 }
 
 export async function callGoogleImage(
@@ -153,50 +251,38 @@ export async function callGoogleImage(
   }
 
   const referenceImages = imageUrls
-    .map(dataUrlToGoogleInlineData)
-    .filter(
-      (image): image is { inline_data: { mime_type: string; data: string } } =>
-        !!image,
-    );
+    .map(dataUrlToInteractionImage)
+    .filter((image): image is InteractionImageBlock => !!image);
   if (imageUrls.length > 0 && referenceImages.length !== imageUrls.length) {
     return gatewayJsonError(400, "valid reference image data URL is required");
   }
-  const parts = [{ text: prompt }, ...referenceImages];
+  const input =
+    referenceImages.length > 0
+      ? [{ type: "text", text: prompt }, ...referenceImages]
+      : prompt;
 
   const baseUrl = googleBaseRoot(ctx.credential.baseUrl);
-  const res = await fetch(
-    `${baseUrl}/v1/models/${encodeURIComponent(
-      ctx.model.model,
-    )}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": ctx.credential.apiKey,
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts,
-          },
-        ],
-        generationConfig: {
-          responseModalities: ["IMAGE"],
-        },
-      }),
+  const res = await fetch(`${baseUrl}/v1beta/interactions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": ctx.credential.apiKey,
     },
-  );
+    body: JSON.stringify({
+      model: ctx.model.model,
+      input,
+      response_format: {
+        type: "image",
+      },
+    }),
+  });
 
   if (!res.ok) {
-    return new Response(res.body, {
-      status: res.status,
-      statusText: res.statusText,
-      headers: copyResponseHeaders(res),
-    });
+    return gatewayJsonError(res.status, await googleErrorMessage(res));
   }
 
   const json = await res.json();
-  const data = imageDataFromGoogle(json);
+  const data = extractInteractionImages(json);
   if (data.length === 0) {
     return gatewayJsonError(
       502,

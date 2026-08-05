@@ -2095,6 +2095,14 @@ function _Chat() {
                                 className={styles["chat-message-item-image"]}
                                 src={getMessageImages(message)[0]}
                                 alt=""
+                                title="点击查看原图"
+                                onClick={() =>
+                                  window.open(
+                                    getMessageImages(message)[0],
+                                    "_blank",
+                                    "noopener,noreferrer",
+                                  )
+                                }
                               />
                             )}
                             {getMessageImages(message).length > 1 && (
@@ -2119,6 +2127,14 @@ function _Chat() {
                                         key={index}
                                         src={image}
                                         alt=""
+                                        title="点击查看原图"
+                                        onClick={() =>
+                                          window.open(
+                                            image,
+                                            "_blank",
+                                            "noopener,noreferrer",
+                                          )
+                                        }
                                       />
                                     );
                                   },

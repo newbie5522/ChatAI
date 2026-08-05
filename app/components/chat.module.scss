@@ -464,24 +464,32 @@
 }
 
 .chat-message-item-image {
-  width: 100%;
+  width: auto;
+  max-width: 220px;
+  max-height: 220px;
   margin-top: 10px;
+  object-fit: cover;
+  cursor: zoom-in;
+  display: block;
 }
 
 .chat-message-item-images {
   width: 100%;
   display: grid;
   justify-content: left;
-  grid-gap: 10px;
-  grid-template-columns: repeat(var(--image-count), auto);
+  gap: 8px;
+  grid-template-columns: repeat(auto-fill, 120px);
   margin-top: 10px;
 }
 
 .chat-message-item-image-multi {
+  width: 120px;
+  height: 120px;
   object-fit: cover;
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
+  cursor: zoom-in;
 }
 
 .chat-message-item-image,
@@ -492,36 +500,25 @@
 }
 
 @media only screen and (max-width: 600px) {
-  $calc-image-width: calc(100vw / 3 * 2 / var(--image-count));
-
   .chat-message-item-image-multi {
-    width: $calc-image-width;
-    height: $calc-image-width;
+    width: 28vw;
+    height: 28vw;
+  }
+
+  .chat-message-item-images {
+    grid-template-columns: repeat(auto-fill, 28vw);
   }
 
   .chat-message-item-image {
-    max-width: calc(100vw / 3 * 2);
+    max-width: 60vw;
+    max-height: 220px;
   }
 }
 
 @media screen and (min-width: 600px) {
-  $max-image-width: calc(
-    calc(1200px - var(--sidebar-width)) / 3 * 2 / var(--image-count)
-  );
-  $image-width: calc(
-    calc(var(--window-width) - var(--sidebar-width)) / 3 * 2 /
-      var(--image-count)
-  );
-
-  .chat-message-item-image-multi {
-    width: $image-width;
-    height: $image-width;
-    max-width: $max-image-width;
-    max-height: $max-image-width;
-  }
-
   .chat-message-item-image {
-    max-width: calc(calc(1200px - var(--sidebar-width)) / 3 * 2);
+    max-width: 220px;
+    max-height: 220px;
   }
 }
 
