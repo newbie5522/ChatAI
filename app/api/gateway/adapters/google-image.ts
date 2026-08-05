@@ -24,6 +24,20 @@ function textFromContent(content: unknown): string {
     .join("\n");
 }
 
+function imageUrlsFromContent(content: unknown): string[] {
+  if (!Array.isArray(content)) return [];
+
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      const item = part as { type?: string; image_url?: unknown };
+      if (item.type !== "image_url") return "";
+      const imageUrl = item.image_url as { url?: unknown } | undefined;
+      return typeof imageUrl?.url === "string" ? imageUrl.url : "";
+    })
+    .filter(Boolean);
+}
+
 function promptFromMessages(messages: unknown) {
   if (!Array.isArray(messages)) return "";
 
@@ -42,6 +56,16 @@ function promptFromMessages(messages: unknown) {
   return userMessages.at(-1) ?? "";
 }
 
+function imageUrlsFromMessages(messages: unknown) {
+  if (!Array.isArray(messages)) return [];
+
+  return messages.flatMap((message) =>
+    message && typeof message === "object"
+      ? imageUrlsFromContent((message as { content?: unknown }).content)
+      : [],
+  );
+}
+
 function promptFromContents(contents: unknown) {
   if (!Array.isArray(contents)) return "";
 
@@ -58,19 +82,28 @@ function promptFromContents(contents: unknown) {
   return textItems.at(-1) ?? "";
 }
 
-function extractPrompt(bodyText?: string) {
-  if (!bodyText) return "";
+function extractImageUrls(body: Record<string, unknown>) {
+  const directUrls = Array.isArray(body.image_urls)
+    ? body.image_urls.filter((url): url is string => typeof url === "string")
+    : [];
+  return directUrls.length > 0
+    ? directUrls
+    : imageUrlsFromMessages(body.messages);
+}
+
+function extractPayload(bodyText?: string) {
+  if (!bodyText) return { prompt: "", imageUrls: [] };
 
   try {
     const body = JSON.parse(bodyText) as Record<string, unknown>;
-    return (
+    const prompt =
       textFromContent(body.prompt).trim() ||
       textFromContent(body.input).trim() ||
       promptFromMessages(body.messages).trim() ||
-      promptFromContents(body.contents).trim()
-    );
+      promptFromContents(body.contents).trim();
+    return { prompt, imageUrls: extractImageUrls(body) };
   } catch {
-    return "";
+    return { prompt: "", imageUrls: [] };
   }
 }
 
@@ -97,13 +130,38 @@ function imageDataFromGoogle(json: any) {
   return imageData.map((b64_json: string) => ({ b64_json }));
 }
 
+function dataUrlToGoogleInlineData(imageUrl: string) {
+  const match = imageUrl.match(
+    /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=]+)$/i,
+  );
+  if (!match) return undefined;
+
+  return {
+    inline_data: {
+      mime_type: match[1].toLowerCase(),
+      data: match[2],
+    },
+  };
+}
+
 export async function callGoogleImage(
   ctx: GatewayAdapterContext,
 ): Promise<Response> {
-  const prompt = extractPrompt(ctx.bodyText);
+  const { prompt, imageUrls } = extractPayload(ctx.bodyText);
   if (!prompt) {
     return gatewayJsonError(400, "image prompt is required");
   }
+
+  const referenceImages = imageUrls
+    .map(dataUrlToGoogleInlineData)
+    .filter(
+      (image): image is { inline_data: { mime_type: string; data: string } } =>
+        !!image,
+    );
+  if (imageUrls.length > 0 && referenceImages.length !== imageUrls.length) {
+    return gatewayJsonError(400, "valid reference image data URL is required");
+  }
+  const parts = [{ text: prompt }, ...referenceImages];
 
   const baseUrl = googleBaseRoot(ctx.credential.baseUrl);
   const res = await fetch(
@@ -119,11 +177,7 @@ export async function callGoogleImage(
       body: JSON.stringify({
         contents: [
           {
-            parts: [
-              {
-                text: prompt,
-              },
-            ],
+            parts,
           },
         ],
         generationConfig: {

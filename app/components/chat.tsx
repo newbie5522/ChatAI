@@ -1134,9 +1134,14 @@ function _Chat() {
     const imageAttachments = attachments.filter(
       (attachment) => attachment.kind === "image",
     );
+    const providerId = selectedModel?.provider?.id?.toLowerCase();
+    const providerName = selectedModel?.provider?.providerName?.toLowerCase();
     const supportsReferenceImageGeneration =
       selectedModel?.category === "image" &&
-      selectedModel?.provider?.id === "openai";
+      (providerId === "openai" ||
+        providerId === "google" ||
+        providerName === "openai" ||
+        providerName === "google");
     if (
       selectedModel?.category === "image" &&
       !supportsReferenceImageGeneration &&

@@ -127,12 +127,13 @@ export class GeminiProApi implements LLMApi {
       const controller = new AbortController();
       options.onController?.(controller);
       try {
-        const prompt = getMessageTextContent(
-          options.messages.slice(-1)?.pop() as any,
-        );
+        const lastMessage = options.messages.slice(-1)?.pop() as any;
+        const prompt = getMessageTextContent(lastMessage);
+        const imageUrls = getMessageImages(lastMessage).filter(Boolean);
         const requestPayload = {
           model: options.config.model,
           prompt,
+          ...(imageUrls.length > 0 ? { image_urls: imageUrls } : {}),
         };
         const requestTimeoutId = setTimeout(
           () => controller.abort(),

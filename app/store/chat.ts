@@ -29,7 +29,6 @@ import {
   SUMMARIZE_MODEL,
 } from "../constant";
 import Locale, { getLang } from "../locales";
-import { prettyObject } from "../utils/format";
 import { createPersistStore } from "../utils/store";
 import { estimateTokenLength } from "../utils/token";
 import { ModelConfig, ModelType, useAppConfig } from "./config";
@@ -257,6 +256,19 @@ function stripTransientMessageData(message: ChatMessage): ChatMessage {
   };
   delete (sanitized as typeof legacyMessage).requestContent;
   return sanitized;
+}
+
+function sanitizeDisplayError(message: string) {
+  return message
+    .replace(/data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi, "[image]")
+    .replace(/\b[A-Za-z0-9+/]{120,}={0,2}\b/g, "[redacted]")
+    .replace(
+      /(authorization|api[_-]?key|x-api-key)(["'\s:=]+)([^"',\s}]+)/gi,
+      "$1$2[redacted]",
+    )
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
 }
 
 function countMessages(msgs: ChatMessage[]) {
@@ -645,12 +657,12 @@ export const useChatStore = createPersistStore(
           },
           onError(error) {
             const isAborted = error.message?.includes?.("aborted");
-            botMessage.content +=
-              "\n\n" +
-              prettyObject({
-                error: true,
-                message: error.message,
-              });
+            const rawMessage =
+              error instanceof Error && error.message
+                ? error.message
+                : "请求失败，请稍后重试。";
+            botMessage.content =
+              sanitizeDisplayError(rawMessage) || "请求失败，请稍后重试。";
             botMessage.streaming = false;
             userMessage.isError = !isAborted;
             botMessage.isError = !isAborted;
