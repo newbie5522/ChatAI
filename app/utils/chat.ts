@@ -9,7 +9,6 @@ import {
   EventStreamContentType,
   fetchEventSource,
 } from "@fortaine/fetch-event-source";
-import { prettyObject } from "./format";
 import { fetch as tauriFetch } from "./stream";
 
 export function compressImage(file: Blob, maxSize: number): Promise<string> {
@@ -172,6 +171,60 @@ export function removeImage(imageUrl: string) {
   });
 }
 
+function sanitizeStreamError(message: string) {
+  return message
+    .replace(/data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi, "[image]")
+    .replace(/\b[A-Za-z0-9+/]{120,}={0,2}\b/g, "[redacted]")
+    .replace(
+      /(authorization|api[_-]?key|x-api-key)(["'\s:=]+)([^"',\s}]+)/gi,
+      "$1$2[redacted]",
+    )
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+async function responseErrorMessage(res: Response) {
+  if (res.status === 401) return Locale.Error.Unauthorized;
+
+  let message = "";
+  try {
+    const json: unknown = await res.clone().json();
+    const body = objectValue(json);
+    const error = body?.error;
+    const errorObject = objectValue(error);
+    if (typeof error === "string") {
+      message = error;
+    } else if (typeof errorObject?.message === "string") {
+      message = errorObject.message;
+    } else if (typeof body?.message === "string") {
+      message = body.message;
+    } else if (typeof body?.details === "string") {
+      message = body.details;
+    }
+  } catch {
+    // Fall back to text below.
+  }
+
+  if (!message) {
+    try {
+      message = await res.clone().text();
+    } catch {
+      // Fall back to status text below.
+    }
+  }
+
+  return sanitizeStreamError(
+    message || res.statusText || "请求失败，请稍后重试。",
+  );
+}
+
 export function stream(
   chatPath: string,
   requestPayload: any,
@@ -193,13 +246,26 @@ export function stream(
   let running = false;
   let runTools: any[] = [];
   let responseRes: Response;
+  let errorNotified = false;
+
+  function notifyError(error: unknown) {
+    const normalized =
+      error instanceof Error ? error : new Error(String(error || ""));
+    finished = true;
+    remainText = "";
+    if (!errorNotified) {
+      errorNotified = true;
+      options?.onError?.(normalized);
+    }
+    return normalized;
+  }
 
   // animate response to make it looks smooth
   function animateResponseText() {
     if (finished || controller.signal.aborted) {
       responseText += remainText;
       console.log("[Response Animation] finished");
-      if (responseText?.length === 0) {
+      if (!errorNotified && responseText?.length === 0) {
         options.onError?.(new Error("empty response from server"));
       }
       return;
@@ -325,11 +391,6 @@ export function stream(
         console.log("[Request] response content type: ", contentType);
         responseRes = res;
 
-        if (contentType?.startsWith("text/plain")) {
-          responseText = await res.clone().text();
-          return finish();
-        }
-
         if (
           !res.ok ||
           !res.headers
@@ -337,24 +398,7 @@ export function stream(
             ?.startsWith(EventStreamContentType) ||
           res.status !== 200
         ) {
-          const responseTexts = [responseText];
-          let extraInfo = await res.clone().text();
-          try {
-            const resJson = await res.clone().json();
-            extraInfo = prettyObject(resJson);
-          } catch {}
-
-          if (res.status === 401) {
-            responseTexts.push(Locale.Error.Unauthorized);
-          }
-
-          if (extraInfo) {
-            responseTexts.push(extraInfo);
-          }
-
-          responseText = responseTexts.join("\n\n");
-
-          return finish();
+          throw new Error(await responseErrorMessage(res));
         }
       },
       onmessage(msg) {
@@ -379,8 +423,7 @@ export function stream(
         finish();
       },
       onerror(e) {
-        options?.onError?.(e);
-        throw e;
+        throw notifyError(e);
       },
       openWhenHidden: true,
     });
@@ -419,13 +462,26 @@ export function streamWithThink(
   let isInThinkingMode = false;
   let lastIsThinking = false;
   let lastIsThinkingTagged = false; //between <think> and </think> tags
+  let errorNotified = false;
+
+  function notifyError(error: unknown) {
+    const normalized =
+      error instanceof Error ? error : new Error(String(error || ""));
+    finished = true;
+    remainText = "";
+    if (!errorNotified) {
+      errorNotified = true;
+      options?.onError?.(normalized);
+    }
+    return normalized;
+  }
 
   // animate response to make it looks smooth
   function animateResponseText() {
     if (finished || controller.signal.aborted) {
       responseText += remainText;
       console.log("[Response Animation] finished");
-      if (responseText?.length === 0) {
+      if (!errorNotified && responseText?.length === 0) {
         options.onError?.(new Error("empty response from server"));
       }
       return;
@@ -551,11 +607,6 @@ export function streamWithThink(
         console.log("[Request] response content type: ", contentType);
         responseRes = res;
 
-        if (contentType?.startsWith("text/plain")) {
-          responseText = await res.clone().text();
-          return finish();
-        }
-
         if (
           !res.ok ||
           !res.headers
@@ -563,24 +614,7 @@ export function streamWithThink(
             ?.startsWith(EventStreamContentType) ||
           res.status !== 200
         ) {
-          const responseTexts = [responseText];
-          let extraInfo = await res.clone().text();
-          try {
-            const resJson = await res.clone().json();
-            extraInfo = prettyObject(resJson);
-          } catch {}
-
-          if (res.status === 401) {
-            responseTexts.push(Locale.Error.Unauthorized);
-          }
-
-          if (extraInfo) {
-            responseTexts.push(extraInfo);
-          }
-
-          responseText = responseTexts.join("\n\n");
-
-          return finish();
+          throw new Error(await responseErrorMessage(res));
         }
       },
       onmessage(msg) {
@@ -656,8 +690,7 @@ export function streamWithThink(
         finish();
       },
       onerror(e) {
-        options?.onError?.(e);
-        throw e;
+        throw notifyError(e);
       },
       openWhenHidden: true,
     });

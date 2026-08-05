@@ -36,6 +36,46 @@ function requestBody(bodyText?: string) {
   }
 }
 
+function isNonEmptyText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isUsableContent(content: unknown) {
+  if (isNonEmptyText(content)) return true;
+
+  if (Array.isArray(content)) {
+    return content.some((part) => {
+      if (typeof part === "string") return isNonEmptyText(part);
+      if (!part || typeof part !== "object") return false;
+      const item = part as {
+        type?: string;
+        text?: unknown;
+        image_url?: unknown;
+      };
+      if (item.type === "text") return isNonEmptyText(item.text);
+      if (item.type === "image_url") {
+        const imageUrl = item.image_url as { url?: unknown } | undefined;
+        return isNonEmptyText(imageUrl?.url);
+      }
+      return false;
+    });
+  }
+
+  return false;
+}
+
+function cleanMessages(messages: unknown) {
+  if (!Array.isArray(messages)) return [];
+
+  return messages
+    .map((message) => {
+      if (!message || typeof message !== "object") return undefined;
+      const item = message as Record<string, unknown>;
+      return isUsableContent(item.content) ? item : undefined;
+    })
+    .filter((message): message is Record<string, unknown> => !!message);
+}
+
 export async function callOpenAICompatibleChat(
   ctx: GatewayAdapterContext,
 ): Promise<Response> {
@@ -43,16 +83,23 @@ export async function callOpenAICompatibleChat(
     return gatewayJsonError(500, "unsupported OpenAI-compatible provider");
   }
 
-  const input = requestBody(ctx.bodyText);
+  const { bodyText } = ctx;
+  const input = requestBody(bodyText);
   if (!input) {
     return gatewayJsonError(400, "invalid JSON request body");
   }
 
+  const messages = cleanMessages(input.messages);
+  if (messages.length === 0) {
+    return gatewayJsonError(400, "message content is required");
+  }
+
   const body: Record<string, unknown> = {
     model: ctx.model.model,
+    messages,
   };
   for (const field of FORWARDED_FIELDS) {
-    if (input[field] !== undefined) {
+    if (field !== "messages" && input[field] !== undefined) {
       body[field] = input[field];
     }
   }

@@ -47,26 +47,37 @@ function textFromContent(content: unknown) {
     .join("\n");
 }
 
+function isNonEmptyText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function responsesContent(content: unknown, role: string) {
-  if (!Array.isArray(content)) return textFromContent(content);
+  const textType = role === "assistant" ? "output_text" : "input_text";
+  const allowImages = role === "user";
+
+  if (!Array.isArray(content)) {
+    const text = textFromContent(content).trim();
+    return text ? [{ type: textType, text }] : [];
+  }
 
   return content
     .map((partValue) => {
-      if (typeof partValue === "string") {
+      if (isNonEmptyText(partValue)) {
         return {
-          type: role === "assistant" ? "output_text" : "input_text",
-          text: partValue,
+          type: textType,
+          text: partValue.trim(),
         };
       }
       const part = objectValue(partValue);
       const imageUrl = objectValue(part?.image_url);
-      if (part?.type === "image_url" && typeof imageUrl?.url === "string") {
-        return { type: "input_image", image_url: imageUrl.url };
+      const url = imageUrl?.url;
+      if (allowImages && part?.type === "image_url" && isNonEmptyText(url)) {
+        return { type: "input_image", image_url: url };
       }
-      const text = typeof part?.text === "string" ? part.text : "";
+      const text = typeof part?.text === "string" ? part.text.trim() : "";
       return text
         ? {
-            type: role === "assistant" ? "output_text" : "input_text",
+            type: textType,
             text,
           }
         : undefined;
@@ -80,23 +91,39 @@ function parseRequestBody(bodyText?: string) {
   return objectValue(value) ?? {};
 }
 
+function responseInputMessage(messageValue: unknown) {
+  const message = objectValue(messageValue);
+  if (!message) return undefined;
+
+  const rawRole = typeof message.role === "string" ? message.role : "user";
+  const role = rawRole === "system" ? "developer" : rawRole;
+  const outputRole =
+    role === "user" || role === "assistant" || role === "developer"
+      ? role
+      : "user";
+  const content = responsesContent(message.content, rawRole);
+  if (content.length === 0) return undefined;
+
+  return {
+    role: outputRole,
+    content,
+  };
+}
+
 function toResponsesPayload(
   parsed: Record<string, unknown>,
   model: string,
   shouldStream: boolean,
 ) {
   const messages = Array.isArray(parsed.messages) ? parsed.messages : [];
-  const input =
-    messages.length > 0
-      ? messages.map((messageValue) => {
-          const message = objectValue(messageValue) ?? {};
-          const role = typeof message.role === "string" ? message.role : "user";
-          return {
-            role: role === "system" ? "developer" : role,
-            content: responsesContent(message.content, role),
-          };
-        })
-      : textFromContent(parsed.prompt) || "";
+  const inputMessages = messages
+    .map(responseInputMessage)
+    .filter((message): message is NonNullable<typeof message> => !!message);
+  const prompt = textFromContent(parsed.prompt).trim();
+  const input = inputMessages.length > 0 ? inputMessages : prompt;
+  if (!input || (Array.isArray(input) && input.length === 0)) {
+    return undefined;
+  }
 
   const payload: Record<string, unknown> = {
     model,
@@ -123,6 +150,53 @@ function toResponsesPayload(
     payload.top_p = parsed.top_p;
   }
   return payload;
+}
+
+function sanitizeProviderError(message: string) {
+  return message
+    .replace(/data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi, "[image]")
+    .replace(/\b[A-Za-z0-9+/]{120,}={0,2}\b/g, "[redacted]")
+    .replace(
+      /(authorization|api[_-]?key|x-api-key)(["'\s:=]+)([^"',\s}]+)/gi,
+      "$1$2[redacted]",
+    )
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
+}
+
+async function providerErrorMessage(res: Response) {
+  let message = "";
+
+  try {
+    const json: unknown = await res.clone().json();
+    const body = objectValue(json);
+    const error = body?.error;
+    const errorObject = objectValue(error);
+    if (typeof error === "string") {
+      message = error;
+    } else if (errorObject && isNonEmptyText(errorObject.message)) {
+      message = errorObject.message;
+    } else if (body && isNonEmptyText(body.message)) {
+      message = body.message;
+    } else if (body && isNonEmptyText(body.details)) {
+      message = body.details;
+    }
+  } catch {
+    // Fall back to text below.
+  }
+
+  if (!message) {
+    try {
+      message = await res.clone().text();
+    } catch {
+      // Fall back to status text below.
+    }
+  }
+
+  return sanitizeProviderError(
+    message || res.statusText || "请求失败，请稍后重试。",
+  );
 }
 
 function chatCompletionJson(model: string, content: string) {
@@ -253,6 +327,9 @@ export async function callOpenAIResponses(ctx: GatewayAdapterContext) {
   }
   const shouldStream = parsed.stream === true;
   const payload = toResponsesPayload(parsed, ctx.model.model, shouldStream);
+  if (!payload) {
+    return gatewayJsonError(400, "message content is required");
+  }
 
   const res = await fetch(`${baseUrl}/v1/responses`, {
     method: "POST",
@@ -268,7 +345,8 @@ export async function callOpenAIResponses(ctx: GatewayAdapterContext) {
   });
 
   if (!res.ok) {
-    return gatewayJsonError(res.status, "OpenAI request failed");
+    const message = await providerErrorMessage(res);
+    return gatewayJsonError(res.status, message || "请求失败，请稍后重试。");
   }
 
   if (shouldStream) return transformedResponsesStream(res, ctx.model.model);

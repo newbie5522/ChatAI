@@ -84,6 +84,34 @@ export interface DalleRequestPayload {
   style?: DalleStyle;
 }
 
+function isNonEmptyText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isUsableContent(
+  content: unknown,
+): content is RequestPayload["messages"][number]["content"] {
+  if (isNonEmptyText(content)) return true;
+
+  if (Array.isArray(content)) {
+    return content.some((part) => {
+      if (!part || typeof part !== "object") return false;
+      const item = part as MultimodalContent;
+      if (item.type === "text") return isNonEmptyText(item.text);
+      if (item.type === "image_url") {
+        return isNonEmptyText(item.image_url?.url);
+      }
+      return false;
+    });
+  }
+
+  return false;
+}
+
+function normalizeProviderMessages(messages: RequestPayload["messages"]) {
+  return messages.filter((message) => isUsableContent(message.content));
+}
+
 export class ChatGPTApi implements LLMApi {
   private disableListModels = true;
 
@@ -233,13 +261,17 @@ export class ChatGPTApi implements LLMApi {
       const visionModel = accountStore.authenticated
         ? accountModel?.capabilities?.vision === true
         : isVisionModel(options.config.model);
-      const messages: ChatOptions["messages"] = [];
+      const candidateMessages: RequestPayload["messages"] = [];
       for (const v of options.messages) {
         const content = visionModel
           ? await preProcessImageContent(v.content)
           : getMessageTextContent(v);
         if (!(isO1OrO3 && v.role === "system"))
-          messages.push({ role: v.role, content });
+          candidateMessages.push({ role: v.role, content });
+      }
+      const messages = normalizeProviderMessages(candidateMessages);
+      if (messages.length === 0) {
+        throw new Error("message content is required");
       }
 
       // O1 not support image, tools (plugin in ChatGPTNextWeb) and system, stream, logprobs, temperature, top_p, n, presence_penalty, frequency_penalty yet.

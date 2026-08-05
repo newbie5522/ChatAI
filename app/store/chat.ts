@@ -271,6 +271,33 @@ function sanitizeDisplayError(message: string) {
     .slice(0, 500);
 }
 
+function hasUsableMessageContent(message: ChatMessage) {
+  const content = message.content;
+
+  if (typeof content === "string") {
+    return content.trim().length > 0;
+  }
+
+  if (Array.isArray(content)) {
+    return content.some((part) => {
+      if (!part || typeof part !== "object") return false;
+
+      if (part.type === "text") {
+        return typeof part.text === "string" && part.text.trim().length > 0;
+      }
+
+      if (part.type === "image_url") {
+        const url = part.image_url?.url;
+        return typeof url === "string" && url.trim().length > 0;
+      }
+
+      return false;
+    });
+  }
+
+  return false;
+}
+
 function countMessages(msgs: ChatMessage[]) {
   return msgs.reduce(
     (pre, cur) => pre + estimateTokenLength(getMessageTextContent(cur)),
@@ -779,7 +806,7 @@ export const useChatStore = createPersistStore(
           i -= 1
         ) {
           const msg = messages[i];
-          if (!msg || msg.isError) continue;
+          if (!msg || msg.isError || !hasUsableMessageContent(msg)) continue;
           tokenCount += estimateTokenLength(getMessageTextContent(msg));
           reversedRecentMessages.push({
             ...msg,
