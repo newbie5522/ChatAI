@@ -1575,11 +1575,27 @@ function _Chat() {
           file.type.startsWith("image/") ||
           /\.(?:png|jpe?g|webp)$/i.test(file.name),
       );
-      if (includesImage && selectedModel?.category === "image") {
-        showToast("当前生图接口暂不支持参考图片。");
+      const providerId = selectedModel?.provider?.id?.toLowerCase();
+      const providerName = selectedModel?.provider?.providerName?.toLowerCase();
+      const supportsReferenceImageGeneration =
+        selectedModel?.category === "image" &&
+        (providerId === "openai" ||
+          providerId === "google" ||
+          providerName === "openai" ||
+          providerName === "google");
+      if (
+        includesImage &&
+        selectedModel?.category === "image" &&
+        !supportsReferenceImageGeneration
+      ) {
+        showToast("当前模型官方接口暂未接入参考图生图。");
         return;
       }
-      if (includesImage && selectedModel?.capabilities?.vision !== true) {
+      if (
+        includesImage &&
+        selectedModel?.category !== "image" &&
+        selectedModel?.capabilities?.vision !== true
+      ) {
         showToast("当前模型不支持图片输入，请更换支持图片的模型。");
         return;
       }
