@@ -242,7 +242,7 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     enabled: true,
     defaultEnabled: true,
     sort: 600,
-    capabilities: { webSearch: true },
+    capabilities: { webSearch: true, vision: true },
   },
   {
     id: "perplexity:sonar-pro",
@@ -254,7 +254,7 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     enabled: true,
     defaultEnabled: true,
     sort: 610,
-    capabilities: { webSearch: true },
+    capabilities: { webSearch: true, vision: true },
   },
   {
     id: "perplexity:sonar-reasoning-pro",
@@ -266,7 +266,7 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     enabled: true,
     defaultEnabled: true,
     sort: 620,
-    capabilities: { reasoning: true, webSearch: true },
+    capabilities: { reasoning: true, webSearch: true, vision: true },
   },
   {
     id: "perplexity:sonar-deep-research",
@@ -278,7 +278,7 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     enabled: true,
     defaultEnabled: true,
     sort: 630,
-    capabilities: { reasoning: true, webSearch: true },
+    capabilities: { reasoning: true, webSearch: true, vision: true },
   },
   {
     id: "xai:grok-4.5",

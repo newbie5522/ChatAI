@@ -1001,6 +1001,7 @@ function _Chat() {
   const fontFamily = config.fontFamily;
 
   const [showExport, setShowExport] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [userInput, setUserInput] = useState("");
@@ -1013,6 +1014,54 @@ function _Chat() {
           (scrollRef.current.scrollTop + scrollRef.current.clientHeight),
       ) <= 1
     : false;
+
+  const closeImagePreview = useCallback(() => {
+    setPreviewImage(null);
+  }, []);
+
+  const downloadImage = useCallback(async (imageUrl: string) => {
+    const filename = `newbiechat-image-${Date.now()}.png`;
+    const clickDownload = (href: string, revoke = false) => {
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      if (revoke) {
+        setTimeout(() => URL.revokeObjectURL(href), 0);
+      }
+    };
+
+    try {
+      if (imageUrl.startsWith("data:")) {
+        clickDownload(imageUrl);
+        return;
+      }
+
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error("image download failed");
+      }
+      const blob = await response.blob();
+      clickDownload(URL.createObjectURL(blob), true);
+    } catch {
+      showToast("图片下载失败，请稍后重试。");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!previewImage) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeImagePreview();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [closeImagePreview, previewImage]);
   const isAttachWithTop = useMemo(() => {
     const lastMessage = scrollRef.current?.lastElementChild as HTMLElement;
     // if scrolllRef is not ready or no message, return false
@@ -2097,11 +2146,7 @@ function _Chat() {
                                 alt=""
                                 title="点击查看原图"
                                 onClick={() =>
-                                  window.open(
-                                    getMessageImages(message)[0],
-                                    "_blank",
-                                    "noopener,noreferrer",
-                                  )
+                                  setPreviewImage(getMessageImages(message)[0])
                                 }
                               />
                             )}
@@ -2128,13 +2173,7 @@ function _Chat() {
                                         src={image}
                                         alt=""
                                         title="点击查看原图"
-                                        onClick={() =>
-                                          window.open(
-                                            image,
-                                            "_blank",
-                                            "noopener,noreferrer",
-                                          )
-                                        }
+                                        onClick={() => setPreviewImage(image)}
                                       />
                                     );
                                   },
@@ -2338,6 +2377,42 @@ function _Chat() {
 
       {showShortcutKeyModal && (
         <ShortcutKeyModal onClose={() => setShowShortcutKeyModal(false)} />
+      )}
+
+      {previewImage && (
+        <div
+          className={styles["image-preview-mask"]}
+          onClick={closeImagePreview}
+          role="presentation"
+        >
+          <div
+            className={styles["image-preview-modal"]}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className={styles["image-preview-close"]}
+              aria-label="关闭图片预览"
+              onClick={closeImagePreview}
+            >
+              <CloseIcon />
+            </button>
+            <img
+              className={styles["image-preview-image"]}
+              src={previewImage}
+              alt=""
+            />
+            <div className={styles["image-preview-actions"]}>
+              <button
+                type="button"
+                className={styles["image-preview-download"]}
+                onClick={() => void downloadImage(previewImage)}
+              >
+                下载图片
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
