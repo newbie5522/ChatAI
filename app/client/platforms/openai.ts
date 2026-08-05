@@ -27,6 +27,7 @@ import {
   uploadImage,
   base64Image2Blob,
   streamWithThink,
+  responseErrorMessage,
 } from "@/app/utils/chat";
 import { cloudflareAIGatewayUrl } from "@/app/utils/cloudflare";
 import { ModelSize, DalleQuality, DalleStyle } from "@/app/typing";
@@ -158,7 +159,7 @@ export class ChatGPTApi implements LLMApi {
 
   async extractMessage(res: any) {
     if (res.error) {
-      return "```\n" + JSON.stringify(res, null, 4) + "\n```";
+      return res.message || res.error?.message || "请求失败，请稍后重试。";
     }
     // dalle3 model return url, using url create image message
     if (res.data) {
@@ -460,6 +461,9 @@ export class ChatGPTApi implements LLMApi {
 
         const res = await fetch(chatPath, chatPayload);
         clearTimeout(requestTimeoutId);
+        if (!res.ok) {
+          throw new Error(await responseErrorMessage(res));
+        }
 
         const resJson = await res.json();
         const message = await this.extractMessage(resJson);

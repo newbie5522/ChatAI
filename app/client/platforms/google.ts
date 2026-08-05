@@ -15,7 +15,12 @@ import {
   usePluginStore,
   ChatMessageTool,
 } from "@/app/store";
-import { stream, base64Image2Blob, uploadImage } from "@/app/utils/chat";
+import {
+  stream,
+  base64Image2Blob,
+  uploadImage,
+  responseErrorMessage,
+} from "@/app/utils/chat";
 import { findAccountModel, getModelCategory } from "@/app/utils/model";
 
 import {
@@ -146,6 +151,9 @@ export class GeminiProApi implements LLMApi {
           headers: getHeaders(),
         });
         clearTimeout(requestTimeoutId);
+        if (!res.ok) {
+          throw new Error(await responseErrorMessage(res));
+        }
 
         const resJson = await res.json();
         const message = await apiClient.extractImageMessage(resJson);

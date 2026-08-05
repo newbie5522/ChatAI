@@ -615,10 +615,22 @@ export const useChatStore = createPersistStore(
                 })),
               ]
             : requestText;
+        const displayContent: string | MultimodalContent[] =
+          imageUrls.length > 0
+            ? [
+                ...(content.trim()
+                  ? [{ type: "text" as const, text: content }]
+                  : []),
+                ...imageUrls.map((url) => ({
+                  type: "image_url" as const,
+                  image_url: { url },
+                })),
+              ]
+            : content;
 
         let userMessage: ChatMessage = createMessage({
           role: "user",
-          content,
+          content: displayContent,
           attachments: attachmentList.map(toStoredAttachmentMetadata),
           isMcpResponse,
         });

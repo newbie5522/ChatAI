@@ -190,7 +190,7 @@ function objectValue(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-async function responseErrorMessage(res: Response) {
+export async function responseErrorMessage(res: Response) {
   if (res.status === 401) return Locale.Error.Unauthorized;
 
   let message = "";
