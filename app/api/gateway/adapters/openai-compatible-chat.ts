@@ -2,15 +2,8 @@ import {
   GatewayAdapterContext,
   copyResponseHeaders,
   gatewayJsonError,
+  normalizeBaseUrl,
 } from "./types";
-
-const PROVIDER_ENDPOINTS = {
-  xai: "https://api.x.ai/v1/chat/completions",
-  deepseek: "https://api.deepseek.com/chat/completions",
-  qwen: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
-  mistral: "https://api.mistral.ai/v1/chat/completions",
-  zhipu: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-} as const;
 
 const FORWARDED_FIELDS = [
   "messages",
@@ -79,10 +72,6 @@ function cleanMessages(messages: unknown) {
 export async function callOpenAICompatibleChat(
   ctx: GatewayAdapterContext,
 ): Promise<Response> {
-  if (!(ctx.model.provider in PROVIDER_ENDPOINTS)) {
-    return gatewayJsonError(500, "unsupported OpenAI-compatible provider");
-  }
-
   const { bodyText } = ctx;
   const input = requestBody(bodyText);
   if (!input) {
@@ -94,6 +83,15 @@ export async function callOpenAICompatibleChat(
     return gatewayJsonError(400, "message content is required");
   }
 
+  const rawBaseUrl = (ctx.credential.baseUrl || "").trim();
+  if (!rawBaseUrl) {
+    return gatewayJsonError(
+      500,
+      "服务商未配置 API 请求地址（baseUrl），请在管理后台填写中转商地址",
+    );
+  }
+  const endpoint = `${normalizeBaseUrl(rawBaseUrl, "")}/chat/completions`;
+
   const body: Record<string, unknown> = {
     model: ctx.model.model,
     messages,
@@ -104,9 +102,8 @@ export async function callOpenAICompatibleChat(
     }
   }
 
-  const provider = ctx.model.provider as keyof typeof PROVIDER_ENDPOINTS;
   const shouldStream = input.stream === true;
-  const res = await fetch(PROVIDER_ENDPOINTS[provider], {
+  const res = await fetch(endpoint, {
     method: "POST",
     headers: {
       Accept: shouldStream ? "text/event-stream" : "application/json",

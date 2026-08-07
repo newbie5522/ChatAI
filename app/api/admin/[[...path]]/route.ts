@@ -42,7 +42,11 @@ import {
   listAccountUsageRecords,
   sanitizePromptForLog,
 } from "@/app/config/usage";
-import type { ModelCategory, ModelProvider } from "@/app/config/model-registry";
+import type {
+  ModelCategory,
+  ModelEndpointType,
+  ModelProvider,
+} from "@/app/config/model-registry";
 
 async function readBody(req: NextRequest) {
   try {
@@ -563,17 +567,46 @@ function listModels() {
 
 async function updateModel(req: NextRequest, id: string) {
   const body = await readBody(req);
-  if (typeof body.enabled !== "boolean") {
+  const patch: { enabled?: boolean; endpointType?: ModelEndpointType } = {};
+
+  if (typeof body.enabled === "boolean") {
+    patch.enabled = body.enabled;
+  }
+
+  if (typeof body.endpointType === "string" && body.endpointType) {
+    const validTypes: ReadonlySet<string> = new Set([
+      "openai_responses",
+      "openai_images",
+      "anthropic_messages",
+      "google_interactions",
+      "google_generate_content",
+      "google_image",
+      "perplexity_sonar",
+      "openai_compatible_chat",
+      "xai_images",
+      "not_implemented",
+    ]);
+    if (!validTypes.has(body.endpointType)) {
+      return NextResponse.json(
+        { error: true, message: "不支持的接口协议类型" },
+        { status: 400 },
+      );
+    }
+    patch.endpointType = body.endpointType as ModelEndpointType;
+  }
+
+  if (patch.enabled === undefined && patch.endpointType === undefined) {
     return NextResponse.json(
-      { error: true, message: "只允许修改模型启用状态" },
+      { error: true, message: "请提供要修改的字段（enabled 或 endpointType）" },
       { status: 400 },
     );
   }
+
   const manageable = getManageableCompanyModelsForAdmin().some(
     (model) => model.id === id,
   );
   if (!manageable) return notFound("模型不可管理或服务商尚未配置");
-  const model = saveCompanyModel(id, { enabled: body.enabled });
+  const model = saveCompanyModel(id, patch);
   return NextResponse.json({ error: false, model });
 }
 

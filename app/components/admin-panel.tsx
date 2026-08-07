@@ -655,6 +655,44 @@ export function AdminPanel() {
     }
   };
 
+  const updateModelEndpoint = async (
+    model: AdminModel,
+    endpointType: string,
+  ) => {
+    if (savingModelIds.includes(model.id)) return;
+    if (endpointType === model.endpointType) return;
+    setSavingModelIds((current) => [...current, model.id]);
+    try {
+      const result = await adminFetch<{ model: AdminModel }>(
+        `models/${encodeURIComponent(model.id)}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ endpointType }),
+        },
+      );
+      setModels((current) =>
+        current.map((item) =>
+          item.id === model.id
+            ? {
+                ...item,
+                ...result.model,
+                hasUsableCredential: item.hasUsableCredential,
+              }
+            : item,
+        ),
+      );
+      showToast("接口协议已更新");
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "更新接口协议失败",
+      );
+    } finally {
+      setSavingModelIds((current) =>
+        current.filter((modelId) => modelId !== model.id),
+      );
+    }
+  };
+
   const getModelStatus = (model: AdminModel) => {
     return model.enabled ? "已启用" : "已停用";
   };
@@ -919,6 +957,7 @@ export function AdminPanel() {
                           <th>模型名称</th>
                           <th>Provider</th>
                           <th>分类</th>
+                          <th>接口协议</th>
                           <th>状态</th>
                           <th>启用开关</th>
                         </tr>
@@ -929,6 +968,49 @@ export function AdminPanel() {
                             <td>{model.displayName}</td>
                             <td>{PROVIDER_NAMES[model.provider]}</td>
                             <td>{getCategoryDisplayName(model.category)}</td>
+                            <td>
+                              <select
+                                value={model.endpointType}
+                                disabled={savingModelIds.includes(model.id)}
+                                onChange={(e) =>
+                                  void updateModelEndpoint(
+                                    model,
+                                    e.currentTarget.value,
+                                  )
+                                }
+                              >
+                                <option value="openai_responses">
+                                  OpenAI Responses
+                                </option>
+                                <option value="openai_compatible_chat">
+                                  OpenAI 兼容（中转商）
+                                </option>
+                                <option value="anthropic_messages">
+                                  Anthropic Messages
+                                </option>
+                                <option value="google_generate_content">
+                                  Google GenerateContent
+                                </option>
+                                <option value="google_interactions">
+                                  Google Interactions
+                                </option>
+                                <option value="perplexity_sonar">
+                                  Perplexity Sonar
+                                </option>
+                                <option value="openai_images">
+                                  OpenAI 图片生成
+                                </option>
+                                <option value="google_image">
+                                  Google 图片生成
+                                </option>
+                                <option value="xai_images">
+                                  xAI 图片生成
+                                </option>
+                                <option value="not_implemented">
+                                  未实现
+                                </option>
+                              </select>
+                            </td>
                             <td>{getModelStatus(model)}</td>
                             <td>
                               <button

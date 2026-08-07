@@ -752,6 +752,7 @@ export function saveCompanyModel(id: string, patch: Partial<CompanyModel>) {
       id,
       enabled:
         typeof patch.enabled === "boolean" ? patch.enabled : existing.enabled,
+      endpointType: patch.endpointType ?? existing.endpointType,
     },
     existing,
   );
