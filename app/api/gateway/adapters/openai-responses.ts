@@ -1,10 +1,10 @@
-import { OPENAI_BASE_URL } from "@/app/constant";
-
 import {
   GatewayAdapterContext,
   gatewayJsonError,
   normalizeBaseUrl,
 } from "./types";
+
+const OPENAI_FALLBACK_BASE = "https://api.openai.com/v1";
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object"
@@ -318,7 +318,7 @@ function transformedResponsesStream(res: Response, model: string) {
 }
 
 export async function callOpenAIResponses(ctx: GatewayAdapterContext) {
-  const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, OPENAI_BASE_URL);
+  const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, OPENAI_FALLBACK_BASE);
   let parsed: Record<string, unknown>;
   try {
     parsed = parseRequestBody(ctx.bodyText);
@@ -331,7 +331,7 @@ export async function callOpenAIResponses(ctx: GatewayAdapterContext) {
     return gatewayJsonError(400, "message content is required");
   }
 
-  const res = await fetch(`${baseUrl}/v1/responses`, {
+  const res = await fetch(`${baseUrl}/responses`, {
     method: "POST",
     headers: {
       Accept: shouldStream ? "text/event-stream" : "application/json",

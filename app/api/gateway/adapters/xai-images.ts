@@ -5,7 +5,7 @@ import {
   normalizeBaseUrl,
 } from "./types";
 
-const XAI_FALLBACK_BASE = "https://api.x.ai";
+const XAI_FALLBACK_BASE = "https://api.x.ai/v1";
 
 function promptFromBody(bodyText?: string) {
   if (!bodyText) return "";
@@ -30,7 +30,7 @@ export async function callXAIImages(
   }
 
   const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, XAI_FALLBACK_BASE);
-  const res = await fetch(`${baseUrl}/v1/images/generations`, {
+  const res = await fetch(`${baseUrl}/images/generations`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

@@ -1,11 +1,11 @@
-import { OPENAI_BASE_URL } from "@/app/constant";
-
 import {
   GatewayAdapterContext,
   copyResponseHeaders,
   gatewayJsonError,
   normalizeBaseUrl,
 } from "./types";
+
+const OPENAI_FALLBACK_BASE = "https://api.openai.com/v1";
 
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -132,7 +132,7 @@ export async function callOpenAIImages(
     return gatewayJsonError(400, "image prompt is required");
   }
 
-  const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, OPENAI_BASE_URL);
+  const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, OPENAI_FALLBACK_BASE);
   const headers = {
     Authorization: `Bearer ${ctx.credential.apiKey}`,
     ...(ctx.credential.orgId
@@ -147,7 +147,7 @@ export async function callOpenAIImages(
   }
   const res =
     referenceImages.length > 0
-      ? await fetch(`${baseUrl}/v1/images/edits`, {
+      ? await fetch(`${baseUrl}/images/edits`, {
           method: "POST",
           headers,
           body: (() => {
@@ -162,7 +162,7 @@ export async function callOpenAIImages(
             return formData;
           })(),
         })
-      : await fetch(`${baseUrl}/v1/images/generations`, {
+      : await fetch(`${baseUrl}/images/generations`, {
           method: "POST",
           headers: {
             ...headers,
