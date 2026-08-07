@@ -45,6 +45,7 @@ interface AdminCredential {
   keyPreview: string;
   enabled: boolean;
   priority: number;
+  baseUrl?: string;
 }
 
 interface AdminModel {
@@ -96,6 +97,7 @@ interface ProviderForm {
   id?: string;
   provider: ModelProvider;
   apiKey: string;
+  baseUrl?: string;
   keyConfigured: boolean;
   enabled: boolean;
 }
@@ -583,6 +585,7 @@ export function AdminPanel() {
       id: credential?.id,
       provider,
       apiKey: "",
+      baseUrl: credential?.baseUrl ?? "",
       keyConfigured: credential?.keyConfigured ?? false,
       enabled: credential?.enabled ?? false,
     });
@@ -606,6 +609,7 @@ export function AdminPanel() {
           body: JSON.stringify({
             provider: providerForm.provider,
             apiKey: providerForm.apiKey,
+            baseUrl: providerForm.baseUrl,
             enabled: providerForm.enabled,
           }),
         },
@@ -1456,6 +1460,21 @@ export function AdminPanel() {
                   setProviderForm({
                     ...providerForm,
                     apiKey: event.currentTarget.value,
+                  })
+                }
+              />
+            </label>
+            <label>
+              后端地址（中转商 API 地址，可选）
+              <input
+                type="text"
+                autoComplete="off"
+                value={providerForm.baseUrl ?? ""}
+                placeholder="https://hosaia.com/v1"
+                onChange={(event) =>
+                  setProviderForm({
+                    ...providerForm,
+                    baseUrl: event.currentTarget.value,
                   })
                 }
               />

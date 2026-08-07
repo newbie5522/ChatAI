@@ -461,12 +461,15 @@ async function createCredential(req: NextRequest) {
     typeof body.enabled === "boolean"
       ? body.enabled
       : existing?.enabled ?? false;
+  const baseUrl =
+    typeof body.baseUrl === "string" ? body.baseUrl.trim() : undefined;
   let credential: ProviderCredential;
   try {
     credential = saveProviderCredential({
       id: existing?.id,
       provider,
       apiKey,
+      baseUrl,
       enabled,
       ...(existing
         ? {}
@@ -511,12 +514,15 @@ async function updateCredential(req: NextRequest, id: string) {
       : undefined;
   const enabled =
     typeof body.enabled === "boolean" ? body.enabled : existing.enabled;
+  const baseUrl =
+    typeof body.baseUrl === "string" ? body.baseUrl.trim() : undefined;
   let credential: ProviderCredential;
   try {
     credential = saveProviderCredential({
       id,
       provider: existing.provider,
       apiKey,
+      baseUrl,
       enabled,
     });
     saveAdminProviderConfig(existing.provider, { enabled });
