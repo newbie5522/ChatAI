@@ -390,50 +390,11 @@ const it: PartialLocaleType = {
           SubTitle: "Imposta il livello di filtraggio dei contenuti",
         },
       },
-      Baidu: {
-        ApiKey: {
-          Title: "API Key",
-          SubTitle: "Utilizza una chiave API Baidu personalizzata",
-          Placeholder: "API Key Baidu",
-        },
-        SecretKey: {
-          Title: "Secret Key",
-          SubTitle: "Utilizza una chiave segreta Baidu personalizzata",
-          Placeholder: "Secret Key Baidu",
-        },
-        Endpoint: {
-          Title: "Indirizzo dell'interfaccia",
-          SubTitle:
-            "Non supporta configurazioni personalizzate, andare su .env",
-        },
-      },
-      ByteDance: {
-        ApiKey: {
-          Title: "Chiave dell'interfaccia",
-          SubTitle: "Utilizza una chiave API ByteDance personalizzata",
-          Placeholder: "API Key ByteDance",
-        },
-        Endpoint: {
-          Title: "Indirizzo dell'interfaccia",
-          SubTitle: "Esempio:",
-        },
-      },
       Alibaba: {
         ApiKey: {
           Title: "Chiave dell'interfaccia",
           SubTitle: "Utilizza una chiave API Alibaba Cloud personalizzata",
           Placeholder: "API Key Alibaba Cloud",
-        },
-        Endpoint: {
-          Title: "Indirizzo dell'interfaccia",
-          SubTitle: "Esempio:",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "Chiave dell'interfaccia",
-          SubTitle: "Utilizza una chiave API 302.AI personalizzata",
-          Placeholder: "Chiave API 302.AI",
         },
         Endpoint: {
           Title: "Indirizzo dell'interfaccia",

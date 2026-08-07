@@ -387,34 +387,6 @@ const de: PartialLocaleType = {
           SubTitle: "Inhaltfilterstufe einstellen",
         },
       },
-      Baidu: {
-        ApiKey: {
-          Title: "API-Schlüssel",
-          SubTitle: "Verwenden Sie benutzerdefinierten Baidu API-Schlüssel",
-          Placeholder: "Baidu API-Schlüssel",
-        },
-        SecretKey: {
-          Title: "Geheimschlüssel",
-          SubTitle: "Verwenden Sie benutzerdefinierten Baidu Geheimschlüssel",
-          Placeholder: "Baidu Geheimschlüssel",
-        },
-        Endpoint: {
-          Title: "Schnittstellenadresse",
-          SubTitle:
-            "Keine benutzerdefinierten Adressen unterstützen, konfigurieren Sie in .env",
-        },
-      },
-      ByteDance: {
-        ApiKey: {
-          Title: "Schnittstellenschlüssel",
-          SubTitle: "Verwenden Sie benutzerdefinierten ByteDance API-Schlüssel",
-          Placeholder: "ByteDance API-Schlüssel",
-        },
-        Endpoint: {
-          Title: "Schnittstellenadresse",
-          SubTitle: "Beispiel:",
-        },
-      },
       Alibaba: {
         ApiKey: {
           Title: "Schnittstellenschlüssel",
@@ -424,18 +396,6 @@ const de: PartialLocaleType = {
         },
         Endpoint: {
           Title: "Schnittstellenadresse",
-          SubTitle: "Beispiel:",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "Schnittstellenschlüssel",
-          SubTitle:
-            "Verwenden Sie einen benutzerdefinierten 302.AI API-Schlüssel",
-          Placeholder: "302.AI API-Schlüssel",
-        },
-        Endpoint: {
-          Title: "Endpunktadresse",
           SubTitle: "Beispiel:",
         },
       },

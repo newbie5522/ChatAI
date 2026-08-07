@@ -14,12 +14,8 @@ import BotIconClaude from "../icons/llm-icons/claude.svg";
 import BotIconMeta from "../icons/llm-icons/meta.svg";
 import BotIconMistral from "../icons/llm-icons/mistral.svg";
 import BotIconDeepseek from "../icons/llm-icons/deepseek.svg";
-import BotIconMoonshot from "../icons/llm-icons/moonshot.svg";
 import BotIconQwen from "../icons/llm-icons/qwen.svg";
-import BotIconWenxin from "../icons/llm-icons/wenxin.svg";
 import BotIconGrok from "../icons/llm-icons/grok.svg";
-import BotIconHunyuan from "../icons/llm-icons/hunyuan.svg";
-import BotIconDoubao from "../icons/llm-icons/doubao.svg";
 import BotIconChatglm from "../icons/llm-icons/chatglm.svg";
 
 export function getEmojiUrl(unified: string, style: EmojiStyle) {
@@ -72,18 +68,10 @@ export function Avatar(props: { model?: ModelType; avatar?: string }) {
       LlmIcon = BotIconMistral;
     } else if (modelName.includes("deepseek")) {
       LlmIcon = BotIconDeepseek;
-    } else if (modelName.startsWith("moonshot")) {
-      LlmIcon = BotIconMoonshot;
     } else if (modelName.startsWith("qwen")) {
       LlmIcon = BotIconQwen;
-    } else if (modelName.startsWith("ernie")) {
-      LlmIcon = BotIconWenxin;
     } else if (modelName.startsWith("grok")) {
       LlmIcon = BotIconGrok;
-    } else if (modelName.startsWith("hunyuan")) {
-      LlmIcon = BotIconHunyuan;
-    } else if (modelName.startsWith("doubao") || modelName.startsWith("ep-")) {
-      LlmIcon = BotIconDoubao;
     } else if (
       modelName.includes("glm") ||
       modelName.startsWith("cogview-") ||

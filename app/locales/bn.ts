@@ -378,49 +378,11 @@ const bn: PartialLocaleType = {
           SubTitle: "বিষয়বস্তু ফিল্টার স্তর সেট করুন",
         },
       },
-      Baidu: {
-        ApiKey: {
-          Title: "API কী",
-          SubTitle: "স্বনির্ধারিত Baidu API কী ব্যবহার করুন",
-          Placeholder: "Baidu API কী",
-        },
-        SecretKey: {
-          Title: "সিক্রেট কী",
-          SubTitle: "স্বনির্ধারিত Baidu সিক্রেট কী ব্যবহার করুন",
-          Placeholder: "Baidu সিক্রেট কী",
-        },
-        Endpoint: {
-          Title: "ইন্টারফেস ঠিকানা",
-          SubTitle: "স্বনির্ধারিত সমর্থিত নয়, .env কনফিগারেশনে চলে যান",
-        },
-      },
-      ByteDance: {
-        ApiKey: {
-          Title: "ইন্টারফেস কী",
-          SubTitle: "স্বনির্ধারিত ByteDance API কী ব্যবহার করুন",
-          Placeholder: "ByteDance API কী",
-        },
-        Endpoint: {
-          Title: "ইন্টারফেস ঠিকানা",
-          SubTitle: "উদাহরণ:",
-        },
-      },
       Alibaba: {
         ApiKey: {
           Title: "ইন্টারফেস কী",
           SubTitle: "স্বনির্ধারিত আলিবাবা ক্লাউড API কী ব্যবহার করুন",
           Placeholder: "Alibaba Cloud API কী",
-        },
-        Endpoint: {
-          Title: "ইন্টারফেস ঠিকানা",
-          SubTitle: "উদাহরণ:",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "ইন্টারফেস কী",
-          SubTitle: "স্বনির্ধারিত 302.AI API কী ব্যবহার করুন",
-          Placeholder: "302.AI API কী",
         },
         Endpoint: {
           Title: "ইন্টারফেস ঠিকানা",

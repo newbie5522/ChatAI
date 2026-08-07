@@ -351,65 +351,11 @@ const da: PartialLocaleType = {
           SubTitle: "Vælg den ønskede version",
         },
       },
-      Baidu: {
-        ApiKey: {
-          Title: "Baidu-nøgle",
-          SubTitle: "Din egen Baidu-nøgle",
-          Placeholder: "Baidu API Key",
-        },
-        SecretKey: {
-          Title: "Baidu hemmelig nøgle",
-          SubTitle: "Din egen hemmelige nøgle fra Baidu",
-          Placeholder: "Baidu Secret Key",
-        },
-        Endpoint: {
-          Title: "Adresse",
-          SubTitle: "Kan ikke ændres, se .env",
-        },
-      },
-      Tencent: {
-        ApiKey: {
-          Title: "Tencent-nøgle",
-          SubTitle: "Din egen nøgle fra Tencent",
-          Placeholder: "Tencent API Key",
-        },
-        SecretKey: {
-          Title: "Tencent hemmelig nøgle",
-          SubTitle: "Din egen hemmelige nøgle fra Tencent",
-          Placeholder: "Tencent Secret Key",
-        },
-        Endpoint: {
-          Title: "Adresse",
-          SubTitle: "Kan ikke ændres, se .env",
-        },
-      },
-      ByteDance: {
-        ApiKey: {
-          Title: "ByteDance-nøgle",
-          SubTitle: "Din egen nøgle til ByteDance",
-          Placeholder: "ByteDance API Key",
-        },
-        Endpoint: {
-          Title: "Adresse",
-          SubTitle: "F.eks.: ",
-        },
-      },
       Alibaba: {
         ApiKey: {
           Title: "Alibaba-nøgle",
           SubTitle: "Din egen Alibaba Cloud-nøgle",
           Placeholder: "Alibaba Cloud API Key",
-        },
-        Endpoint: {
-          Title: "Adresse",
-          SubTitle: "F.eks.: ",
-        },
-      },
-      Moonshot: {
-        ApiKey: {
-          Title: "Moonshot-nøgle",
-          SubTitle: "Din egen Moonshot-nøgle",
-          Placeholder: "Moonshot API Key",
         },
         Endpoint: {
           Title: "Adresse",
@@ -449,38 +395,11 @@ const da: PartialLocaleType = {
           SubTitle: "F.eks.: ",
         },
       },
-      SiliconFlow: {
-        ApiKey: {
-          Title: "SiliconFlow-nøgle",
-          SubTitle: "Din egen SiliconFlow-nøgle",
-          Placeholder: "SiliconFlow API Key",
-        },
-        Endpoint: {
-          Title: "Adresse",
-          SubTitle: "F.eks.: ",
-        },
-      },
       Stability: {
         ApiKey: {
           Title: "Stability-nøgle",
           SubTitle: "Din egen Stability-nøgle",
           Placeholder: "Stability API Key",
-        },
-        Endpoint: {
-          Title: "Adresse",
-          SubTitle: "F.eks.: ",
-        },
-      },
-      Iflytek: {
-        ApiKey: {
-          Title: "Iflytek API Key",
-          SubTitle: "Nøgle fra Iflytek",
-          Placeholder: "Iflytek API Key",
-        },
-        ApiSecret: {
-          Title: "Iflytek hemmelig nøgle",
-          SubTitle: "Hentet fra Iflytek",
-          Placeholder: "Iflytek API Secret",
         },
         Endpoint: {
           Title: "Adresse",
@@ -508,17 +427,6 @@ const da: PartialLocaleType = {
         GoogleSafetySettings: {
           Title: "Google sikkerhedsindstillinger",
           SubTitle: "Vælg et niveau for indholdskontrol",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "302.AI API Key",
-          SubTitle: "Brug en custom 302.AI API Key",
-          Placeholder: "302.AI API Key",
-        },
-        Endpoint: {
-          Title: "Endpoint-adresse",
-          SubTitle: "Eksempel: ",
         },
       },
     },

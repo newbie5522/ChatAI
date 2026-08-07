@@ -372,65 +372,11 @@ const en: LocaleType = {
           SubTitle: "Select and input a specific API version",
         },
       },
-      Baidu: {
-        ApiKey: {
-          Title: "Baidu API Key",
-          SubTitle: "Use a custom Baidu API Key",
-          Placeholder: "Baidu API Key",
-        },
-        SecretKey: {
-          Title: "Baidu Secret Key",
-          SubTitle: "Use a custom Baidu Secret Key",
-          Placeholder: "Baidu Secret Key",
-        },
-        Endpoint: {
-          Title: "Endpoint Address",
-          SubTitle: "not supported, configure in .env",
-        },
-      },
-      Tencent: {
-        ApiKey: {
-          Title: "Tencent API Key",
-          SubTitle: "Use a custom Tencent API Key",
-          Placeholder: "Tencent API Key",
-        },
-        SecretKey: {
-          Title: "Tencent Secret Key",
-          SubTitle: "Use a custom Tencent Secret Key",
-          Placeholder: "Tencent Secret Key",
-        },
-        Endpoint: {
-          Title: "Endpoint Address",
-          SubTitle: "not supported, configure in .env",
-        },
-      },
-      ByteDance: {
-        ApiKey: {
-          Title: "ByteDance API Key",
-          SubTitle: "Use a custom ByteDance API Key",
-          Placeholder: "ByteDance API Key",
-        },
-        Endpoint: {
-          Title: "Endpoint Address",
-          SubTitle: "Example: ",
-        },
-      },
       Alibaba: {
         ApiKey: {
           Title: "Alibaba API Key",
           SubTitle: "Use a custom Alibaba Cloud API Key",
           Placeholder: "Alibaba Cloud API Key",
-        },
-        Endpoint: {
-          Title: "Endpoint Address",
-          SubTitle: "Example: ",
-        },
-      },
-      Moonshot: {
-        ApiKey: {
-          Title: "Moonshot API Key",
-          SubTitle: "Use a custom Moonshot API Key",
-          Placeholder: "Moonshot API Key",
         },
         Endpoint: {
           Title: "Endpoint Address",
@@ -470,38 +416,11 @@ const en: LocaleType = {
           SubTitle: "Example: ",
         },
       },
-      SiliconFlow: {
-        ApiKey: {
-          Title: "SiliconFlow API Key",
-          SubTitle: "Use a custom SiliconFlow API Key",
-          Placeholder: "SiliconFlow API Key",
-        },
-        Endpoint: {
-          Title: "Endpoint Address",
-          SubTitle: "Example: ",
-        },
-      },
       Stability: {
         ApiKey: {
           Title: "Stability API Key",
           SubTitle: "Use a custom Stability API Key",
           Placeholder: "Stability API Key",
-        },
-        Endpoint: {
-          Title: "Endpoint Address",
-          SubTitle: "Example: ",
-        },
-      },
-      Iflytek: {
-        ApiKey: {
-          Title: "Iflytek API Key",
-          SubTitle: "Use a Iflytek API Key",
-          Placeholder: "Iflytek API Key",
-        },
-        ApiSecret: {
-          Title: "Iflytek API Secret",
-          SubTitle: "Use a Iflytek API Secret",
-          Placeholder: "Iflytek API Secret",
         },
         Endpoint: {
           Title: "Endpoint Address",
@@ -531,17 +450,6 @@ const en: LocaleType = {
         GoogleSafetySettings: {
           Title: "Google Safety Settings",
           SubTitle: "Select a safety filtering level",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "302.AI API Key",
-          SubTitle: "Use a custom 302.AI API Key",
-          Placeholder: "302.AI API Key",
-        },
-        Endpoint: {
-          Title: "Endpoint Address",
-          SubTitle: "Example: ",
         },
       },
     },

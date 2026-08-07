@@ -379,49 +379,11 @@ const id: PartialLocaleType = {
           SubTitle: "Atur tingkat filter konten",
         },
       },
-      Baidu: {
-        ApiKey: {
-          Title: "API Key",
-          SubTitle: "Gunakan Baidu API Key kustom",
-          Placeholder: "Baidu API Key",
-        },
-        SecretKey: {
-          Title: "Secret Key",
-          SubTitle: "Gunakan Baidu Secret Key kustom",
-          Placeholder: "Baidu Secret Key",
-        },
-        Endpoint: {
-          Title: "Alamat Antarmuka",
-          SubTitle: "Tidak mendukung kustom, pergi ke .env untuk konfigurasi",
-        },
-      },
-      ByteDance: {
-        ApiKey: {
-          Title: "Kunci Antarmuka",
-          SubTitle: "Gunakan ByteDance API Key kustom",
-          Placeholder: "ByteDance API Key",
-        },
-        Endpoint: {
-          Title: "Alamat Antarmuka",
-          SubTitle: "Contoh:",
-        },
-      },
       Alibaba: {
         ApiKey: {
           Title: "Kunci Antarmuka",
           SubTitle: "Gunakan Alibaba Cloud API Key kustom",
           Placeholder: "Alibaba Cloud API Key",
-        },
-        Endpoint: {
-          Title: "Alamat Antarmuka",
-          SubTitle: "Contoh:",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "Kunci Antarmuka",
-          SubTitle: "Gunakan 302.AI API Key kustom",
-          Placeholder: "302.AI API Key",
         },
         Endpoint: {
           Title: "Alamat Antarmuka",

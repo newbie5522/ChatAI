@@ -162,21 +162,8 @@ export function auth(
       case ModelProvider.Claude:
         systemApiKey = serverConfig.anthropicApiKey;
         break;
-      case ModelProvider.Doubao:
-        systemApiKey = serverConfig.bytedanceApiKey;
-        break;
-      case ModelProvider.Ernie:
-        systemApiKey = serverConfig.baiduApiKey;
-        break;
       case ModelProvider.Qwen:
         systemApiKey = serverConfig.alibabaApiKey;
-        break;
-      case ModelProvider.Moonshot:
-        systemApiKey = serverConfig.moonshotApiKey;
-        break;
-      case ModelProvider.Iflytek:
-        systemApiKey =
-          serverConfig.iflytekApiKey + ":" + serverConfig.iflytekApiSecret;
         break;
       case ModelProvider.DeepSeek:
         systemApiKey = serverConfig.deepseekApiKey;
@@ -186,9 +173,6 @@ export function auth(
         break;
       case ModelProvider.ChatGLM:
         systemApiKey = serverConfig.chatglmApiKey;
-        break;
-      case ModelProvider.SiliconFlow:
-        systemApiKey = serverConfig.siliconFlowApiKey;
         break;
       case ModelProvider.GPT:
       default:

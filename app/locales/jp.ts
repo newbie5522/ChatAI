@@ -375,49 +375,11 @@ const jp: PartialLocaleType = {
           SubTitle: "コンテンツフィルタリングレベルを設定",
         },
       },
-      Baidu: {
-        ApiKey: {
-          Title: "APIキー",
-          SubTitle: "カスタムBaidu APIキーを使用",
-          Placeholder: "Baidu APIキー",
-        },
-        SecretKey: {
-          Title: "シークレットキー",
-          SubTitle: "カスタムBaiduシークレットキーを使用",
-          Placeholder: "Baiduシークレットキー",
-        },
-        Endpoint: {
-          Title: "エンドポイント",
-          SubTitle: "カスタムはサポートしていません、.env設定に進んでください",
-        },
-      },
-      ByteDance: {
-        ApiKey: {
-          Title: "APIキー",
-          SubTitle: "カスタムByteDance APIキーを使用",
-          Placeholder: "ByteDance APIキー",
-        },
-        Endpoint: {
-          Title: "エンドポイント",
-          SubTitle: "例：",
-        },
-      },
       Alibaba: {
         ApiKey: {
           Title: "APIキー",
           SubTitle: "カスタムAlibaba Cloud APIキーを使用",
           Placeholder: "Alibaba Cloud APIキー",
-        },
-        Endpoint: {
-          Title: "エンドポイント",
-          SubTitle: "例：",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "APIキー",
-          SubTitle: "カスタム302.AI APIキーを使用",
-          Placeholder: "302.AI APIキー",
         },
         Endpoint: {
           Title: "エンドポイント",

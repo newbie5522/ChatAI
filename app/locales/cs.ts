@@ -377,50 +377,11 @@ const cs: PartialLocaleType = {
           SubTitle: "Nastavit úroveň filtrování obsahu",
         },
       },
-      Baidu: {
-        ApiKey: {
-          Title: "API Key",
-          SubTitle: "Použijte vlastní Baidu API Key",
-          Placeholder: "Baidu API Key",
-        },
-        SecretKey: {
-          Title: "Secret Key",
-          SubTitle: "Použijte vlastní Baidu Secret Key",
-          Placeholder: "Baidu Secret Key",
-        },
-        Endpoint: {
-          Title: "Adresa rozhraní",
-          SubTitle:
-            "Nepodporuje vlastní nastavení, přejděte na .env konfiguraci",
-        },
-      },
-      ByteDance: {
-        ApiKey: {
-          Title: "Rozhraní klíč",
-          SubTitle: "Použijte vlastní ByteDance API Key",
-          Placeholder: "ByteDance API Key",
-        },
-        Endpoint: {
-          Title: "Adresa rozhraní",
-          SubTitle: "Příklad:",
-        },
-      },
       Alibaba: {
         ApiKey: {
           Title: "Rozhraní klíč",
           SubTitle: "Použijte vlastní Alibaba Cloud API Key",
           Placeholder: "Alibaba Cloud API Key",
-        },
-        Endpoint: {
-          Title: "Adresa rozhraní",
-          SubTitle: "Příklad:",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "Rozhraní klíč",
-          SubTitle: "Použijte vlastní 302.AI API Key",
-          Placeholder: "302.AI API Key",
         },
         Endpoint: {
           Title: "Adresa rozhraní",

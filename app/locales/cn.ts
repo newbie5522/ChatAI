@@ -389,65 +389,11 @@ const cn = {
           SubTitle: "设置内容过滤级别",
         },
       },
-      Baidu: {
-        ApiKey: {
-          Title: "API Key",
-          SubTitle: "使用自定义 Baidu API Key",
-          Placeholder: "Baidu API Key",
-        },
-        SecretKey: {
-          Title: "Secret Key",
-          SubTitle: "使用自定义 Baidu Secret Key",
-          Placeholder: "Baidu Secret Key",
-        },
-        Endpoint: {
-          Title: "接口地址",
-          SubTitle: "不支持自定义前往.env配置",
-        },
-      },
-      Tencent: {
-        ApiKey: {
-          Title: "API Key",
-          SubTitle: "使用自定义腾讯云API Key",
-          Placeholder: "Tencent API Key",
-        },
-        SecretKey: {
-          Title: "Secret Key",
-          SubTitle: "使用自定义腾讯云Secret Key",
-          Placeholder: "Tencent Secret Key",
-        },
-        Endpoint: {
-          Title: "接口地址",
-          SubTitle: "不支持自定义前往.env配置",
-        },
-      },
-      ByteDance: {
-        ApiKey: {
-          Title: "接口密钥",
-          SubTitle: "使用自定义 ByteDance API Key",
-          Placeholder: "ByteDance API Key",
-        },
-        Endpoint: {
-          Title: "接口地址",
-          SubTitle: "样例：",
-        },
-      },
       Alibaba: {
         ApiKey: {
           Title: "接口密钥",
           SubTitle: "使用自定义阿里云API Key",
           Placeholder: "Alibaba Cloud API Key",
-        },
-        Endpoint: {
-          Title: "接口地址",
-          SubTitle: "样例：",
-        },
-      },
-      Moonshot: {
-        ApiKey: {
-          Title: "接口密钥",
-          SubTitle: "使用自定义月之暗面API Key",
-          Placeholder: "Moonshot API Key",
         },
         Endpoint: {
           Title: "接口地址",
@@ -487,17 +433,6 @@ const cn = {
           SubTitle: "样例：",
         },
       },
-      SiliconFlow: {
-        ApiKey: {
-          Title: "接口密钥",
-          SubTitle: "使用自定义硅基流动 API Key",
-          Placeholder: "硅基流动 API Key",
-        },
-        Endpoint: {
-          Title: "接口地址",
-          SubTitle: "样例：",
-        },
-      },
       Stability: {
         ApiKey: {
           Title: "接口密钥",
@@ -509,36 +444,9 @@ const cn = {
           SubTitle: "样例：",
         },
       },
-      Iflytek: {
-        ApiKey: {
-          Title: "ApiKey",
-          SubTitle: "从讯飞星火控制台获取的 APIKey",
-          Placeholder: "APIKey",
-        },
-        ApiSecret: {
-          Title: "ApiSecret",
-          SubTitle: "从讯飞星火控制台获取的 APISecret",
-          Placeholder: "APISecret",
-        },
-        Endpoint: {
-          Title: "接口地址",
-          SubTitle: "样例：",
-        },
-      },
       CustomModel: {
         Title: "自定义模型名",
         SubTitle: "增加自定义模型可选项，使用英文逗号隔开",
-      },
-      AI302: {
-        ApiKey: {
-          Title: "接口密钥",
-          SubTitle: "使用自定义302.AI API Key",
-          Placeholder: "302.AI API Key",
-        },
-        Endpoint: {
-          Title: "接口地址",
-          SubTitle: "样例：",
-        },
       },
     },
 

@@ -371,49 +371,11 @@ const ar: PartialLocaleType = {
           SubTitle: "تعيين مستوى تصفية المحتوى",
         },
       },
-      Baidu: {
-        ApiKey: {
-          Title: "مفتاح API",
-          SubTitle: "استخدم مفتاح Baidu API مخصص",
-          Placeholder: "مفتاح Baidu API",
-        },
-        SecretKey: {
-          Title: "المفتاح السري",
-          SubTitle: "استخدم مفتاح Baidu Secret مخصص",
-          Placeholder: "مفتاح Baidu Secret",
-        },
-        Endpoint: {
-          Title: "عنوان الواجهة",
-          SubTitle: "لا يدعم التخصيص، انتقل إلى .env للتكوين",
-        },
-      },
-      ByteDance: {
-        ApiKey: {
-          Title: "مفتاح الواجهة",
-          SubTitle: "استخدم مفتاح ByteDance API مخصص",
-          Placeholder: "مفتاح ByteDance API",
-        },
-        Endpoint: {
-          Title: "عنوان الواجهة",
-          SubTitle: "مثال:",
-        },
-      },
       Alibaba: {
         ApiKey: {
           Title: "مفتاح الواجهة",
           SubTitle: "استخدم مفتاح Alibaba Cloud API مخصص",
           Placeholder: "مفتاح Alibaba Cloud API",
-        },
-        Endpoint: {
-          Title: "عنوان الواجهة",
-          SubTitle: "مثال:",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "مفتاح 302.AI API",
-          SubTitle: "استخدم مفتاح 302.AI API مخصص",
-          Placeholder: "مفتاح 302.AI API",
         },
         Endpoint: {
           Title: "عنوان الواجهة",

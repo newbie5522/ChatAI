@@ -380,50 +380,11 @@ const ru: PartialLocaleType = {
           SubTitle: "Настроить уровень фильтрации контента",
         },
       },
-      Baidu: {
-        ApiKey: {
-          Title: "API-ключ",
-          SubTitle: "Использовать пользовательский Baidu API-ключ",
-          Placeholder: "Baidu API-ключ",
-        },
-        SecretKey: {
-          Title: "Секретный ключ",
-          SubTitle: "Использовать пользовательский Baidu Secret Key",
-          Placeholder: "Baidu Secret Key",
-        },
-        Endpoint: {
-          Title: "Адрес интерфейса",
-          SubTitle:
-            "Не поддерживает пользовательскую настройку, перейдите в .env",
-        },
-      },
-      ByteDance: {
-        ApiKey: {
-          Title: "Ключ интерфейса",
-          SubTitle: "Использовать пользовательский ByteDance API-ключ",
-          Placeholder: "ByteDance API-ключ",
-        },
-        Endpoint: {
-          Title: "Адрес интерфейса",
-          SubTitle: "Пример:",
-        },
-      },
       Alibaba: {
         ApiKey: {
           Title: "Ключ интерфейса",
           SubTitle: "Использовать пользовательский Alibaba Cloud API-ключ",
           Placeholder: "Alibaba Cloud API-ключ",
-        },
-        Endpoint: {
-          Title: "Адрес интерфейса",
-          SubTitle: "Пример:",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "Ключ интерфейса",
-          SubTitle: "Использовать пользовательский 302.AI API-ключ",
-          Placeholder: "302.AI API-ключ",
         },
         Endpoint: {
           Title: "Адрес интерфейса",

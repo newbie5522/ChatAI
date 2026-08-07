@@ -381,49 +381,11 @@ const tr: PartialLocaleType = {
           SubTitle: "İçerik filtreleme seviyesini ayarlayın",
         },
       },
-      Baidu: {
-        ApiKey: {
-          Title: "API Anahtarı",
-          SubTitle: "Özelleştirilmiş Baidu API Anahtarı kullanın",
-          Placeholder: "Baidu API Anahtarı",
-        },
-        SecretKey: {
-          Title: "Secret Anahtarı",
-          SubTitle: "Özelleştirilmiş Baidu Secret Anahtarı kullanın",
-          Placeholder: "Baidu Secret Anahtarı",
-        },
-        Endpoint: {
-          Title: "API Adresi",
-          SubTitle: "Özelleştirilmiş yapılandırma için .env'ye gidin",
-        },
-      },
-      ByteDance: {
-        ApiKey: {
-          Title: "API Anahtarı",
-          SubTitle: "Özelleştirilmiş ByteDance API Anahtarı kullanın",
-          Placeholder: "ByteDance API Anahtarı",
-        },
-        Endpoint: {
-          Title: "API Adresi",
-          SubTitle: "Örnek:",
-        },
-      },
       Alibaba: {
         ApiKey: {
           Title: "API Anahtarı",
           SubTitle: "Özelleştirilmiş Alibaba Cloud API Anahtarı kullanın",
           Placeholder: "Alibaba Cloud API Anahtarı",
-        },
-        Endpoint: {
-          Title: "API Adresi",
-          SubTitle: "Örnek:",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "API Anahtarı",
-          SubTitle: "Özelleştirilmiş 302.AI API Anahtarı kullanın",
-          Placeholder: "302.AI API Anahtarı",
         },
         Endpoint: {
           Title: "API Adresi",

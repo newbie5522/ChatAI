@@ -383,34 +383,6 @@ const no: PartialLocaleType = {
           SubTitle: "Sett innholdsfiltreringsnivå",
         },
       },
-      Baidu: {
-        ApiKey: {
-          Title: "API-nøkkel",
-          SubTitle: "Bruk egendefinert Baidu API-nøkkel",
-          Placeholder: "Baidu API-nøkkel",
-        },
-        SecretKey: {
-          Title: "Hemmelig nøkkel",
-          SubTitle: "Bruk egendefinert Baidu hemmelig nøkkel",
-          Placeholder: "Baidu hemmelig nøkkel",
-        },
-        Endpoint: {
-          Title: "API-adresse",
-          SubTitle:
-            "Støtter ikke egendefinerte konfigurasjoner. Se .env-konfigurasjon.",
-        },
-      },
-      ByteDance: {
-        ApiKey: {
-          Title: "API-nøkkel",
-          SubTitle: "Bruk egendefinert ByteDance API-nøkkel",
-          Placeholder: "ByteDance API-nøkkel",
-        },
-        Endpoint: {
-          Title: "API-adresse",
-          SubTitle: "Eksempel:",
-        },
-      },
       Alibaba: {
         ApiKey: {
           Title: "API-nøkkel",
@@ -425,17 +397,6 @@ const no: PartialLocaleType = {
       CustomModel: {
         Title: "Egendefinert modellnavn",
         SubTitle: "Legg til egendefinerte modellalternativer, skill med komma",
-      },
-      AI302: {
-        ApiKey: {
-          Title: "API-nøkkel",
-          SubTitle: "Bruk egendefinert 302.AI API-nøkkel",
-          Placeholder: "302.AI API-nøkkel",
-        },
-        Endpoint: {
-          Title: "API-adresse",
-          SubTitle: "Eksempel:",
-        },
       },
     },
 

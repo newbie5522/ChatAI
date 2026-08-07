@@ -393,65 +393,11 @@ const ko: PartialLocaleType = {
           SubTitle: "콘텐츠 필터링 수준 설정",
         },
       },
-      Baidu: {
-        ApiKey: {
-          Title: "API 키",
-          SubTitle: "커스텀 Baidu API 키 사용",
-          Placeholder: "Baidu API 키",
-        },
-        SecretKey: {
-          Title: "Secret 키",
-          SubTitle: "커스텀 Baidu Secret 키 사용",
-          Placeholder: "Baidu Secret 키",
-        },
-        Endpoint: {
-          Title: "엔드포인트 주소",
-          SubTitle: "커스터마이즈는 .env에서 설정",
-        },
-      },
-      Tencent: {
-        ApiKey: {
-          Title: "Tencent API 키",
-          SubTitle: "커스텀 Tencent API 키 사용",
-          Placeholder: "Tencent API 키",
-        },
-        SecretKey: {
-          Title: "Tencent Secret 키",
-          SubTitle: "커스텀 Tencent Secret 키 사용",
-          Placeholder: "Tencent Secret 키",
-        },
-        Endpoint: {
-          Title: "엔드포인트 주소",
-          SubTitle: "지원되지 않음, .env에서 설정",
-        },
-      },
-      ByteDance: {
-        ApiKey: {
-          Title: "엔드포인트 키",
-          SubTitle: "커스텀 ByteDance API 키 사용",
-          Placeholder: "ByteDance API 키",
-        },
-        Endpoint: {
-          Title: "엔드포인트 주소",
-          SubTitle: "예: ",
-        },
-      },
       Alibaba: {
         ApiKey: {
           Title: "엔드포인트 키",
           SubTitle: "커스텀 Alibaba Cloud API 키 사용",
           Placeholder: "Alibaba Cloud API 키",
-        },
-        Endpoint: {
-          Title: "엔드포인트 주소",
-          SubTitle: "예: ",
-        },
-      },
-      Moonshot: {
-        ApiKey: {
-          Title: "Moonshot API 키",
-          SubTitle: "커스텀 Moonshot API 키 사용",
-          Placeholder: "Moonshot API 키",
         },
         Endpoint: {
           Title: "엔드포인트 주소",
@@ -491,17 +437,6 @@ const ko: PartialLocaleType = {
           SubTitle: "예: ",
         },
       },
-      SiliconFlow: {
-        ApiKey: {
-          Title: "SiliconFlow API 키",
-          SubTitle: "커스텀 SiliconFlow API 키 사용",
-          Placeholder: "SiliconFlow API 키",
-        },
-        Endpoint: {
-          Title: "엔드포인트 주소",
-          SubTitle: "예: ",
-        },
-      },
       Stability: {
         ApiKey: {
           Title: "Stability API 키",
@@ -513,36 +448,9 @@ const ko: PartialLocaleType = {
           SubTitle: "예: ",
         },
       },
-      Iflytek: {
-        ApiKey: {
-          Title: "Iflytek API 키",
-          SubTitle: "커스텀 Iflytek API 키 사용",
-          Placeholder: "Iflytek API 키",
-        },
-        ApiSecret: {
-          Title: "Iflytek API Secret",
-          SubTitle: "커스텀 Iflytek API Secret 키 사용",
-          Placeholder: "Iflytek API Secret 키",
-        },
-        Endpoint: {
-          Title: "엔드포인트 주소",
-          SubTitle: "예: ",
-        },
-      },
       CustomModel: {
         Title: "커스텀 모델 이름",
         SubTitle: "커스텀 모델 옵션 추가, 영어 쉼표로 구분",
-      },
-      AI302: {
-        ApiKey: {
-          Title: "엔드포인트 키",
-          SubTitle: "커스텀 302.AI API 키 사용",
-          Placeholder: "302.AI API 키",
-        },
-        Endpoint: {
-          Title: "엔드포인트 주소",
-          SubTitle: "예: ",
-        },
       },
     },
 
