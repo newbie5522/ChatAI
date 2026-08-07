@@ -1,4 +1,4 @@
-import { Anthropic, ANTHROPIC_BASE_URL } from "@/app/constant";
+import { Anthropic } from "@/app/constant";
 
 import {
   GatewayAdapterContext,
@@ -7,9 +7,11 @@ import {
   withDuplex,
 } from "./types";
 
+const ANTHROPIC_FALLBACK_BASE = "https://api.anthropic.com/v1";
+
 export async function callAnthropicMessages(ctx: GatewayAdapterContext) {
-  const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, ANTHROPIC_BASE_URL);
-  const path = ctx.path || Anthropic.ChatPath;
+  const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, ANTHROPIC_FALLBACK_BASE);
+  const path = ctx.path || "messages";
 
   const res = await fetch(
     `${baseUrl}/${path}${ctx.search}`,

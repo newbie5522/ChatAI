@@ -1,5 +1,3 @@
-import { GEMINI_BASE_URL } from "@/app/constant";
-
 import {
   GatewayAdapterContext,
   copyResponseHeaders,
@@ -7,10 +5,12 @@ import {
   withDuplex,
 } from "./types";
 
+const GEMINI_FALLBACK_BASE = "https://generativelanguage.googleapis.com/v1beta";
+
 export async function callGoogleGenerateContent(ctx: GatewayAdapterContext) {
-  const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, GEMINI_BASE_URL);
+  const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, GEMINI_FALLBACK_BASE);
   const path =
-    ctx.path || `v1beta/models/${ctx.model.model}:streamGenerateContent`;
+    ctx.path || `models/${ctx.model.model}:streamGenerateContent`;
 
   const res = await fetch(
     `${baseUrl}/${path}${ctx.search}`,
