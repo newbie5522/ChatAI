@@ -1,9 +1,24 @@
+import type { ModelProvider } from "@/app/config/model-registry";
+
 import {
   GatewayAdapterContext,
   copyResponseHeaders,
   gatewayJsonError,
   normalizeBaseUrl,
 } from "./types";
+
+const PROVIDER_COMPATIBLE_BASE_URLS: Record<ModelProvider, string | undefined> =
+  {
+    openai: "https://api.openai.com/v1",
+    xai: "https://api.x.ai/v1",
+    deepseek: "https://api.deepseek.com/v1",
+    qwen: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    mistral: "https://api.mistral.ai/v1",
+    zhipu: "https://open.bigmodel.cn/api/paas/v4",
+    anthropic: undefined,
+    google: undefined,
+    perplexity: undefined,
+  };
 
 const FORWARDED_FIELDS = [
   "messages",
@@ -83,14 +98,15 @@ export async function callOpenAICompatibleChat(
     return gatewayJsonError(400, "message content is required");
   }
 
+  const fallback = PROVIDER_COMPATIBLE_BASE_URLS[ctx.credential.provider];
   const rawBaseUrl = (ctx.credential.baseUrl || "").trim();
-  if (!rawBaseUrl) {
+  if (!rawBaseUrl && !fallback) {
     return gatewayJsonError(
       500,
-      "服务商未配置 API 请求地址（baseUrl），请在管理后台填写中转商地址",
+      "该服务商官方不支持 OpenAI 兼容接口，请在管理后台填写中转商后端地址",
     );
   }
-  const endpoint = `${normalizeBaseUrl(rawBaseUrl, "")}/chat/completions`;
+  const endpoint = `${normalizeBaseUrl(rawBaseUrl, fallback ?? "")}/chat/completions`;
 
   const body: Record<string, unknown> = {
     model: ctx.model.model,

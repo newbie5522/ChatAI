@@ -7,9 +7,10 @@ import {
   getCompanyModelForRequest,
   selectProviderCredentialForModel,
 } from "@/app/config/admin-store";
-import type { SafeAccountRecord } from "@/app/config/admin-store";
+import type { ProviderCredential, SafeAccountRecord } from "@/app/config/admin-store";
 import type {
   CompanyModel,
+  ModelCategory,
   ModelEndpointType,
   ModelProvider,
 } from "@/app/config/model-registry";
@@ -79,7 +80,13 @@ function modelBlockedReason(model?: CompanyModel) {
 
 function adapterFor(
   endpointType: ModelEndpointType,
+  credential: ProviderCredential,
+  category: ModelCategory,
 ): ((ctx: GatewayAdapterContext) => Promise<Response>) | undefined {
+  if (credential.useCompatibleMode && category === "chat") {
+    return callOpenAICompatibleChat;
+  }
+
   switch (endpointType) {
     case "openai_responses":
       return callOpenAIResponses;
@@ -467,7 +474,11 @@ async function handle(
     return gatewayError(provider, 403, message);
   }
 
-  const adapter = adapterFor(companyModel.endpointType);
+  const adapter = adapterFor(
+    companyModel.endpointType,
+    credential,
+    companyModel.category,
+  );
   if (!adapter) {
     const message = "model adapter is not implemented";
     await recordBlockedUsage(account, companyModel, {

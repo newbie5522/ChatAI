@@ -34,6 +34,7 @@ export interface AdminProviderConfig {
   apiVersion?: string;
   orgId?: string;
   enabledModels?: string[];
+  useCompatibleMode?: boolean;
   updatedAt?: string;
 }
 
@@ -72,6 +73,7 @@ export interface ProviderCredential {
   modelIds?: string[];
   enabled: boolean;
   verified: boolean;
+  useCompatibleMode: boolean;
   priority: number;
   createdAt: string;
   updatedAt: string;
@@ -101,6 +103,7 @@ export interface ProviderPublicConfig {
   apiVersion?: string;
   orgId?: string;
   enabledModels: string[];
+  useCompatibleMode: boolean;
   updatedAt?: string;
 }
 
@@ -358,6 +361,7 @@ function normalizeCredentialRecord(
     modelIds: cleanCompanyModelIds(record.modelIds, provider),
     enabled: record.enabled ?? false,
     verified: record.verified ?? false,
+    useCompatibleMode: record.useCompatibleMode === true,
     priority: Number.isFinite(priority) ? priority : 100,
     createdAt: record.createdAt || now(),
     updatedAt: record.updatedAt || now(),
@@ -1017,6 +1021,7 @@ export function listProviderPublicConfigs(): ProviderPublicConfig[] {
       apiVersion: getEffectiveProviderApiVersion(id),
       orgId: getEffectiveProviderOrgId(id),
       enabledModels: getProviderEnabledModels(id),
+      useCompatibleMode: adminConfig?.useCompatibleMode === true,
       updatedAt: adminConfig?.updatedAt,
     };
   });

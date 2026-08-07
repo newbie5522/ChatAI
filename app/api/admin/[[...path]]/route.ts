@@ -463,6 +463,10 @@ async function createCredential(req: NextRequest) {
       : existing?.enabled ?? false;
   const baseUrl =
     typeof body.baseUrl === "string" ? body.baseUrl.trim() : undefined;
+  const useCompatibleMode =
+    typeof body.useCompatibleMode === "boolean"
+      ? body.useCompatibleMode
+      : existing?.useCompatibleMode ?? false;
   let credential: ProviderCredential;
   try {
     credential = saveProviderCredential({
@@ -471,6 +475,7 @@ async function createCredential(req: NextRequest) {
       apiKey,
       baseUrl,
       enabled,
+      useCompatibleMode,
       ...(existing
         ? {}
         : {
@@ -480,7 +485,7 @@ async function createCredential(req: NextRequest) {
             priority: 100,
           }),
     });
-    saveAdminProviderConfig(provider, { enabled });
+    saveAdminProviderConfig(provider, { enabled, useCompatibleMode });
   } catch (error) {
     return NextResponse.json(
       {
@@ -516,6 +521,10 @@ async function updateCredential(req: NextRequest, id: string) {
     typeof body.enabled === "boolean" ? body.enabled : existing.enabled;
   const baseUrl =
     typeof body.baseUrl === "string" ? body.baseUrl.trim() : undefined;
+  const useCompatibleMode =
+    typeof body.useCompatibleMode === "boolean"
+      ? body.useCompatibleMode
+      : existing.useCompatibleMode;
   let credential: ProviderCredential;
   try {
     credential = saveProviderCredential({
@@ -524,8 +533,9 @@ async function updateCredential(req: NextRequest, id: string) {
       apiKey,
       baseUrl,
       enabled,
+      useCompatibleMode,
     });
-    saveAdminProviderConfig(existing.provider, { enabled });
+    saveAdminProviderConfig(existing.provider, { enabled, useCompatibleMode });
   } catch (error) {
     return NextResponse.json(
       {

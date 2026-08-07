@@ -46,6 +46,7 @@ interface AdminCredential {
   enabled: boolean;
   priority: number;
   baseUrl?: string;
+  useCompatibleMode: boolean;
 }
 
 interface AdminModel {
@@ -100,6 +101,7 @@ interface ProviderForm {
   baseUrl?: string;
   keyConfigured: boolean;
   enabled: boolean;
+  useCompatibleMode: boolean;
 }
 
 type QuotaFormField =
@@ -588,6 +590,7 @@ export function AdminPanel() {
       baseUrl: credential?.baseUrl ?? "",
       keyConfigured: credential?.keyConfigured ?? false,
       enabled: credential?.enabled ?? false,
+      useCompatibleMode: credential?.useCompatibleMode ?? false,
     });
   };
 
@@ -616,6 +619,7 @@ export function AdminPanel() {
             apiKey: providerForm.apiKey,
             baseUrl: providerForm.baseUrl,
             enabled: providerForm.enabled,
+            useCompatibleMode: providerForm.useCompatibleMode,
           }),
         },
       );
@@ -919,6 +923,7 @@ export function AdminPanel() {
               const configured = credential?.keyConfigured ?? false;
               const providerEnabled = credential?.enabled ?? false;
               const baseUrlConfigured = !!credential?.baseUrl?.trim();
+              const compatibleMode = credential?.useCompatibleMode ?? false;
               const providerStatus = !configured
                 ? "未配置"
                 : providerEnabled
@@ -939,6 +944,9 @@ export function AdminPanel() {
                       中转地址：{credential?.baseUrl}
                     </div>
                   )}
+                  <div>
+                    兼容模式：{compatibleMode ? "已开启" : "已关闭"}
+                  </div>
                   <div>
                     模型状态：
                     {configured && providerEnabled ? "可使用" : "暂不可用"}
@@ -1496,6 +1504,28 @@ export function AdminPanel() {
                 }
               />
             </label>
+            <div className={styles["switch-row"]}>
+              <span>兼容模式</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={providerForm.useCompatibleMode}
+                aria-label={`${providerForm.useCompatibleMode ? "关闭" : "开启"}兼容模式`}
+                className={styles.switch}
+                onClick={() =>
+                  setProviderForm({
+                    ...providerForm,
+                    useCompatibleMode: !providerForm.useCompatibleMode,
+                  })
+                }
+              >
+                <span />
+              </button>
+            </div>
+            <p className={styles["permission-help"]}>
+              开启后，该服务商的聊天模型会走标准 OpenAI 兼容接口
+              /v1/chat/completions，适合 sub2api、openrouter、hosaia 等中转商。关闭则走该服务商专用协议。
+            </p>
             <div className={styles["switch-row"]}>
               <span>启用状态</span>
               <button
