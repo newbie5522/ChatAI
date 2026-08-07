@@ -597,6 +597,11 @@ export function AdminPanel() {
       setProviderFormError("请先填写 API Key");
       return;
     }
+    const baseUrl = providerForm.baseUrl?.trim() ?? "";
+    if (baseUrl && !/^https?:\/\/.+/.test(baseUrl)) {
+      setProviderFormError("后端地址必须以 http:// 或 https:// 开头");
+      return;
+    }
     setSavingProvider(true);
     setProviderFormError("");
     try {
@@ -913,6 +918,7 @@ export function AdminPanel() {
               const credential = primaryCredential(provider);
               const configured = credential?.keyConfigured ?? false;
               const providerEnabled = credential?.enabled ?? false;
+              const baseUrlConfigured = !!credential?.baseUrl?.trim();
               const providerStatus = !configured
                 ? "未配置"
                 : providerEnabled
@@ -925,7 +931,14 @@ export function AdminPanel() {
                     <span>{providerStatus}</span>
                   </div>
                   <div>密钥：{configured ? "已配置" : "未配置"}</div>
-                  <div>状态：{providerStatus}</div>
+                  {baseUrlConfigured && (
+                    <div
+                      className={styles["provider-baseurl"]}
+                      title={credential?.baseUrl}
+                    >
+                      中转地址：{credential?.baseUrl}
+                    </div>
+                  )}
                   <div>
                     模型状态：
                     {configured && providerEnabled ? "可使用" : "暂不可用"}
@@ -1448,7 +1461,8 @@ export function AdminPanel() {
         >
           <div className={`${styles["modal-form"]} ${styles["provider-form"]}`}>
             <label>
-              API Key
+              <span>API Key</span>
+              <small>服务商提供的访问密钥，修改时留空表示保留原密钥</small>
               <input
                 type="password"
                 autoComplete="new-password"
@@ -1465,7 +1479,10 @@ export function AdminPanel() {
               />
             </label>
             <label>
-              后端地址（中转商 API 地址，可选）
+              <span>后端地址（可选）</span>
+              <small>
+                用于接入中转商，例如 https://hosaia.com/v1。不填则使用官方默认地址
+              </small>
               <input
                 type="text"
                 autoComplete="off"

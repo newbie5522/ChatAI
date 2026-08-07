@@ -123,7 +123,7 @@
 .table-wrap {
   width: 100%;
   margin-top: 14px;
-  overflow: visible;
+  overflow-x: auto;
 }
 
 .table-wrap table {
@@ -172,20 +172,34 @@
 }
 
 .models-table th:nth-child(1) {
-  width: 30%;
+  width: 22%;
 }
 
 .models-table th:nth-child(2) {
-  width: 18%;
+  width: 13%;
 }
 
-.models-table th:nth-child(3),
+.models-table th:nth-child(3) {
+  width: 11%;
+}
+
 .models-table th:nth-child(4) {
-  width: 16%;
+  width: 24%;
 }
 
 .models-table th:nth-child(5) {
-  width: 20%;
+  width: 12%;
+}
+
+.models-table th:nth-child(6) {
+  width: 10%;
+  min-width: 80px;
+}
+
+.models-table td:nth-child(4) select {
+  width: 100%;
+  min-width: 140px;
+  max-width: 100%;
 }
 
 .logs-table th:nth-child(1) {
@@ -259,6 +273,14 @@
   gap: 8px;
 }
 
+.provider-baseurl {
+  color: var(--newbie-text-secondary, #737b91);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .model-group {
   margin-top: 20px;
 }
@@ -313,7 +335,7 @@
 }
 
 .provider-form {
-  width: min(420px, calc(100vw - 64px));
+  width: min(520px, calc(100vw - 64px));
 }
 
 .modal-form > label {
@@ -322,6 +344,17 @@
   gap: 6px;
   font-size: 13px;
   font-weight: 600;
+
+  > span:first-child {
+    color: var(--black);
+  }
+
+  > small {
+    color: var(--newbie-text-secondary, #737b91);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.5;
+  }
 }
 
 .modal-form fieldset {
@@ -646,10 +679,14 @@
   }
 
   .models-table td:nth-child(4)::before {
-    content: "状态";
+    content: "接口协议";
   }
 
   .models-table td:nth-child(5)::before {
+    content: "状态";
+  }
+
+  .models-table td:nth-child(6)::before {
     content: "启用开关";
   }
 
