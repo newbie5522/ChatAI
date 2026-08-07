@@ -2,9 +2,10 @@ import {
   GatewayAdapterContext,
   copyResponseHeaders,
   gatewayJsonError,
+  normalizeBaseUrl,
 } from "./types";
 
-const XAI_IMAGES_ENDPOINT = "https://api.x.ai/v1/images/generations";
+const XAI_FALLBACK_BASE = "https://api.x.ai";
 
 function promptFromBody(bodyText?: string) {
   if (!bodyText) return "";
@@ -28,7 +29,8 @@ export async function callXAIImages(
     return gatewayJsonError(400, "image prompt is required");
   }
 
-  const res = await fetch(XAI_IMAGES_ENDPOINT, {
+  const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, XAI_FALLBACK_BASE);
+  const res = await fetch(`${baseUrl}/v1/images/generations`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
