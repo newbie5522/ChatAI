@@ -1,10 +1,11 @@
 "use client";
 // azure and openai, using same models. so using same LLMApi.
-import { ApiPath, DEEPSEEK_BASE_URL, DeepSeek } from "@/app/constant";
+import { ApiPath, COMPANY_API_PATH, DEEPSEEK_BASE_URL, DeepSeek } from "@/app/constant";
 import {
   useAccessStore,
   useAppConfig,
   useChatStore,
+  useAccountStore,
   ChatMessageTool,
   usePluginStore,
 } from "@/app/store";
@@ -33,20 +34,28 @@ export class DeepSeekApi implements LLMApi {
 
     let baseUrl = "";
 
-    if (accessStore.useCustomConfig) {
+    if (
+      !useAccountStore.getState().authenticated &&
+      accessStore.useCustomConfig &&
+      !accessStore.hideUserApiKey
+    ) {
       baseUrl = accessStore.deepseekUrl;
     }
 
     if (baseUrl.length === 0) {
       const isApp = !!getClientConfig()?.isApp;
-      const apiPath = ApiPath.DeepSeek;
+      const apiPath = COMPANY_API_PATH.DeepSeek;
       baseUrl = isApp ? DEEPSEEK_BASE_URL : apiPath;
     }
 
     if (baseUrl.endsWith("/")) {
       baseUrl = baseUrl.slice(0, baseUrl.length - 1);
     }
-    if (!baseUrl.startsWith("http") && !baseUrl.startsWith(ApiPath.DeepSeek)) {
+    if (
+      !baseUrl.startsWith("http") &&
+      !baseUrl.startsWith(ApiPath.DeepSeek) &&
+      !baseUrl.startsWith(COMPANY_API_PATH.DeepSeek)
+    ) {
       baseUrl = "https://" + baseUrl;
     }
 

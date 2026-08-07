@@ -1,10 +1,11 @@
 "use client";
 // azure and openai, using same models. so using same LLMApi.
-import { ApiPath, XAI_BASE_URL, XAI } from "@/app/constant";
+import { ApiPath, COMPANY_API_PATH, XAI_BASE_URL, XAI } from "@/app/constant";
 import {
   useAccessStore,
   useAppConfig,
   useChatStore,
+  useAccountStore,
   ChatMessageTool,
   usePluginStore,
 } from "@/app/store";
@@ -30,20 +31,28 @@ export class XAIApi implements LLMApi {
 
     let baseUrl = "";
 
-    if (accessStore.useCustomConfig) {
+    if (
+      !useAccountStore.getState().authenticated &&
+      accessStore.useCustomConfig &&
+      !accessStore.hideUserApiKey
+    ) {
       baseUrl = accessStore.xaiUrl;
     }
 
     if (baseUrl.length === 0) {
       const isApp = !!getClientConfig()?.isApp;
-      const apiPath = ApiPath.XAI;
+      const apiPath = COMPANY_API_PATH.XAI;
       baseUrl = isApp ? XAI_BASE_URL : apiPath;
     }
 
     if (baseUrl.endsWith("/")) {
       baseUrl = baseUrl.slice(0, baseUrl.length - 1);
     }
-    if (!baseUrl.startsWith("http") && !baseUrl.startsWith(ApiPath.XAI)) {
+    if (
+      !baseUrl.startsWith("http") &&
+      !baseUrl.startsWith(ApiPath.XAI) &&
+      !baseUrl.startsWith(COMPANY_API_PATH.XAI)
+    ) {
       baseUrl = "https://" + baseUrl;
     }
 

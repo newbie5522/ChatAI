@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSideConfig } from "@/app/config/server";
+import { blockLegacyProviderApiInEmployeeMode } from "@/app/api/auth";
 
 export async function handle(
   req: NextRequest,
@@ -10,6 +11,12 @@ export async function handle(
   if (req.method === "OPTIONS") {
     return NextResponse.json({ body: "OK" }, { status: 200 });
   }
+
+  const legacyProviderBlock = blockLegacyProviderApiInEmployeeMode();
+  if (legacyProviderBlock) {
+    return legacyProviderBlock;
+  }
+
   const serverConfig = getServerSideConfig();
 
   // remove path params from searchParams

@@ -1,9 +1,10 @@
 "use client";
-import { ApiPath, Alibaba, ALIBABA_BASE_URL } from "@/app/constant";
+import { ApiPath, COMPANY_API_PATH, Alibaba, ALIBABA_BASE_URL } from "@/app/constant";
 import {
   useAccessStore,
   useAppConfig,
   useChatStore,
+  useAccountStore,
   ChatMessageTool,
   usePluginStore,
 } from "@/app/store";
@@ -64,19 +65,27 @@ export class QwenApi implements LLMApi {
 
     let baseUrl = "";
 
-    if (accessStore.useCustomConfig) {
+    if (
+      !useAccountStore.getState().authenticated &&
+      accessStore.useCustomConfig &&
+      !accessStore.hideUserApiKey
+    ) {
       baseUrl = accessStore.alibabaUrl;
     }
 
     if (baseUrl.length === 0) {
       const isApp = !!getClientConfig()?.isApp;
-      baseUrl = isApp ? ALIBABA_BASE_URL : ApiPath.Alibaba;
+      baseUrl = isApp ? ALIBABA_BASE_URL : COMPANY_API_PATH.Qwen;
     }
 
     if (baseUrl.endsWith("/")) {
       baseUrl = baseUrl.slice(0, baseUrl.length - 1);
     }
-    if (!baseUrl.startsWith("http") && !baseUrl.startsWith(ApiPath.Alibaba)) {
+    if (
+      !baseUrl.startsWith("http") &&
+      !baseUrl.startsWith(ApiPath.Alibaba) &&
+      !baseUrl.startsWith(COMPANY_API_PATH.Qwen)
+    ) {
       baseUrl = "https://" + baseUrl;
     }
 

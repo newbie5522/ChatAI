@@ -1,9 +1,10 @@
 "use client";
-import { ApiPath, CHATGLM_BASE_URL, ChatGLM } from "@/app/constant";
+import { ApiPath, COMPANY_API_PATH, CHATGLM_BASE_URL, ChatGLM } from "@/app/constant";
 import {
   useAccessStore,
   useAppConfig,
   useChatStore,
+  useAccountStore,
   ChatMessageTool,
   usePluginStore,
 } from "@/app/store";
@@ -124,20 +125,28 @@ export class ChatGLMApi implements LLMApi {
     const accessStore = useAccessStore.getState();
     let baseUrl = "";
 
-    if (accessStore.useCustomConfig) {
+    if (
+      !useAccountStore.getState().authenticated &&
+      accessStore.useCustomConfig &&
+      !accessStore.hideUserApiKey
+    ) {
       baseUrl = accessStore.chatglmUrl;
     }
 
     if (baseUrl.length === 0) {
       const isApp = !!getClientConfig()?.isApp;
-      const apiPath = ApiPath.ChatGLM;
+      const apiPath = COMPANY_API_PATH.Zhipu;
       baseUrl = isApp ? CHATGLM_BASE_URL : apiPath;
     }
 
     if (baseUrl.endsWith("/")) {
       baseUrl = baseUrl.slice(0, baseUrl.length - 1);
     }
-    if (!baseUrl.startsWith("http") && !baseUrl.startsWith(ApiPath.ChatGLM)) {
+    if (
+      !baseUrl.startsWith("http") &&
+      !baseUrl.startsWith(ApiPath.ChatGLM) &&
+      !baseUrl.startsWith(COMPANY_API_PATH.Zhipu)
+    ) {
       baseUrl = "https://" + baseUrl;
     }
 
