@@ -77,7 +77,7 @@ function extractImageUrls(body: Record<string, unknown>) {
 }
 
 function extractPayload(bodyText?: string) {
-  if (!bodyText) return { prompt: "", imageUrls: [] };
+  if (!bodyText) return { prompt: "", imageUrls: [], options: {} };
 
   try {
     const body = JSON.parse(bodyText) as Record<string, unknown>;
@@ -85,9 +85,54 @@ function extractPayload(bodyText?: string) {
       textFromContent(body.prompt).trim() ||
       textFromContent(body.input).trim() ||
       promptFromMessages(body.messages).trim();
-    return { prompt, imageUrls: extractImageUrls(body) };
+    return {
+      prompt,
+      imageUrls: extractImageUrls(body),
+      options: {
+        size: typeof body.size === "string" ? body.size : undefined,
+        quality: typeof body.quality === "string" ? body.quality : undefined,
+        background:
+          typeof body.background === "string" ? body.background : undefined,
+        outputFormat:
+          typeof body.output_format === "string" ? body.output_format : undefined,
+        outputCompression:
+          typeof body.output_compression === "number"
+            ? body.output_compression
+            : undefined,
+        moderation:
+          typeof body.moderation === "string" ? body.moderation : undefined,
+      },
+    };
   } catch {
-    return { prompt: "", imageUrls: [] };
+    return { prompt: "", imageUrls: [], options: {} };
+  }
+}
+
+function normalizeQuality(
+  model: string,
+  quality?: string,
+): string | undefined {
+  const lowerModel = model.toLowerCase();
+  if (!lowerModel.startsWith("gpt-image-")) return quality;
+
+  const map: Record<string, string> = {
+    standard: "medium",
+    hd: "high",
+    low: "low",
+    medium: "medium",
+    high: "high",
+    auto: "auto",
+  };
+  return map[quality ?? ""] ?? "high";
+}
+
+function appendFormDataField(
+  formData: FormData,
+  key: string,
+  value: string | number | undefined,
+) {
+  if (value !== undefined) {
+    formData.append(key, String(value));
   }
 }
 
@@ -127,12 +172,21 @@ function referenceImageFromDataUrl(imageUrl: string, index: number) {
 export async function callOpenAIImages(
   ctx: GatewayAdapterContext,
 ): Promise<Response> {
-  const { prompt, imageUrls } = extractPayload(ctx.bodyText);
+  const { prompt, imageUrls, options } = extractPayload(ctx.bodyText);
   if (!prompt) {
     return gatewayJsonError(400, "image prompt is required");
   }
 
+  const model = ctx.model.model;
+  const isImageToImage = imageUrls.length > 0;
+  const quality = normalizeQuality(model, options.quality);
+  const size = options.size ?? (isImageToImage ? "auto" : "1024x1024");
+
   const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, OPENAI_FALLBACK_BASE);
+  console.log(
+    `[OpenAIImages] model=${model} imageToImage=${isImageToImage} size=${size} quality=${quality ?? "default"} baseUrl=${baseUrl} prompt="${prompt.slice(0, 80)}"`,
+  );
+
   const headers = {
     Authorization: `Bearer ${ctx.credential.apiKey}`,
     ...(ctx.credential.orgId
@@ -152,10 +206,18 @@ export async function callOpenAIImages(
           headers,
           body: (() => {
             const formData = new FormData();
-            formData.append("model", ctx.model.model);
+            formData.append("model", model);
             formData.append("prompt", prompt);
             formData.append("n", "1");
-            formData.append("size", "1024x1024");
+            formData.append("size", size);
+            appendFormDataField(formData, "quality", quality);
+            appendFormDataField(formData, "background", options.background);
+            appendFormDataField(formData, "output_format", options.outputFormat);
+            appendFormDataField(
+              formData,
+              "output_compression",
+              options.outputCompression,
+            );
             referenceImages.forEach((image) => {
               formData.append("image", image.blob, image.filename);
             });
@@ -169,14 +231,26 @@ export async function callOpenAIImages(
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: ctx.model.model,
+            model,
             prompt,
             n: 1,
-            size: "1024x1024",
+            size,
+            ...(quality ? { quality } : {}),
+            ...(options.background ? { background: options.background } : {}),
+            ...(options.outputFormat
+              ? { output_format: options.outputFormat }
+              : {}),
+            ...(options.outputCompression !== undefined
+              ? { output_compression: options.outputCompression }
+              : {}),
+            ...(options.moderation ? { moderation: options.moderation } : {}),
           }),
         });
 
   if (!res.ok) {
+    console.error(
+      `[OpenAIImages] upstream error ${res.status} ${res.statusText} model=${model}`,
+    );
     return new Response(res.body, {
       status: res.status,
       statusText: res.statusText,
@@ -185,5 +259,8 @@ export async function callOpenAIImages(
   }
 
   const json = await res.json();
+  console.log(
+    `[OpenAIImages] success model=${model} data.length=${json?.data?.length}`,
+  );
   return Response.json(normalizedImageData(json), { status: 200 });
 }

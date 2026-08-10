@@ -316,6 +316,15 @@ export function getModelSizes(model: string): ModelSize[] {
   if (isDalle3(model)) {
     return ["1024x1024", "1792x1024", "1024x1792"];
   }
+  if (model.toLowerCase().startsWith("gpt-image-")) {
+    return [
+      "auto",
+      "1024x1024",
+      "1536x1024",
+      "1024x1536",
+      "2048x2048",
+    ];
+  }
   if (model.toLowerCase().includes("cogview")) {
     return [
       "1024x1024",

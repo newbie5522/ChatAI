@@ -549,7 +549,10 @@ export function ChatActions(props: {
   const [showQualitySelector, setShowQualitySelector] = useState(false);
   const [showStyleSelector, setShowStyleSelector] = useState(false);
   const modelSizes = getModelSizes(currentModel);
-  const dalle3Qualitys: DalleQuality[] = ["standard", "hd"];
+  const isGptImage = currentModel.toLowerCase().startsWith("gpt-image-");
+  const imageQualityOptions: DalleQuality[] = isGptImage
+    ? ["auto", "low", "medium", "high"]
+    : ["standard", "hd"];
   const dalle3Styles: DalleStyle[] = ["vivid", "natural"];
   const currentSize =
     session.mask.modelConfig?.size ?? ("1024x1024" as ModelSize);
@@ -753,7 +756,7 @@ export function ChatActions(props: {
           />
         )}
 
-        {isDalle3(currentModel) && (
+        {(isDalle3(currentModel) || isGptImage) && (
           <ChatAction
             onClick={() => setShowQualitySelector(true)}
             text={currentQuality}
@@ -764,7 +767,7 @@ export function ChatActions(props: {
         {showQualitySelector && (
           <Selector
             defaultSelectedValue={currentQuality}
-            items={dalle3Qualitys.map((m) => ({
+            items={imageQualityOptions.map((m) => ({
               title: m,
               value: m,
             }))}

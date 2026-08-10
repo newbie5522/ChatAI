@@ -245,12 +245,20 @@ export class ChatGPTApi implements LLMApi {
       const lastMessage = options.messages.slice(-1)?.pop() as any;
       const prompt = getMessageTextContent(lastMessage);
       const imageUrls = getMessageImages(lastMessage).filter(Boolean);
+      const isGptImage = requestedModel.toLowerCase().startsWith("gpt-image-");
+      const defaultSize =
+        imageUrls.length > 0 && isGptImage ? "auto" : "1024x1024";
       requestPayload = {
         model: options.config.model,
         prompt,
         ...(imageUrls.length > 0 ? { image_urls: imageUrls } : {}),
         n: 1,
-        size: "1024x1024",
+        size: modelConfig.size ?? defaultSize,
+        ...(modelConfig.quality
+          ? { quality: modelConfig.quality }
+          : isGptImage
+            ? { quality: "high" }
+            : {}),
       };
     } else {
       const accountStore = useAccountStore.getState();
