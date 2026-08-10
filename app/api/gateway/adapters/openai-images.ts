@@ -108,22 +108,8 @@ function extractPayload(bodyText?: string) {
   }
 }
 
-function normalizeQuality(
-  model: string,
-  quality?: string,
-): string | undefined {
-  const lowerModel = model.toLowerCase();
-  if (!lowerModel.startsWith("gpt-image-")) return quality;
-
-  const map: Record<string, string> = {
-    standard: "medium",
-    hd: "high",
-    low: "low",
-    medium: "medium",
-    high: "high",
-    auto: "auto",
-  };
-  return map[quality ?? ""] ?? "high";
+function isGptImageModel(model: string) {
+  return model.toLowerCase().startsWith("gpt-image-");
 }
 
 function appendFormDataField(
@@ -131,9 +117,15 @@ function appendFormDataField(
   key: string,
   value: string | number | undefined,
 ) {
-  if (value !== undefined) {
-    formData.append(key, String(value));
-  }
+  if (value !== undefined) formData.append(key, String(value));
+}
+
+function upstreamErrorResponse(res: Response) {
+  return new Response(res.body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers: copyResponseHeaders(res),
+  });
 }
 
 function normalizedImageData(json: any) {
@@ -179,12 +171,10 @@ export async function callOpenAIImages(
 
   const model = ctx.model.model;
   const isImageToImage = imageUrls.length > 0;
-  const quality = normalizeQuality(model, options.quality);
-  const size = options.size ?? (isImageToImage ? "auto" : "1024x1024");
-
+  const isGptImage = isGptImageModel(model);
   const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, OPENAI_FALLBACK_BASE);
   console.log(
-    `[OpenAIImages] model=${model} imageToImage=${isImageToImage} size=${size} quality=${quality ?? "default"} baseUrl=${baseUrl} prompt="${prompt.slice(0, 80)}"`,
+    `[OpenAIImages] model=${model} compatibleMode=${ctx.credential.useCompatibleMode} imageToImage=${isImageToImage} baseUrl=${baseUrl} prompt="${prompt.slice(0, 80)}"`,
   );
 
   const headers = {
@@ -208,19 +198,21 @@ export async function callOpenAIImages(
             const formData = new FormData();
             formData.append("model", model);
             formData.append("prompt", prompt);
-            formData.append("n", "1");
-            formData.append("size", size);
-            appendFormDataField(formData, "quality", quality);
-            appendFormDataField(formData, "background", options.background);
-            appendFormDataField(formData, "output_format", options.outputFormat);
-            appendFormDataField(
-              formData,
-              "output_compression",
-              options.outputCompression,
-            );
+
+            // GPT Image 图生图使用 OpenAI 官方 multipart 字段 image[]，且默认只发必填字段。
+            // 兼容模式只变更目标服务，不应继承旧 DALL-E 的 size/quality 等参数。
             referenceImages.forEach((image) => {
-              formData.append("image", image.blob, image.filename);
+              formData.append(
+                isGptImage ? "image[]" : "image",
+                image.blob,
+                image.filename,
+              );
             });
+            if (!isGptImage) {
+              formData.append("n", "1");
+              appendFormDataField(formData, "size", options.size ?? "1024x1024");
+              appendFormDataField(formData, "quality", options.quality);
+            }
             return formData;
           })(),
         })
@@ -234,8 +226,8 @@ export async function callOpenAIImages(
             model,
             prompt,
             n: 1,
-            size,
-            ...(quality ? { quality } : {}),
+            ...(options.size ? { size: options.size } : {}),
+            ...(options.quality ? { quality: options.quality } : {}),
             ...(options.background ? { background: options.background } : {}),
             ...(options.outputFormat
               ? { output_format: options.outputFormat }
@@ -248,14 +240,11 @@ export async function callOpenAIImages(
         });
 
   if (!res.ok) {
+    const errorText = await res.clone().text();
     console.error(
-      `[OpenAIImages] upstream error ${res.status} ${res.statusText} model=${model}`,
+      `[OpenAIImages] upstream error ${res.status} ${res.statusText} model=${model} body=${errorText.slice(0, 1000)}`,
     );
-    return new Response(res.body, {
-      status: res.status,
-      statusText: res.statusText,
-      headers: copyResponseHeaders(res),
-    });
+    return upstreamErrorResponse(res);
   }
 
   const json = await res.json();

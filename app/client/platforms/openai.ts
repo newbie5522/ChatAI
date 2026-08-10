@@ -79,8 +79,8 @@ export interface DalleRequestPayload {
   prompt: string;
   image_urls?: string[];
   response_format?: "url" | "b64_json";
-  n: number;
-  size: ModelSize;
+  n?: number;
+  size?: ModelSize;
   quality?: DalleQuality;
   style?: DalleStyle;
 }
@@ -246,20 +246,25 @@ export class ChatGPTApi implements LLMApi {
       const prompt = getMessageTextContent(lastMessage);
       const imageUrls = getMessageImages(lastMessage).filter(Boolean);
       const isGptImage = requestedModel.toLowerCase().startsWith("gpt-image-");
-      const defaultSize =
-        imageUrls.length > 0 && isGptImage ? "auto" : "1024x1024";
-      requestPayload = {
+      const imageRequest = {
         model: options.config.model,
         prompt,
         ...(imageUrls.length > 0 ? { image_urls: imageUrls } : {}),
-        n: 1,
-        size: modelConfig.size ?? defaultSize,
-        ...(modelConfig.quality
-          ? { quality: modelConfig.quality }
-          : isGptImage
-            ? { quality: "high" }
-            : {}),
       };
+
+      // GPT Image 图生图采用官方最小请求：model、prompt、image[]。
+      // 尺寸和质量属于后续由专属界面显式控制的可选参数，不能继承旧 DALL-E 会话默认值。
+      requestPayload =
+        imageUrls.length > 0 && isGptImage
+          ? imageRequest
+          : {
+              ...imageRequest,
+              n: 1,
+              size: modelConfig.size ?? "1024x1024",
+              ...(modelConfig.quality
+                ? { quality: modelConfig.quality }
+                : {}),
+            };
     } else {
       const accountStore = useAccountStore.getState();
       const accountModel = findAccountModel(
