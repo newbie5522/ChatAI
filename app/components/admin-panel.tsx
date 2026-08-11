@@ -47,6 +47,8 @@ interface AdminCredential {
   priority: number;
   baseUrl?: string;
   useCompatibleMode: boolean;
+  categoryScope: ModelCategory | "all";
+  name?: string;
 }
 
 interface AdminModel {
@@ -102,6 +104,7 @@ interface ProviderForm {
   keyConfigured: boolean;
   enabled: boolean;
   useCompatibleMode: boolean;
+  categoryScope: ModelCategory | "all";
 }
 
 type QuotaFormField =
@@ -146,6 +149,18 @@ const PROVIDER_NAMES: Record<ModelProvider, string> = {
 };
 
 const CATEGORIES: ModelCategory[] = ["chat", "search", "image", "video"];
+
+const CATEGORY_SCOPE_OPTIONS: Array<{ value: ModelCategory | "all"; label: string }> = [
+  { value: "all", label: "全部" },
+  { value: "chat", label: "对话" },
+  { value: "image", label: "图片" },
+  { value: "search", label: "搜索" },
+  { value: "video", label: "视频" },
+];
+
+function getCategoryScopeLabel(scope: ModelCategory | "all"): string {
+  return CATEGORY_SCOPE_OPTIONS.find((o) => o.value === scope)?.label ?? "全部";
+}
 
 const TABS: Array<{ id: AdminTab; label: string }> = [
   { id: "members", label: "成员" },
@@ -571,11 +586,10 @@ export function AdminPanel() {
     }
   };
 
-  const primaryCredential = (provider: ModelProvider) =>
-    credentials.find((credential) => credential.provider === provider);
+  const providerCredentials = (provider: ModelProvider) =>
+    credentials.filter((credential) => credential.provider === provider);
 
-  const openProvider = (provider: ModelProvider) => {
-    const credential = primaryCredential(provider);
+  const openProvider = (provider: ModelProvider, credential?: AdminCredential) => {
     setAccountForm(null);
     setResetAccount(null);
     setResetPassword("");
@@ -591,6 +605,7 @@ export function AdminPanel() {
       keyConfigured: credential?.keyConfigured ?? false,
       enabled: credential?.enabled ?? false,
       useCompatibleMode: credential?.useCompatibleMode ?? false,
+      categoryScope: credential?.categoryScope ?? "all",
     });
   };
 
@@ -620,6 +635,7 @@ export function AdminPanel() {
             baseUrl: providerForm.baseUrl,
             enabled: providerForm.enabled,
             useCompatibleMode: providerForm.useCompatibleMode,
+            categoryScope: providerForm.categoryScope,
           }),
         },
       );
@@ -919,40 +935,60 @@ export function AdminPanel() {
           <h2>服务商</h2>
           <div className={styles["provider-grid"]}>
             {PROVIDERS.map((provider) => {
-              const credential = primaryCredential(provider);
-              const configured = credential?.keyConfigured ?? false;
-              const providerEnabled = credential?.enabled ?? false;
-              const baseUrlConfigured = !!credential?.baseUrl?.trim();
-              const compatibleMode = credential?.useCompatibleMode ?? false;
-              const providerStatus = !configured
-                ? "未配置"
-                : providerEnabled
-                ? "已启用"
-                : "已停用";
+              const creds = providerCredentials(provider);
+              const hasEnabled = creds.some((c) => c.enabled && c.keyConfigured);
+              const providerStatus =
+                creds.length === 0
+                  ? "未配置"
+                  : hasEnabled
+                  ? "已启用"
+                  : "已停用";
               return (
                 <article className={styles.provider} key={provider}>
                   <div className={styles["provider-header"]}>
                     <strong>{PROVIDER_NAMES[provider]}</strong>
                     <span>{providerStatus}</span>
                   </div>
-                  <div>密钥：{configured ? "已配置" : "未配置"}</div>
-                  {baseUrlConfigured && (
-                    <div
-                      className={styles["provider-baseurl"]}
-                      title={credential?.baseUrl}
-                    >
-                      中转地址：{credential?.baseUrl}
-                    </div>
+                  {creds.length === 0 ? (
+                    <div className={styles.subtle}>暂无凭据，请添加</div>
+                  ) : (
+                    creds.map((cred) => (
+                      <div
+                        key={cred.id}
+                        className={styles["provider-credential"]}
+                        style={{
+                          padding: "8px 0",
+                          borderTop: "1px solid var(--color-in-border)",
+                        }}
+                      >
+                        <div>
+                          适用类别：{getCategoryScopeLabel(cred.categoryScope)}
+                          {" | "}
+                          密钥：{cred.keyConfigured ? "已配置" : "未配置"}
+                          {" | "}
+                          状态：{cred.enabled ? "已启用" : "已停用"}
+                        </div>
+                        {cred.baseUrl?.trim() && (
+                          <div
+                            className={styles["provider-baseurl"]}
+                            title={cred.baseUrl}
+                          >
+                            中转地址：{cred.baseUrl}
+                          </div>
+                        )}
+                        <div>
+                          兼容模式：{cred.useCompatibleMode ? "已开启" : "已关闭"}
+                        </div>
+                        <IconButton
+                          text="编辑"
+                          disabled={savingProvider}
+                          onClick={() => openProvider(provider, cred)}
+                        />
+                      </div>
+                    ))
                   )}
-                  <div>
-                    兼容模式：{compatibleMode ? "已开启" : "已关闭"}
-                  </div>
-                  <div>
-                    模型状态：
-                    {configured && providerEnabled ? "可使用" : "暂不可用"}
-                  </div>
                   <IconButton
-                    text="配置"
+                    text="添加凭据"
                     disabled={savingProvider}
                     onClick={() => openProvider(provider)}
                   />
@@ -1441,7 +1477,7 @@ export function AdminPanel() {
 
       {activeTab === "providers" && providerForm && (
         <Modal
-          title={`配置 ${PROVIDER_NAMES[providerForm.provider]}`}
+          title={`配置 ${PROVIDER_NAMES[providerForm.provider]} - ${getCategoryScopeLabel(providerForm.categoryScope)}`}
           onClose={() => {
             setProviderForm(null);
             setProviderFormError("");
@@ -1468,6 +1504,27 @@ export function AdminPanel() {
           ]}
         >
           <div className={`${styles["modal-form"]} ${styles["provider-form"]}`}>
+            <label>
+              <span>适用类别</span>
+              <small>选择此凭据适用的功能类别。可为对话和图片分别配置不同密钥</small>
+              <select
+                value={providerForm.categoryScope}
+                disabled={!!providerForm.id}
+                onChange={(e) =>
+                  setProviderForm({
+                    ...providerForm,
+                    categoryScope: e.currentTarget
+                      .value as ModelCategory | "all",
+                  })
+                }
+              >
+                {CATEGORY_SCOPE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label>
               <span>API Key</span>
               <small>服务商提供的访问密钥，修改时留空表示保留原密钥</small>

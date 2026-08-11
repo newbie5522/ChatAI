@@ -11,7 +11,14 @@ import {
 import { fetch as tauriStreamFetch } from "./utils/stream";
 import { VISION_MODEL_REGEXES, EXCLUDE_VISION_MODEL_REGEXES } from "./constant";
 import { useAccessStore } from "./store";
-import { ModelSize } from "./typing";
+import {
+  ModelSize,
+  MediaAspectRatio,
+  MediaQualityLevel,
+  MediaSizeOption,
+  MediaQualityOption,
+  MediaStyleOption,
+} from "./typing";
 
 export function trimTopic(topic: string) {
   // Fix an issue where double quotes still show in the Indonesian language
@@ -297,6 +304,35 @@ export function isDalle3(model: string) {
   return "dall-e-3" === (model || "");
 }
 
+export function isImageModel(model: string): boolean {
+  const m = (model || "").toLowerCase();
+  return (
+    m.startsWith("gpt-image-") ||
+    m === "dall-e-3" ||
+    m.includes("grok-imagine") ||
+    m.includes("flash-image") ||
+    m.includes("pro-image") ||
+    m.includes("cogview") ||
+    m.includes("flux") ||
+    m.includes("ideogram") ||
+    m.includes("stable-image")
+  );
+}
+
+export function isVideoModel(model: string): boolean {
+  const m = (model || "").toLowerCase();
+  return (
+    m.includes("sora") ||
+    m.includes("kling") ||
+    m.includes("jimeng") ||
+    m.includes("cogvideo") ||
+    m.includes("wanx-video") ||
+    m.includes("runway") ||
+    m.includes("luma") ||
+    m.includes("pika")
+  );
+}
+
 export function getTimeoutMSByModel(model: string) {
   model = (model || "").toLowerCase();
   if (
@@ -304,39 +340,181 @@ export function getTimeoutMSByModel(model: string) {
     model.startsWith("dalle") ||
     model.startsWith("o1") ||
     model.startsWith("o3") ||
+    model.startsWith("gpt-image-") ||
+    model.includes("grok-imagine") ||
     model.includes("deepseek-r") ||
-    model.includes("-thinking")
+    model.includes("-thinking") ||
+    isVideoModel(model)
   )
     return REQUEST_TIMEOUT_MS_FOR_THINKING;
   return REQUEST_TIMEOUT_MS;
 }
 
+// --- Unified media parameter capability system ---
+
+const ALL_ASPECT_RATIOS: MediaAspectRatio[] = [
+  "auto",
+  "1:1",
+  "3:2",
+  "3:4",
+  "9:16",
+  "16:9",
+  "custom",
+];
+
+const ALL_QUALITY_LEVELS: MediaQualityLevel[] = [
+  "auto",
+  "1k",
+  "2k",
+  "3k",
+  "4k",
+];
+
+// Per-model size capability definitions
+// Each entry maps aspect ratio labels to the model's actual API size values
+const MODEL_SIZE_MAP: Record<string, Partial<Record<MediaAspectRatio, string>>> = {
+  "gpt-image-": {
+    "auto": "auto",
+    "1:1": "1024x1024",
+    "3:2": "1536x1024",
+    "9:16": "1024x1536",
+  },
+  "dall-e-3": {
+    "1:1": "1024x1024",
+    "16:9": "1792x1024",
+    "9:16": "1024x1792",
+  },
+  "grok-imagine": {
+    "1:1": "1024x1024",
+    "16:9": "1792x1024",
+    "9:16": "1024x1792",
+  },
+  "flash-image": {
+    "1:1": "1024x1024",
+  },
+  "pro-image": {
+    "1:1": "1024x1024",
+  },
+  "cogview": {
+    "1:1": "1024x1024",
+    "3:4": "768x1344",
+    "3:2": "1344x768",
+    "9:16": "720x1440",
+    "16:9": "1440x720",
+  },
+  "flux": {
+    "1:1": "1024x1024",
+    "3:2": "1344x768",
+    "3:4": "768x1344",
+    "9:16": "720x1440",
+    "16:9": "1440x720",
+  },
+  "stable-image": {
+    "1:1": "1024x1024",
+    "3:2": "1536x1024",
+    "3:4": "1024x1536",
+    "16:9": "1792x1024",
+    "9:16": "1024x1792",
+  },
+  "ideogram": {
+    "1:1": "1024x1024",
+    "3:2": "1024x768",
+    "3:4": "768x1024",
+    "16:9": "1280x1024",
+    "9:16": "1024x1280",
+  },
+  // Video models — use aspect ratio strings as API values
+  "sora": {
+    "auto": "auto",
+    "1:1": "1:1",
+    "9:16": "9:16",
+    "16:9": "16:9",
+  },
+  "kling": {
+    "auto": "auto",
+    "1:1": "1:1",
+    "9:16": "9:16",
+    "16:9": "16:9",
+  },
+  "jimeng": {
+    "auto": "auto",
+    "1:1": "1:1",
+    "9:16": "9:16",
+    "16:9": "16:9",
+  },
+};
+
+// Per-model quality capability definitions
+const MODEL_QUALITY_MAP: Record<string, Partial<Record<MediaQualityLevel, string>>> = {
+  "gpt-image-": {
+    "auto": "auto",
+    "1k": "low",
+    "2k": "medium",
+    "4k": "high",
+  },
+  "dall-e-3": {
+    "1k": "standard",
+    "2k": "hd",
+  },
+  "grok-imagine": {
+    "auto": "auto",
+    "1k": "low",
+    "2k": "medium",
+    "4k": "high",
+  },
+};
+
+// Per-model style options
+const MODEL_STYLE_MAP: Record<string, MediaStyleOption[]> = {
+  "dall-e-3": [
+    { label: "生动", apiValue: "vivid" },
+    { label: "自然", apiValue: "natural" },
+  ],
+};
+
+function matchModelKey(model: string, map: Record<string, any>): string | null {
+  const m = (model || "").toLowerCase();
+  for (const key of Object.keys(map)) {
+    if (m.includes(key)) return key;
+  }
+  return null;
+}
+
+export function getMediaSizeOptions(model: string): MediaSizeOption[] {
+  const key = matchModelKey(model, MODEL_SIZE_MAP);
+  const sizeMap = key ? MODEL_SIZE_MAP[key] : {};
+  return ALL_ASPECT_RATIOS.map((ratio) => ({
+    label: ratio,
+    apiValue: sizeMap[ratio] || "",
+    disabled: !sizeMap[ratio] && ratio !== "custom",
+  }));
+}
+
+export function getMediaQualityOptions(model: string): MediaQualityOption[] {
+  const key = matchModelKey(model, MODEL_QUALITY_MAP);
+  const qualityMap = key ? MODEL_QUALITY_MAP[key] : {};
+  return ALL_QUALITY_LEVELS.map((level) => ({
+    label: level,
+    apiValue: qualityMap[level] || "",
+    disabled: !qualityMap[level],
+  }));
+}
+
+export function getMediaStyleOptions(model: string): MediaStyleOption[] {
+  const key = matchModelKey(model, MODEL_STYLE_MAP);
+  return key ? MODEL_STYLE_MAP[key] : [];
+}
+
+export function isMediaModel(model: string): boolean {
+  return isImageModel(model) || isVideoModel(model);
+}
+
+// Keep backward compatibility
 export function getModelSizes(model: string): ModelSize[] {
-  model = model || "";
-  if (isDalle3(model)) {
-    return ["1024x1024", "1792x1024", "1024x1792"];
-  }
-  if (model.toLowerCase().startsWith("gpt-image-")) {
-    return [
-      "auto",
-      "1024x1024",
-      "1536x1024",
-      "1024x1536",
-      "2048x2048",
-    ];
-  }
-  if (model.toLowerCase().includes("cogview")) {
-    return [
-      "1024x1024",
-      "768x1344",
-      "864x1152",
-      "1344x768",
-      "1152x864",
-      "1440x720",
-      "720x1440",
-    ];
-  }
-  return [];
+  const options = getMediaSizeOptions(model);
+  return options
+    .filter((o) => !o.disabled && o.apiValue)
+    .map((o) => o.apiValue as ModelSize);
 }
 
 export function supportsCustomSize(model: string): boolean {

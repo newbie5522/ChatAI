@@ -1,5 +1,5 @@
 import { LLMModel } from "../client/api";
-import { DalleQuality, DalleStyle, ModelSize } from "../typing";
+// ModelSize, DalleQuality, DalleStyle are now string-typed in DEFAULT_CONFIG
 import { getClientConfig } from "../config/client";
 import {
   DEFAULT_INPUT_TEMPLATE,
@@ -78,9 +78,9 @@ export const DEFAULT_CONFIG = {
     compressProviderName: "",
     enableInjectSystemPrompts: true,
     template: config?.template ?? DEFAULT_INPUT_TEMPLATE,
-    size: "1024x1024" as ModelSize,
-    quality: "standard" as DalleQuality,
-    style: "vivid" as DalleStyle,
+    size: "auto" as string,
+    quality: "auto" as string,
+    style: "vivid" as string,
   },
 
   ttsConfig: {

@@ -640,9 +640,25 @@ export function listProviderCredentialsPublic(): PublicProviderCredential[] {
   });
 }
 
-export function getPrimaryProviderCredential(provider: ModelProvider) {
+export function getPrimaryProviderCredential(
+  provider: ModelProvider,
+  category?: ModelCategory,
+  modelId?: string,
+) {
   return listProviderCredentials(true)
     .filter((credential) => credential.provider === provider)
+    .filter((credential) => {
+      if (!category) return true;
+      return (
+        credential.categoryScope === "all" ||
+        credential.categoryScope === category
+      );
+    })
+    .filter((credential) => {
+      if (!modelId) return true;
+      const ids = credential.modelIds ?? [];
+      return ids.length === 0 || ids.includes(modelId);
+    })
     .sort(
       (a, b) =>
         a.priority - b.priority ||
@@ -652,8 +668,12 @@ export function getPrimaryProviderCredential(provider: ModelProvider) {
     .at(0);
 }
 
-export function getPrimaryProviderCredentialPublic(provider: ModelProvider) {
-  const primary = getPrimaryProviderCredential(provider);
+export function getPrimaryProviderCredentialPublic(
+  provider: ModelProvider,
+  category?: ModelCategory,
+  modelId?: string,
+) {
+  const primary = getPrimaryProviderCredential(provider, category, modelId);
   return primary
     ? listProviderCredentialsPublic().find(
         (credential) => credential.id === primary.id,
@@ -785,7 +805,11 @@ export function getCompanyModelForRequest(
 
 export function selectProviderCredentialForModel(model: CompanyModel) {
   if (!isProviderEnabled(model.provider)) return undefined;
-  const credential = getPrimaryProviderCredential(model.provider);
+  const credential = getPrimaryProviderCredential(
+    model.provider,
+    model.category,
+    model.id,
+  );
   return credential?.enabled && credential.apiKey.trim().length > 0
     ? credential
     : undefined;

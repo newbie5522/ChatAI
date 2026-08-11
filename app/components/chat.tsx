@@ -70,8 +70,12 @@ import {
   getMessageTextContent,
   isDalle3,
   safeLocalStorage,
-  getModelSizes,
-  supportsCustomSize,
+  isMediaModel,
+  isImageModel,
+  isVideoModel,
+  getMediaSizeOptions,
+  getMediaQualityOptions,
+  getMediaStyleOptions,
   useMobileScreen,
   selectOrCopy,
   showPlugins,
@@ -80,7 +84,6 @@ import {
 import dynamic from "next/dynamic";
 
 import { ChatControllerPool } from "../client/controller";
-import { DalleQuality, DalleStyle, ModelSize } from "../typing";
 import { Prompt, usePromptStore } from "../store/prompt";
 import Locale from "../locales";
 
@@ -545,19 +548,36 @@ export function ChatActions(props: {
     return model?.displayName ?? model?.name ?? "暂无可用模型";
   }, [models, currentModel, currentProviderName]);
   const [showPluginSelector, setShowPluginSelector] = useState(false);
-  const [showSizeSelector, setShowSizeSelector] = useState(false);
-  const [showQualitySelector, setShowQualitySelector] = useState(false);
-  const [showStyleSelector, setShowStyleSelector] = useState(false);
-  const modelSizes = getModelSizes(currentModel);
   const isGptImage = currentModel.toLowerCase().startsWith("gpt-image-");
-  const imageQualityOptions: DalleQuality[] = isGptImage
-    ? ["auto", "low", "medium", "high"]
-    : ["standard", "hd"];
-  const dalle3Styles: DalleStyle[] = ["vivid", "natural"];
-  const currentSize =
-    session.mask.modelConfig?.size ?? ("1024x1024" as ModelSize);
-  const currentQuality = session.mask.modelConfig?.quality ?? "standard";
+  const isMedia = isMediaModel(currentModel);
+  const sizeOptions = useMemo(
+    () => getMediaSizeOptions(currentModel),
+    [currentModel],
+  );
+  const qualityOptions = useMemo(
+    () => getMediaQualityOptions(currentModel),
+    [currentModel],
+  );
+  const styleOptions = useMemo(
+    () => getMediaStyleOptions(currentModel),
+    [currentModel],
+  );
+  const hasSizeOptions = sizeOptions.some((o) => !o.disabled);
+  const hasQualityOptions = qualityOptions.some((o) => !o.disabled);
+  const hasStyleOptions = styleOptions.length > 0;
+  const currentSize = session.mask.modelConfig?.size ?? "auto";
+  const currentQuality = session.mask.modelConfig?.quality ?? "auto";
   const currentStyle = session.mask.modelConfig?.style ?? "vivid";
+  // Check if current size/quality matches a preset option
+  const sizePresetValues = useMemo(
+    () => new Set(sizeOptions.filter((o) => !o.disabled && o.apiValue).map((o) => o.apiValue)),
+    [sizeOptions],
+  );
+  const isCustomSize = currentSize !== "auto" && !sizePresetValues.has(currentSize);
+  const qualityPresetValues = useMemo(
+    () => new Set(qualityOptions.filter((o) => !o.disabled && o.apiValue).map((o) => o.apiValue)),
+    [qualityOptions],
+  );
 
   const isMobileScreen = useMobileScreen();
 
@@ -580,6 +600,25 @@ export function ChatActions(props: {
       showToast(nextModel.displayName ?? nextModel.name);
     }
   }, [chatStore, currentModel, currentProviderName, models, session]);
+
+  // Reset size/quality when model changes if current value is not supported
+  useEffect(() => {
+    if (!isMedia) return;
+    // If current size is not a preset and not "auto", reset to "auto"
+    if (currentSize !== "auto" && !sizePresetValues.has(currentSize)) {
+      chatStore.updateTargetSession(session, (s) => {
+        s.mask.modelConfig.size = "auto";
+      });
+    }
+    // If current quality is not supported, reset to "auto" or first available
+    if (currentQuality !== "auto" && !qualityPresetValues.has(currentQuality)) {
+      const firstAvailable = qualityOptions.find((o) => !o.disabled && o.apiValue);
+      chatStore.updateTargetSession(session, (s) => {
+        s.mask.modelConfig.quality = firstAvailable?.apiValue || "auto";
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentModel]);
 
   return (
     <div className={styles["chat-input-actions"]}>
@@ -729,85 +768,104 @@ export function ChatActions(props: {
           </select>
         </label>
 
-        {supportsCustomSize(currentModel) && (
-          <ChatAction
-            onClick={() => setShowSizeSelector(true)}
-            text={currentSize}
-            icon={<SizeIcon />}
-          />
+        {isMedia && hasSizeOptions && (
+          <label
+            className={styles["model-select"]}
+            title="尺寸"
+            aria-label="选择尺寸"
+          >
+            <SizeIcon />
+            <select
+              value={isCustomSize ? "__custom__" : currentSize}
+              onChange={async (e) => {
+                const val = e.target.value;
+                if (val === "__custom__") {
+                  const custom = await showPrompt(
+                    "自定义尺寸 - 请输入宽x高 (如 1024x768)",
+                    currentSize,
+                  );
+                  if (custom && /^\d+x\d+$/.test(custom)) {
+                    chatStore.updateTargetSession(session, (s) => {
+                      s.mask.modelConfig.size = custom;
+                    });
+                  }
+                } else {
+                  chatStore.updateTargetSession(session, (s) => {
+                    s.mask.modelConfig.size = val;
+                  });
+                }
+              }}
+            >
+              {sizeOptions.map((opt) => (
+                <option
+                  key={opt.label}
+                  value={opt.apiValue || "__disabled__"}
+                  disabled={opt.disabled}
+                >
+                  {opt.label === "auto"
+                    ? "自动"
+                    : opt.label === "custom"
+                      ? "自定义"
+                      : opt.label}
+                </option>
+              ))}
+              {isCustomSize && (
+                <option value="__custom__">自定义 ({currentSize})</option>
+              )}
+            </select>
+          </label>
         )}
 
-        {showSizeSelector && (
-          <Selector
-            defaultSelectedValue={currentSize}
-            items={modelSizes.map((m) => ({
-              title: m,
-              value: m,
-            }))}
-            onClose={() => setShowSizeSelector(false)}
-            onSelection={(s) => {
-              if (s.length === 0) return;
-              const size = s[0];
-              chatStore.updateTargetSession(session, (session) => {
-                session.mask.modelConfig.size = size;
-              });
-              showToast(size);
-            }}
-          />
+        {isMedia && hasQualityOptions && (
+          <label
+            className={styles["model-select"]}
+            title="清晰度"
+            aria-label="选择清晰度"
+          >
+            <QualityIcon />
+            <select
+              value={currentQuality}
+              onChange={(e) => {
+                chatStore.updateTargetSession(session, (s) => {
+                  s.mask.modelConfig.quality = e.target.value;
+                });
+              }}
+            >
+              {qualityOptions.map((opt) => (
+                <option
+                  key={opt.label}
+                  value={opt.apiValue || "__disabled__"}
+                  disabled={opt.disabled}
+                >
+                  {opt.label === "auto" ? "自动" : opt.label.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
 
-        {(isDalle3(currentModel) || isGptImage) && (
-          <ChatAction
-            onClick={() => setShowQualitySelector(true)}
-            text={currentQuality}
-            icon={<QualityIcon />}
-          />
-        )}
-
-        {showQualitySelector && (
-          <Selector
-            defaultSelectedValue={currentQuality}
-            items={imageQualityOptions.map((m) => ({
-              title: m,
-              value: m,
-            }))}
-            onClose={() => setShowQualitySelector(false)}
-            onSelection={(q) => {
-              if (q.length === 0) return;
-              const quality = q[0];
-              chatStore.updateTargetSession(session, (session) => {
-                session.mask.modelConfig.quality = quality;
-              });
-              showToast(quality);
-            }}
-          />
-        )}
-
-        {isDalle3(currentModel) && (
-          <ChatAction
-            onClick={() => setShowStyleSelector(true)}
-            text={currentStyle}
-            icon={<StyleIcon />}
-          />
-        )}
-
-        {showStyleSelector && (
-          <Selector
-            defaultSelectedValue={currentStyle}
-            items={dalle3Styles.map((m) => ({
-              title: m,
-              value: m,
-            }))}
-            onClose={() => setShowStyleSelector(false)}
-            onSelection={(s) => {
-              if (s.length === 0) return;
-              const style = s[0];
-              chatStore.updateTargetSession(session, (session) => {
-                session.mask.modelConfig.style = style;
-              });
-              showToast(style);
-            }}
-          />
+        {isMedia && hasStyleOptions && (
+          <label
+            className={styles["model-select"]}
+            title="风格"
+            aria-label="选择风格"
+          >
+            <StyleIcon />
+            <select
+              value={currentStyle}
+              onChange={(e) => {
+                chatStore.updateTargetSession(session, (s) => {
+                  s.mask.modelConfig.style = e.target.value;
+                });
+              }}
+            >
+              {styleOptions.map((opt) => (
+                <option key={opt.apiValue} value={opt.apiValue}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
 
         {showPlugins(currentProviderName, currentModel) && (

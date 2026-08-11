@@ -241,7 +241,7 @@ export function stream(
   options: any,
 ) {
   let responseText = "";
-  let remainText = "";
+  let pendingText = ""; // text received but not yet flushed
   let finished = false;
   let running = false;
   let runTools: any[] = [];
@@ -252,7 +252,7 @@ export function stream(
     const normalized =
       error instanceof Error ? error : new Error(String(error || ""));
     finished = true;
-    remainText = "";
+    pendingText = "";
     if (!errorNotified) {
       errorNotified = true;
       options?.onError?.(normalized);
@@ -260,30 +260,31 @@ export function stream(
     return normalized;
   }
 
-  // animate response to make it looks smooth
-  function animateResponseText() {
+  // flush all pending text in one frame (no typewriter delay)
+  function flushPending() {
+    if (pendingText.length > 0) {
+      responseText += pendingText;
+      const delta = pendingText;
+      pendingText = "";
+      options.onUpdate?.(responseText, delta);
+    }
+  }
+
+  // frame-throttled update: flush at most once per animation frame
+  function frameFlush() {
     if (finished || controller.signal.aborted) {
-      responseText += remainText;
-      console.log("[Response Animation] finished");
+      flushPending();
       if (!errorNotified && responseText?.length === 0) {
         options.onError?.(new Error("empty response from server"));
       }
       return;
     }
-
-    if (remainText.length > 0) {
-      const fetchCount = Math.max(1, Math.round(remainText.length / 60));
-      const fetchText = remainText.slice(0, fetchCount);
-      responseText += fetchText;
-      remainText = remainText.slice(fetchCount);
-      options.onUpdate?.(responseText, fetchText);
-    }
-
-    requestAnimationFrame(animateResponseText);
+    flushPending();
+    requestAnimationFrame(frameFlush);
   }
 
-  // start animaion
-  animateResponseText();
+  // start frame-throttled flush
+  frameFlush();
 
   const finish = () => {
     if (!finished) {
@@ -357,7 +358,8 @@ export function stream(
       }
       console.debug("[ChatAPI] end");
       finished = true;
-      options.onFinish(responseText + remainText, responseRes); // 将res传递给onFinish
+      flushPending();
+      options.onFinish(responseText, responseRes);
     }
   };
 
@@ -413,7 +415,7 @@ export function stream(
         try {
           const chunk = parseSSE(text, runTools);
           if (chunk) {
-            remainText += chunk;
+            pendingText += chunk;
           }
         } catch (e) {
           console.error("[Request] parse error", text, msg, e);
@@ -454,7 +456,7 @@ export function streamWithThink(
   options: any,
 ) {
   let responseText = "";
-  let remainText = "";
+  let pendingText = ""; // text received but not yet flushed
   let finished = false;
   let running = false;
   let runTools: any[] = [];
@@ -468,7 +470,7 @@ export function streamWithThink(
     const normalized =
       error instanceof Error ? error : new Error(String(error || ""));
     finished = true;
-    remainText = "";
+    pendingText = "";
     if (!errorNotified) {
       errorNotified = true;
       options?.onError?.(normalized);
@@ -476,30 +478,31 @@ export function streamWithThink(
     return normalized;
   }
 
-  // animate response to make it looks smooth
-  function animateResponseText() {
+  // flush all pending text in one frame (no typewriter delay)
+  function flushPending() {
+    if (pendingText.length > 0) {
+      responseText += pendingText;
+      const delta = pendingText;
+      pendingText = "";
+      options.onUpdate?.(responseText, delta);
+    }
+  }
+
+  // frame-throttled update: flush at most once per animation frame
+  function frameFlush() {
     if (finished || controller.signal.aborted) {
-      responseText += remainText;
-      console.log("[Response Animation] finished");
+      flushPending();
       if (!errorNotified && responseText?.length === 0) {
         options.onError?.(new Error("empty response from server"));
       }
       return;
     }
-
-    if (remainText.length > 0) {
-      const fetchCount = Math.max(1, Math.round(remainText.length / 60));
-      const fetchText = remainText.slice(0, fetchCount);
-      responseText += fetchText;
-      remainText = remainText.slice(fetchCount);
-      options.onUpdate?.(responseText, fetchText);
-    }
-
-    requestAnimationFrame(animateResponseText);
+    flushPending();
+    requestAnimationFrame(frameFlush);
   }
 
-  // start animaion
-  animateResponseText();
+  // start frame-throttled flush
+  frameFlush();
 
   const finish = () => {
     if (!finished) {
@@ -573,7 +576,8 @@ export function streamWithThink(
       }
       console.debug("[ChatAPI] end");
       finished = true;
-      options.onFinish(responseText + remainText, responseRes);
+      flushPending();
+      options.onFinish(responseText, responseRes);
     }
   };
 
@@ -658,17 +662,17 @@ export function streamWithThink(
             if (!isInThinkingMode || isThinkingChanged) {
               // If this is a new thinking block or mode changed, add prefix
               isInThinkingMode = true;
-              if (remainText.length > 0) {
-                remainText += "\n";
+              if (pendingText.length > 0) {
+                pendingText += "\n";
               }
-              remainText += "> " + chunk.content;
+              pendingText += "> " + chunk.content;
             } else {
               // Handle newlines in thinking content
               if (chunk.content.includes("\n\n")) {
                 const lines = chunk.content.split("\n\n");
-                remainText += lines.join("\n\n> ");
+                pendingText += lines.join("\n\n> ");
               } else {
-                remainText += chunk.content;
+                pendingText += chunk.content;
               }
             }
           } else {
@@ -676,9 +680,9 @@ export function streamWithThink(
             if (isInThinkingMode || isThinkingChanged) {
               // If switching from thinking mode to normal mode
               isInThinkingMode = false;
-              remainText += "\n\n" + chunk.content;
+              pendingText += "\n\n" + chunk.content;
             } else {
-              remainText += chunk.content;
+              pendingText += chunk.content;
             }
           }
         } catch (e) {

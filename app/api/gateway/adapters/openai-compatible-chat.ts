@@ -28,7 +28,16 @@ const FORWARDED_FIELDS = [
   "temperature",
   "top_p",
   "max_tokens",
+  "max_completion_tokens",
+  "frequency_penalty",
+  "presence_penalty",
   "response_format",
+  "seed",
+  "stop",
+  "user",
+  "n",
+  "logprobs",
+  "top_logprobs",
 ] as const;
 
 function requestBody(bodyText?: string) {

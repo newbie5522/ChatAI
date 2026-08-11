@@ -24,8 +24,6 @@ import {
   getCompanyModelById,
   getCompanyModelForRequest,
   getManageableCompanyModelsForAdmin,
-  getPrimaryProviderCredential,
-  getPrimaryProviderCredentialPublic,
   listProviderCredentials,
   listProviderCredentialsPublic,
   saveAccountRecord,
@@ -424,12 +422,7 @@ function removeAccount(id: string, actor: SafeAccountRecord) {
 function listCredentials() {
   return NextResponse.json({
     error: false,
-    credentials: ADMIN_PROVIDER_IDS.map(
-      getPrimaryProviderCredentialPublic,
-    ).filter(
-      (credential): credential is NonNullable<typeof credential> =>
-        !!credential,
-    ),
+    credentials: listProviderCredentialsPublic(),
   });
 }
 
@@ -446,7 +439,28 @@ async function createCredential(req: NextRequest) {
       { status: 400 },
     );
   }
-  const existing = getPrimaryProviderCredential(provider);
+  const categoryScopeRaw = String(body.categoryScope ?? "all").toLowerCase();
+  const categoryScope =
+    categoryScopeRaw === "all" ||
+    (["chat", "image", "search", "video"] as const).includes(
+      categoryScopeRaw as "chat" | "image" | "search" | "video",
+    )
+      ? (categoryScopeRaw as ModelCategory | "all")
+      : ("all" as const);
+  const modelIds = toList(body.modelIds);
+  const priority =
+    typeof body.priority === "number" && Number.isFinite(body.priority)
+      ? body.priority
+      : 100;
+  const name =
+    typeof body.name === "string" && body.name.trim()
+      ? body.name.trim()
+      : undefined;
+  const existing = listProviderCredentials(true).find(
+    (credential) =>
+      credential.provider === provider &&
+      credential.categoryScope === categoryScope,
+  );
   const apiKey =
     typeof body.apiKey === "string" && body.apiKey.trim()
       ? body.apiKey.trim()
@@ -476,14 +490,10 @@ async function createCredential(req: NextRequest) {
       baseUrl,
       enabled,
       useCompatibleMode,
-      ...(existing
-        ? {}
-        : {
-            name: `${String(body.provider)} 主配置`,
-            categoryScope: "all" as const,
-            modelIds: [],
-            priority: 100,
-          }),
+      categoryScope,
+      modelIds,
+      priority,
+      ...(name ? { name } : {}),
     });
     saveAdminProviderConfig(provider, { enabled, useCompatibleMode });
   } catch (error) {
@@ -509,10 +519,6 @@ async function updateCredential(req: NextRequest, id: string) {
     (credential) => credential.id === id,
   );
   if (!existing) return notFound("服务商配置不存在");
-  const primary = getPrimaryProviderCredential(existing.provider);
-  if (primary?.id !== existing.id) {
-    return forbidden("只能修改服务商主配置");
-  }
   const apiKey =
     typeof body.apiKey === "string" && body.apiKey.trim()
       ? body.apiKey
@@ -525,6 +531,26 @@ async function updateCredential(req: NextRequest, id: string) {
     typeof body.useCompatibleMode === "boolean"
       ? body.useCompatibleMode
       : existing.useCompatibleMode;
+  const categoryScopeRaw = String(body.categoryScope ?? existing.categoryScope).toLowerCase();
+  const categoryScope =
+    categoryScopeRaw === "all" ||
+    (["chat", "image", "search", "video"] as const).includes(
+      categoryScopeRaw as "chat" | "image" | "search" | "video",
+    )
+      ? (categoryScopeRaw as ModelCategory | "all")
+      : existing.categoryScope;
+  const modelIds =
+    Array.isArray(body.modelIds) && body.modelIds.length >= 0
+      ? toList(body.modelIds)
+      : existing.modelIds;
+  const priority =
+    typeof body.priority === "number" && Number.isFinite(body.priority)
+      ? body.priority
+      : existing.priority;
+  const name =
+    typeof body.name === "string" && body.name.trim()
+      ? body.name.trim()
+      : existing.name;
   let credential: ProviderCredential;
   try {
     credential = saveProviderCredential({
@@ -534,6 +560,10 @@ async function updateCredential(req: NextRequest, id: string) {
       baseUrl,
       enabled,
       useCompatibleMode,
+      categoryScope,
+      modelIds,
+      priority,
+      name,
     });
     saveAdminProviderConfig(existing.provider, { enabled, useCompatibleMode });
   } catch (error) {
