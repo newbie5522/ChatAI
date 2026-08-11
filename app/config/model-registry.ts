@@ -14,6 +14,7 @@ export type ModelCategory = "chat" | "image" | "search" | "video";
 export type ModelEndpointType =
   | "openai_responses"
   | "openai_images"
+  | "openai_compatible_video"
   | "anthropic_messages"
   | "google_interactions"
   | "google_generate_content"
@@ -428,6 +429,42 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     defaultEnabled: true,
     sort: 1120,
     capabilities: { reasoning: true, tools: true },
+  },
+  {
+    id: "openai:seedance-2-0",
+    provider: "openai",
+    category: "video",
+    displayName: "Seedance 2.0 (即梦)",
+    model: "bytedance/seedance-2.0",
+    endpointType: "openai_compatible_video",
+    enabled: false,
+    defaultEnabled: false,
+    sort: 1200,
+    capabilities: { videoGeneration: true },
+  },
+  {
+    id: "openai:kling-v3-0-pro",
+    provider: "openai",
+    category: "video",
+    displayName: "Kling 3.0 Pro (可灵)",
+    model: "kwaivgi/kling-v3.0-pro",
+    endpointType: "openai_compatible_video",
+    enabled: false,
+    defaultEnabled: false,
+    sort: 1210,
+    capabilities: { videoGeneration: true },
+  },
+  {
+    id: "openai:veo-3-1",
+    provider: "openai",
+    category: "video",
+    displayName: "Veo 3.1 (Google)",
+    model: "google/veo-3.1",
+    endpointType: "openai_compatible_video",
+    enabled: false,
+    defaultEnabled: false,
+    sort: 1220,
+    capabilities: { videoGeneration: true },
   },
 ];
 

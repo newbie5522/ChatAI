@@ -314,6 +314,22 @@ export function isImageModel(model: string): boolean {
   );
 }
 
+export function isVideoModel(model: string): boolean {
+  const m = (model || "").toLowerCase();
+  return (
+    m.includes("seedance") ||
+    m.includes("kling") ||
+    m.includes("veo-3") ||
+    m.includes("sora") ||
+    m.includes("cogvideo") ||
+    m.includes("wan-") ||
+    m.includes("runway") ||
+    m.includes("luma") ||
+    m.includes("pika") ||
+    m.includes("hailuo")
+  );
+}
+
 export function getTimeoutMSByModel(model: string) {
   model = (model || "").toLowerCase();
   if (
@@ -324,7 +340,8 @@ export function getTimeoutMSByModel(model: string) {
     model.startsWith("gpt-image-") ||
     model.includes("grok-imagine") ||
     model.includes("deepseek-r") ||
-    model.includes("-thinking")
+    model.includes("-thinking") ||
+    isVideoModel(model)
   )
     return REQUEST_TIMEOUT_MS_FOR_THINKING;
   return REQUEST_TIMEOUT_MS;
@@ -336,9 +353,12 @@ const ALL_ASPECT_RATIOS: MediaAspectRatio[] = [
   "auto",
   "1:1",
   "3:2",
+  "2:3",
   "3:4",
+  "4:3",
   "9:16",
   "16:9",
+  "21:9",
   "custom",
 ];
 
@@ -369,6 +389,29 @@ const MODEL_SIZE_MAP: Record<string, Partial<Record<MediaAspectRatio, string>>> 
   },
   "pro-image": {
     "1:1": "1024x1024",
+  },
+  // Video models — OpenRouter uses aspect ratio strings
+  "seedance": {
+    "auto": "auto",
+    "1:1": "1:1",
+    "9:16": "9:16",
+    "16:9": "16:9",
+    "3:4": "3:4",
+    "4:3": "4:3",
+  },
+  "kling": {
+    "auto": "auto",
+    "1:1": "1:1",
+    "9:16": "9:16",
+    "16:9": "16:9",
+  },
+  "veo-3": {
+    "auto": "auto",
+    "1:1": "1:1",
+    "9:16": "9:16",
+    "16:9": "16:9",
+    "3:4": "3:4",
+    "4:3": "4:3",
   },
 };
 
@@ -425,7 +468,7 @@ export function getMediaStyleOptions(model: string): MediaStyleOption[] {
 }
 
 export function isMediaModel(model: string): boolean {
-  return isImageModel(model);
+  return isImageModel(model) || isVideoModel(model);
 }
 
 // Keep backward compatibility
