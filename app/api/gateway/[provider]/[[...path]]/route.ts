@@ -31,7 +31,6 @@ import { callGoogleImage } from "../../adapters/google-image";
 import { callGoogleInteractions } from "../../adapters/google-interactions";
 import { callOpenAIImages } from "../../adapters/openai-images";
 import { callOpenAICompatibleChat } from "../../adapters/openai-compatible-chat";
-import { callOpenAICompatibleVideo } from "../../adapters/openai-compatible-video";
 import { callOpenAIResponses } from "../../adapters/openai-responses";
 import { callPerplexitySonar } from "../../adapters/perplexity-sonar";
 import type { GatewayAdapterContext } from "../../adapters/types";
@@ -90,9 +89,6 @@ function adapterFor(
   if (credential.useCompatibleMode && category === "image") {
     return callOpenAIImages;
   }
-  if (credential.useCompatibleMode && category === "video") {
-    return callOpenAICompatibleVideo;
-  }
 
   switch (endpointType) {
     case "openai_responses":
@@ -111,8 +107,6 @@ function adapterFor(
       return callPerplexitySonar;
     case "openai_compatible_chat":
       return callOpenAICompatibleChat;
-    case "openai_compatible_video":
-      return callOpenAICompatibleVideo;
     case "xai_images":
       return callXAIImages;
     case "not_implemented":

@@ -236,7 +236,6 @@ export class ChatGPTApi implements LLMApi {
       options.config.providerName,
     );
     const isImageModel = modelCategory === "image";
-    const isVideoModel = modelCategory === "video";
     const isO1OrO3 =
       requestedModel.startsWith("o1") ||
       requestedModel.startsWith("o3") ||
@@ -266,15 +265,6 @@ export class ChatGPTApi implements LLMApi {
                 ? { quality: modelConfig.quality }
                 : {}),
             };
-    } else if (isVideoModel) {
-      const lastMessage = options.messages.slice(-1)?.pop() as any;
-      const prompt = getMessageTextContent(lastMessage);
-      requestPayload = {
-        model: options.config.model,
-        prompt,
-        ...(modelConfig.size ? { size: modelConfig.size } : {}),
-        ...(modelConfig.quality ? { quality: modelConfig.quality } : {}),
-      } as DalleRequestPayload;
     } else {
       const accountStore = useAccountStore.getState();
       const accountModel = findAccountModel(
@@ -335,7 +325,7 @@ export class ChatGPTApi implements LLMApi {
       }
     }
 
-    const shouldStream = !isImageModel && !isVideoModel && !!options.config.stream;
+    const shouldStream = !isImageModel && !!options.config.stream;
     const controller = new AbortController();
     options.onController?.(controller);
 
@@ -368,11 +358,7 @@ export class ChatGPTApi implements LLMApi {
         );
       } else {
         chatPath = this.path(
-          isImageModel
-            ? OpenaiPath.ImagePath
-            : isVideoModel
-              ? OpenaiPath.VideoPath
-              : OpenaiPath.ChatPath,
+          isImageModel ? OpenaiPath.ImagePath : OpenaiPath.ChatPath,
         );
       }
       if (shouldStream) {

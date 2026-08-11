@@ -308,28 +308,9 @@ export function isImageModel(model: string): boolean {
   const m = (model || "").toLowerCase();
   return (
     m.startsWith("gpt-image-") ||
-    m === "dall-e-3" ||
     m.includes("grok-imagine") ||
     m.includes("flash-image") ||
-    m.includes("pro-image") ||
-    m.includes("cogview") ||
-    m.includes("flux") ||
-    m.includes("ideogram") ||
-    m.includes("stable-image")
-  );
-}
-
-export function isVideoModel(model: string): boolean {
-  const m = (model || "").toLowerCase();
-  return (
-    m.includes("sora") ||
-    m.includes("kling") ||
-    m.includes("jimeng") ||
-    m.includes("cogvideo") ||
-    m.includes("wanx-video") ||
-    m.includes("runway") ||
-    m.includes("luma") ||
-    m.includes("pika")
+    m.includes("pro-image")
   );
 }
 
@@ -343,8 +324,7 @@ export function getTimeoutMSByModel(model: string) {
     model.startsWith("gpt-image-") ||
     model.includes("grok-imagine") ||
     model.includes("deepseek-r") ||
-    model.includes("-thinking") ||
-    isVideoModel(model)
+    model.includes("-thinking")
   )
     return REQUEST_TIMEOUT_MS_FOR_THINKING;
   return REQUEST_TIMEOUT_MS;
@@ -379,11 +359,6 @@ const MODEL_SIZE_MAP: Record<string, Partial<Record<MediaAspectRatio, string>>> 
     "3:2": "1536x1024",
     "9:16": "1024x1536",
   },
-  "dall-e-3": {
-    "1:1": "1024x1024",
-    "16:9": "1792x1024",
-    "9:16": "1024x1792",
-  },
   "grok-imagine": {
     "1:1": "1024x1024",
     "16:9": "1792x1024",
@@ -395,53 +370,6 @@ const MODEL_SIZE_MAP: Record<string, Partial<Record<MediaAspectRatio, string>>> 
   "pro-image": {
     "1:1": "1024x1024",
   },
-  "cogview": {
-    "1:1": "1024x1024",
-    "3:4": "768x1344",
-    "3:2": "1344x768",
-    "9:16": "720x1440",
-    "16:9": "1440x720",
-  },
-  "flux": {
-    "1:1": "1024x1024",
-    "3:2": "1344x768",
-    "3:4": "768x1344",
-    "9:16": "720x1440",
-    "16:9": "1440x720",
-  },
-  "stable-image": {
-    "1:1": "1024x1024",
-    "3:2": "1536x1024",
-    "3:4": "1024x1536",
-    "16:9": "1792x1024",
-    "9:16": "1024x1792",
-  },
-  "ideogram": {
-    "1:1": "1024x1024",
-    "3:2": "1024x768",
-    "3:4": "768x1024",
-    "16:9": "1280x1024",
-    "9:16": "1024x1280",
-  },
-  // Video models — use aspect ratio strings as API values
-  "sora": {
-    "auto": "auto",
-    "1:1": "1:1",
-    "9:16": "9:16",
-    "16:9": "16:9",
-  },
-  "kling": {
-    "auto": "auto",
-    "1:1": "1:1",
-    "9:16": "9:16",
-    "16:9": "16:9",
-  },
-  "jimeng": {
-    "auto": "auto",
-    "1:1": "1:1",
-    "9:16": "9:16",
-    "16:9": "16:9",
-  },
 };
 
 // Per-model quality capability definitions
@@ -452,10 +380,6 @@ const MODEL_QUALITY_MAP: Record<string, Partial<Record<MediaQualityLevel, string
     "2k": "medium",
     "4k": "high",
   },
-  "dall-e-3": {
-    "1k": "standard",
-    "2k": "hd",
-  },
   "grok-imagine": {
     "auto": "auto",
     "1k": "low",
@@ -465,12 +389,7 @@ const MODEL_QUALITY_MAP: Record<string, Partial<Record<MediaQualityLevel, string
 };
 
 // Per-model style options
-const MODEL_STYLE_MAP: Record<string, MediaStyleOption[]> = {
-  "dall-e-3": [
-    { label: "生动", apiValue: "vivid" },
-    { label: "自然", apiValue: "natural" },
-  ],
-};
+const MODEL_STYLE_MAP: Record<string, MediaStyleOption[]> = {};
 
 function matchModelKey(model: string, map: Record<string, any>): string | null {
   const m = (model || "").toLowerCase();
@@ -506,7 +425,7 @@ export function getMediaStyleOptions(model: string): MediaStyleOption[] {
 }
 
 export function isMediaModel(model: string): boolean {
-  return isImageModel(model) || isVideoModel(model);
+  return isImageModel(model);
 }
 
 // Keep backward compatibility

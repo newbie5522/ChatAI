@@ -72,7 +72,6 @@ import {
   safeLocalStorage,
   isMediaModel,
   isImageModel,
-  isVideoModel,
   getMediaSizeOptions,
   getMediaQualityOptions,
   getMediaStyleOptions,
