@@ -263,7 +263,7 @@
   border-radius: 12px;
   background: var(--newbie-bg, var(--gray));
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .provider-header {
@@ -271,14 +271,130 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+
+  strong {
+    font-size: 15px;
+  }
+
+  > span {
+    font-size: 12px;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-weight: 600;
+  }
 }
 
-.provider-baseurl {
+.status-active {
+  color: #16a34a;
+  background: rgba(22, 163, 74, 0.1);
+}
+
+.status-inactive {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.1);
+}
+
+.status-idle {
   color: var(--newbie-text-secondary, #737b91);
+  background: rgba(115, 123, 145, 0.1);
+}
+
+.cred-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cred-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--newbie-border, #e4e6f0);
+  border-radius: 8px;
+  background: var(--newbie-card, var(--white));
+  transition: border-color 0.16s ease;
+
+  &:hover {
+    border-color: rgba(91, 75, 255, 0.3);
+  }
+}
+
+.cred-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cred-category {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.cred-key {
   font-size: 12px;
+  color: var(--newbie-text-secondary, #737b91);
+  font-family: monospace;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.cred-url {
+  font-size: 11px;
+  color: var(--newbie-text-secondary, #737b91);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cred-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.cred-edit {
+  min-height: 28px;
+  padding: 0 10px;
+  border: var(--border-in-light);
+  border-radius: 6px;
+  background: var(--white);
+  color: var(--black);
+  font-size: 12px;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+}
+
+.cred-add {
+  min-height: 34px;
+  border: 1px dashed var(--newbie-border, #e4e6f0);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--newbie-text-secondary, #737b91);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+
+  &:hover:not(:disabled) {
+    border-color: rgba(91, 75, 255, 0.4);
+    color: var(--primary);
+    background: rgba(91, 75, 255, 0.04);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
 }
 
 .model-group {

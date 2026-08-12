@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import type { ModelCategory, ModelProvider } from "../config/model-registry";
@@ -103,7 +103,6 @@ interface ProviderForm {
   baseUrl?: string;
   keyConfigured: boolean;
   enabled: boolean;
-  useCompatibleMode: boolean;
   categoryScope: ModelCategory | "all";
 }
 
@@ -251,6 +250,7 @@ export function AdminPanel() {
     new Date().toISOString().slice(0, 7),
   );
   const [logAccountId, setLogAccountId] = useState("");
+  const providerModalRef = useRef<HTMLDivElement>(null);
 
   const modelsByCategory = useMemo(
     () =>
@@ -376,6 +376,15 @@ export function AdminPanel() {
       setActiveTab("members");
     }
   }, [activeTab, isSuperAdmin]);
+
+  useEffect(() => {
+    if (providerForm && providerModalRef.current) {
+      providerModalRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }
+  }, [providerForm]);
 
   const canManageAccount = (account: AdminAccount) => {
     if (account.id === accountStore.user?.userId) return false;
@@ -604,7 +613,6 @@ export function AdminPanel() {
       baseUrl: credential?.baseUrl ?? "",
       keyConfigured: credential?.keyConfigured ?? false,
       enabled: credential?.enabled ?? false,
-      useCompatibleMode: credential?.useCompatibleMode ?? false,
       categoryScope: credential?.categoryScope ?? "all",
     });
   };
@@ -634,7 +642,6 @@ export function AdminPanel() {
             apiKey: providerForm.apiKey,
             baseUrl: providerForm.baseUrl,
             enabled: providerForm.enabled,
-            useCompatibleMode: providerForm.useCompatibleMode,
             categoryScope: providerForm.categoryScope,
           }),
         },
@@ -646,6 +653,40 @@ export function AdminPanel() {
       setProviderFormError(
         error instanceof Error ? error.message : "保存服务商失败",
       );
+    } finally {
+      setSavingProvider(false);
+    }
+  };
+
+  const toggleCredentialEnabled = async (cred: AdminCredential) => {
+    if (savingProvider) return;
+    setSavingProvider(true);
+    try {
+      await adminFetch(`credentials/${encodeURIComponent(cred.id)}`, {
+        method: "PUT",
+        body: JSON.stringify({ enabled: !cred.enabled }),
+      });
+      await Promise.all([loadProviderData(), accountStore.fetchSession()]);
+      showToast(cred.enabled ? "凭据已停用" : "凭据已启用");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "更新凭据失败");
+    } finally {
+      setSavingProvider(false);
+    }
+  };
+
+  const deleteCredential = async (cred: AdminCredential) => {
+    if (!window.confirm(`确定删除此凭据吗？此操作不可撤销。`)) return;
+    setSavingProvider(true);
+    try {
+      await adminFetch(`credentials/${encodeURIComponent(cred.id)}`, {
+        method: "DELETE",
+      });
+      await Promise.all([loadProviderData(), accountStore.fetchSession()]);
+      setProviderForm(null);
+      showToast("凭据已删除");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "删除凭据失败");
     } finally {
       setSavingProvider(false);
     }
@@ -936,62 +977,87 @@ export function AdminPanel() {
           <div className={styles["provider-grid"]}>
             {PROVIDERS.map((provider) => {
               const creds = providerCredentials(provider);
-              const hasEnabled = creds.some((c) => c.enabled && c.keyConfigured);
-              const providerStatus =
-                creds.length === 0
-                  ? "未配置"
-                  : hasEnabled
-                  ? "已启用"
-                  : "已停用";
+              const hasEnabled = creds.some(
+                (c) => c.enabled && c.keyConfigured,
+              );
+              const providerStatus = creds.length === 0
+                ? "未配置"
+                : hasEnabled
+                ? "已启用"
+                : "已停用";
               return (
                 <article className={styles.provider} key={provider}>
                   <div className={styles["provider-header"]}>
                     <strong>{PROVIDER_NAMES[provider]}</strong>
-                    <span>{providerStatus}</span>
+                    <span
+                      className={
+                        creds.length === 0
+                          ? styles["status-idle"]
+                          : hasEnabled
+                          ? styles["status-active"]
+                          : styles["status-inactive"]
+                      }
+                    >
+                      {providerStatus}
+                    </span>
                   </div>
                   {creds.length === 0 ? (
-                    <div className={styles.subtle}>暂无凭据，请添加</div>
+                    <div className={styles.subtle}>暂无凭据</div>
                   ) : (
-                    creds.map((cred) => (
-                      <div
-                        key={cred.id}
-                        className={styles["provider-credential"]}
-                        style={{
-                          padding: "8px 0",
-                          borderTop: "1px solid var(--color-in-border)",
-                        }}
-                      >
-                        <div>
-                          适用类别：{getCategoryScopeLabel(cred.categoryScope)}
-                          {" | "}
-                          密钥：{cred.keyConfigured ? "已配置" : "未配置"}
-                          {" | "}
-                          状态：{cred.enabled ? "已启用" : "已停用"}
-                        </div>
-                        {cred.baseUrl?.trim() && (
-                          <div
-                            className={styles["provider-baseurl"]}
-                            title={cred.baseUrl}
-                          >
-                            中转地址：{cred.baseUrl}
+                    <div className={styles["cred-list"]}>
+                      {creds.map((cred) => (
+                        <div key={cred.id} className={styles["cred-card"]}>
+                          <div className={styles["cred-info"]}>
+                            <span className={styles["cred-category"]}>
+                              {getCategoryScopeLabel(cred.categoryScope)}
+                            </span>
+                            <span className={styles["cred-key"]}>
+                              {cred.keyConfigured
+                                ? cred.keyPreview || "密钥已配置"
+                                : "密钥未配置"}
+                            </span>
+                            {cred.baseUrl?.trim() && (
+                              <span
+                                className={styles["cred-url"]}
+                                title={cred.baseUrl}
+                              >
+                                {cred.baseUrl}
+                              </span>
+                            )}
                           </div>
-                        )}
-                        <div>
-                          兼容模式：{cred.useCompatibleMode ? "已开启" : "已关闭"}
+                          <div className={styles["cred-actions"]}>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={cred.enabled}
+                              aria-label={`${cred.enabled ? "停用" : "启用"}凭据`}
+                              className={styles.switch}
+                              disabled={savingProvider}
+                              onClick={() => void toggleCredentialEnabled(cred)}
+                            >
+                              <span />
+                            </button>
+                            <button
+                              type="button"
+                              className={styles["cred-edit"]}
+                              disabled={savingProvider}
+                              onClick={() => openProvider(provider, cred)}
+                            >
+                              编辑
+                            </button>
+                          </div>
                         </div>
-                        <IconButton
-                          text="编辑"
-                          disabled={savingProvider}
-                          onClick={() => openProvider(provider, cred)}
-                        />
-                      </div>
-                    ))
+                      ))}
+                    </div>
                   )}
-                  <IconButton
-                    text="添加凭据"
+                  <button
+                    type="button"
+                    className={styles["cred-add"]}
                     disabled={savingProvider}
                     onClick={() => openProvider(provider)}
-                  />
+                  >
+                    + 添加凭据
+                  </button>
                 </article>
               );
             })}
@@ -1477,12 +1543,27 @@ export function AdminPanel() {
 
       {activeTab === "providers" && providerForm && (
         <Modal
-          title={`配置 ${PROVIDER_NAMES[providerForm.provider]} - ${getCategoryScopeLabel(providerForm.categoryScope)}`}
+          title={`${providerForm.id ? "编辑" : "添加"} ${PROVIDER_NAMES[providerForm.provider]} 凭据`}
           onClose={() => {
             setProviderForm(null);
             setProviderFormError("");
           }}
           actions={[
+            ...(providerForm.id
+              ? [
+                  <IconButton
+                    key="delete"
+                    text={savingProvider ? "删除中…" : "删除"}
+                    disabled={savingProvider}
+                    onClick={() => {
+                      const cred = credentials.find(
+                        (c) => c.id === providerForm.id,
+                      );
+                      if (cred) void deleteCredential(cred);
+                    }}
+                  />,
+                ]
+              : []),
             <IconButton
               key="cancel"
               text="取消"
@@ -1503,10 +1584,15 @@ export function AdminPanel() {
             />,
           ]}
         >
-          <div className={`${styles["modal-form"]} ${styles["provider-form"]}`}>
+          <div
+            ref={providerModalRef}
+            className={`${styles["modal-form"]} ${styles["provider-form"]}`}
+          >
             <label>
               <span>适用类别</span>
-              <small>选择此凭据适用的功能类别。可为对话和图片分别配置不同密钥</small>
+              <small>
+                选择此凭据适用的功能类别，可为对话和图片分别配置不同密钥
+              </small>
               <select
                 value={providerForm.categoryScope}
                 disabled={!!providerForm.id}
@@ -1527,7 +1613,7 @@ export function AdminPanel() {
             </label>
             <label>
               <span>API Key</span>
-              <small>服务商提供的访问密钥，修改时留空表示保留原密钥</small>
+              <small>修改时留空表示保留原密钥</small>
               <input
                 type="password"
                 autoComplete="new-password"
@@ -1546,13 +1632,14 @@ export function AdminPanel() {
             <label>
               <span>后端地址（可选）</span>
               <small>
-                用于接入中转商，例如 https://hosaia.com/v1。不填则使用官方默认地址
+                填写中转商地址则自动启用兼容模式，如
+                https://openrouter.ai/api/v1。不填则使用官方直连
               </small>
               <input
                 type="text"
                 autoComplete="off"
                 value={providerForm.baseUrl ?? ""}
-                placeholder="https://hosaia.com/v1"
+                placeholder="https://openrouter.ai/api/v1"
                 onChange={(event) =>
                   setProviderForm({
                     ...providerForm,
@@ -1561,28 +1648,6 @@ export function AdminPanel() {
                 }
               />
             </label>
-            <div className={styles["switch-row"]}>
-              <span>兼容模式</span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={providerForm.useCompatibleMode}
-                aria-label={`${providerForm.useCompatibleMode ? "关闭" : "开启"}兼容模式`}
-                className={styles.switch}
-                onClick={() =>
-                  setProviderForm({
-                    ...providerForm,
-                    useCompatibleMode: !providerForm.useCompatibleMode,
-                  })
-                }
-              >
-                <span />
-              </button>
-            </div>
-            <p className={styles["permission-help"]}>
-              开启后，该服务商的聊天模型会走标准 OpenAI 兼容接口
-              /v1/chat/completions，适合 sub2api、openrouter、hosaia 等中转商。关闭则走该服务商专用协议。
-            </p>
             <div className={styles["switch-row"]}>
               <span>启用状态</span>
               <button

@@ -477,10 +477,7 @@ async function createCredential(req: NextRequest) {
       : existing?.enabled ?? false;
   const baseUrl =
     typeof body.baseUrl === "string" ? body.baseUrl.trim() : undefined;
-  const useCompatibleMode =
-    typeof body.useCompatibleMode === "boolean"
-      ? body.useCompatibleMode
-      : existing?.useCompatibleMode ?? false;
+  const useCompatibleMode = !!(baseUrl && baseUrl.length > 0);
   let credential: ProviderCredential;
   try {
     credential = saveProviderCredential({
@@ -527,10 +524,9 @@ async function updateCredential(req: NextRequest, id: string) {
     typeof body.enabled === "boolean" ? body.enabled : existing.enabled;
   const baseUrl =
     typeof body.baseUrl === "string" ? body.baseUrl.trim() : undefined;
-  const useCompatibleMode =
-    typeof body.useCompatibleMode === "boolean"
-      ? body.useCompatibleMode
-      : existing.useCompatibleMode;
+  const effectiveBaseUrl =
+    baseUrl !== undefined ? baseUrl : (existing.baseUrl || "");
+  const useCompatibleMode = !!effectiveBaseUrl.trim();
   const categoryScopeRaw = String(body.categoryScope ?? existing.categoryScope).toLowerCase();
   const categoryScope =
     categoryScopeRaw === "all" ||
