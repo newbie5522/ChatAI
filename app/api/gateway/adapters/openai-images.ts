@@ -161,6 +161,95 @@ function referenceImageFromDataUrl(imageUrl: string, index: number) {
   };
 }
 
+/**
+ * 检测 baseUrl 是否为 OpenRouter
+ */
+function isOpenRouter(baseUrl: string): boolean {
+  return baseUrl.includes("openrouter.ai");
+}
+
+/**
+ * OpenRouter 模型 ID 必须带 provider 前缀（如 openai/gpt-image-2）
+ */
+function openRouterModelId(provider: string, model: string): string {
+  if (model.includes("/")) return model;
+  return `${provider}/${model}`;
+}
+
+/**
+ * 将 size 参数转换为 OpenRouter 的 aspect_ratio
+ * 输入可能是 "1:1"、"16:9"、"1024x1024"、"auto" 等
+ */
+function toAspectRatio(size: string | undefined): string | undefined {
+  if (!size || size === "auto" || size === "custom") return undefined;
+  if (size.includes(":")) return size;
+  // 像素格式（如 1024x1024）不转换，让 OpenRouter 自行处理
+  return undefined;
+}
+
+/**
+ * 调用 OpenRouter 专用图片 API（POST /images）
+ * 与 OpenAI /images/generations 的区别：
+ * - endpoint 为 /images
+ * - model 必须带 provider 前缀（如 openai/gpt-image-2）
+ * - 支持 aspect_ratio 参数
+ */
+async function callOpenRouterImages(
+  ctx: GatewayAdapterContext,
+  prompt: string,
+  imageUrls: string[],
+  options: {
+    size?: string;
+    quality?: string;
+    background?: string;
+    outputFormat?: string;
+    outputCompression?: number;
+    moderation?: string;
+  },
+  referenceImages: { blob: Blob; filename: string }[],
+  headers: Record<string, string>,
+  baseUrl: string,
+): Promise<Response> {
+  const model = openRouterModelId(ctx.model.provider, ctx.model.model);
+  const aspectRatio = toAspectRatio(options.size);
+
+  console.log(
+    `[OpenRouterImages] model=${model} aspectRatio=${aspectRatio ?? "auto"} quality=${options.quality ?? "auto"} prompt="${prompt.slice(0, 80)}"`,
+  );
+
+  const requestBody: Record<string, unknown> = {
+    model,
+    prompt,
+    ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
+    ...(options.quality && options.quality !== "auto"
+      ? { quality: options.quality }
+      : {}),
+  };
+
+  const res = await fetch(`${baseUrl}/images`, {
+    method: "POST",
+    headers: {
+      ...headers,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.clone().text();
+    console.error(
+      `[OpenRouterImages] upstream error ${res.status} ${res.statusText} model=${model} body=${errorText.slice(0, 1000)}`,
+    );
+    return upstreamErrorResponse(res);
+  }
+
+  const json = await res.json();
+  console.log(
+    `[OpenRouterImages] success model=${model} data.length=${json?.data?.length}`,
+  );
+  return Response.json(normalizedImageData(json), { status: 200 });
+}
+
 export async function callOpenAIImages(
   ctx: GatewayAdapterContext,
 ): Promise<Response> {
@@ -189,6 +278,20 @@ export async function callOpenAIImages(
   if (imageUrls.length > 0 && referenceImages.length !== imageUrls.length) {
     return gatewayJsonError(400, "valid reference image data URL is required");
   }
+
+  // OpenRouter 专用图片 API 分支
+  if (isOpenRouter(baseUrl)) {
+    return callOpenRouterImages(
+      ctx,
+      prompt,
+      imageUrls,
+      options,
+      referenceImages,
+      headers,
+      baseUrl,
+    );
+  }
+
   const res =
     referenceImages.length > 0
       ? await fetch(`${baseUrl}/images/edits`, {

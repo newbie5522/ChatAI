@@ -371,13 +371,21 @@ const ALL_QUALITY_LEVELS: MediaQualityLevel[] = [
 ];
 
 // Per-model size capability definitions
-// Each entry maps aspect ratio labels to the model's actual API size values
+// Each entry maps aspect ratio labels to the model's actual API size values.
+// For image models, an empty apiValue means "let the provider decide" and the
+// option stays enabled so users can pick any aspect ratio on OpenRouter-style
+// compatible endpoints.
 const MODEL_SIZE_MAP: Record<string, Partial<Record<MediaAspectRatio, string>>> = {
   "gpt-image-": {
     "auto": "auto",
     "1:1": "1024x1024",
     "3:2": "1536x1024",
-    "9:16": "1024x1536",
+    "2:3": "1024x1536",
+    "3:4": "1024x1365",
+    "4:3": "1365x1024",
+    "9:16": "1024x1820",
+    "16:9": "1820x1024",
+    "21:9": "2048x878",
   },
   "grok-imagine": {
     "1:1": "1024x1024",
@@ -385,10 +393,26 @@ const MODEL_SIZE_MAP: Record<string, Partial<Record<MediaAspectRatio, string>>> 
     "9:16": "1024x1792",
   },
   "flash-image": {
-    "1:1": "1024x1024",
+    "auto": "",
+    "1:1": "",
+    "3:2": "",
+    "2:3": "",
+    "3:4": "",
+    "4:3": "",
+    "9:16": "",
+    "16:9": "",
+    "21:9": "",
   },
   "pro-image": {
-    "1:1": "1024x1024",
+    "auto": "",
+    "1:1": "",
+    "3:2": "",
+    "2:3": "",
+    "3:4": "",
+    "4:3": "",
+    "9:16": "",
+    "16:9": "",
+    "21:9": "",
   },
   // Video models — OpenRouter uses aspect ratio strings
   "seedance": {
@@ -445,11 +469,22 @@ function matchModelKey(model: string, map: Record<string, any>): string | null {
 export function getMediaSizeOptions(model: string): MediaSizeOption[] {
   const key = matchModelKey(model, MODEL_SIZE_MAP);
   const sizeMap = key ? MODEL_SIZE_MAP[key] : {};
-  return ALL_ASPECT_RATIOS.map((ratio) => ({
-    label: ratio,
-    apiValue: sizeMap[ratio] || "",
-    disabled: !sizeMap[ratio] && ratio !== "custom",
-  }));
+  // Image models without an explicit per-ratio map still support every aspect
+  // ratio on OpenRouter-style compatible endpoints; keep them enabled.
+  const defaultEnabled = isImageModel(model);
+  return ALL_ASPECT_RATIOS.map((ratio) => {
+    const hasExplicitEntry = Object.prototype.hasOwnProperty.call(sizeMap, ratio);
+    const apiValue = sizeMap[ratio];
+    return {
+      label: ratio,
+      apiValue: apiValue === undefined
+        ? defaultEnabled
+          ? ratio
+          : ""
+        : apiValue,
+      disabled: !hasExplicitEntry && !defaultEnabled && ratio !== "custom",
+    };
+  });
 }
 
 export function getMediaQualityOptions(model: string): MediaQualityOption[] {

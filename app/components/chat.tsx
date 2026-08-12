@@ -770,10 +770,11 @@ export function ChatActions(props: {
 
         {isMedia && hasSizeOptions && (
           <label
-            className={styles["model-select"]}
+            className={clsx(styles["model-select"], styles["media-param-select"])}
             title="尺寸"
             aria-label="选择尺寸"
           >
+            <span className={styles["media-param-label"]}>尺寸：</span>
             <SizeIcon />
             <select
               value={isCustomSize ? "__custom__" : currentSize}
@@ -803,7 +804,7 @@ export function ChatActions(props: {
                   disabled={opt.disabled}
                 >
                   {opt.label === "auto"
-                    ? "自动"
+                    ? "AUTO"
                     : opt.label === "custom"
                       ? "自定义"
                       : opt.label}
@@ -818,10 +819,11 @@ export function ChatActions(props: {
 
         {isMedia && hasQualityOptions && (
           <label
-            className={styles["model-select"]}
+            className={clsx(styles["model-select"], styles["media-param-select"])}
             title="清晰度"
             aria-label="选择清晰度"
           >
+            <span className={styles["media-param-label"]}>清晰度：</span>
             <QualityIcon />
             <select
               value={currentQuality}
@@ -837,7 +839,7 @@ export function ChatActions(props: {
                   value={opt.apiValue || "__disabled__"}
                   disabled={opt.disabled}
                 >
-                  {opt.label === "auto" ? "自动" : opt.label.toUpperCase()}
+                  {opt.label === "auto" ? "auto" : opt.label.toUpperCase()}
                 </option>
               ))}
             </select>
@@ -1068,6 +1070,10 @@ function _Chat() {
   const [userInput, setUserInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { submitKey, shouldSubmit } = useSubmitHandler();
+
+  // stop all in-flight responses
+  const couldStop = ChatControllerPool.hasPending();
+  const stopAll = () => ChatControllerPool.stopAll();
   const scrollRef = useRef<HTMLDivElement>(null);
   const isScrolledToBottom = scrollRef?.current
     ? Math.abs(
@@ -2394,15 +2400,27 @@ function _Chat() {
                   icon={
                     analyzingAttachments ? (
                       <LoadingButtonIcon />
+                    ) : couldStop ? (
+                      <StopIcon />
                     ) : (
                       <SendWhiteIcon />
                     )
                   }
-                  text={Locale.Chat.Send}
-                  className={styles["chat-input-send"]}
+                  text={couldStop ? Locale.Chat.InputActions.Stop : Locale.Chat.Send}
+                  className={
+                    couldStop
+                      ? styles["chat-input-stop"]
+                      : styles["chat-input-send"]
+                  }
                   type="primary"
                   disabled={analyzingAttachments || uploading}
-                  onClick={() => void doSubmit(userInput)}
+                  onClick={() => {
+                    if (couldStop) {
+                      stopAll();
+                    } else {
+                      void doSubmit(userInput);
+                    }
+                  }}
                 />
               </label>
             </div>

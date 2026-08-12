@@ -90,6 +90,40 @@
       opacity: 0.65;
     }
   }
+
+  .media-param-label {
+    font-size: 11px;
+    color: var(--gray);
+    white-space: nowrap;
+    user-select: none;
+  }
+
+  .media-param-select {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    padding: 0 6px;
+    box-sizing: border-box;
+    border: var(--border-in-light);
+    border-radius: 6px;
+    background: var(--white);
+    box-shadow: var(--card-shadow);
+
+    select {
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--black);
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    &:has(select:disabled) {
+      opacity: 0.5;
+    }
+  }
 }
 
 .prompt-toast {
@@ -850,6 +884,16 @@
   background: linear-gradient(90deg, #633bff 0%, #514dff 100%);
   color: white;
   box-shadow: 0 7px 18px rgba(91, 75, 255, 0.24);
+
+  position: absolute;
+  right: 30px;
+  bottom: 32px;
+}
+
+.chat-input-stop {
+  background: var(--danger);
+  color: white;
+  box-shadow: 0 7px 18px rgba(220, 50, 50, 0.24);
 
   position: absolute;
   right: 30px;
