@@ -189,74 +189,57 @@ function toAspectRatio(size: string | undefined): string | undefined {
 }
 
 /**
- * 调用 OpenRouter 专用图片 API（POST /images）
- * 与 OpenAI /images/generations 的区别：
- * - endpoint 为 /images
+ * OpenRouter 图片生成（文生图 + 图生图统一走 /images 端点）
+ *
+ * 文档确认：
+ * - OpenRouter 只有 /images 一个端点，没有 /images/edits
+ * - 图生图通过 input_references 参数传参考图（base64 data URL 或 HTTP URL）
  * - model 必须带 provider 前缀（如 openai/gpt-image-2）
- * - 支持 aspect_ratio 参数
+ * - supported_parameters: aspect_ratio / quality / background / n / input_references / output_compression
+ * - allowed_passthrough_parameters: moderation
+ *
+ * 实现原则：只发必要参数，不加多余参数，避免上游拒绝
  */
 async function callOpenRouterImages(
-  ctx: GatewayAdapterContext,
+  model: string,
   prompt: string,
-  imageUrls: string[],
   options: {
     size?: string;
     quality?: string;
-    background?: string;
-    outputFormat?: string;
-    outputCompression?: number;
-    moderation?: string;
   },
   referenceImages: { blob: Blob; filename: string; dataUrl: string }[],
   headers: Record<string, string>,
   baseUrl: string,
 ): Promise<Response> {
-  const model = openRouterModelId(ctx.model.provider, ctx.model.model);
+  const isImageToImage = referenceImages.length > 0;
   const aspectRatio = toAspectRatio(options.size);
-  const inputReferences =
-    referenceImages.length > 0
-      ? referenceImages.map((image) => ({
-          type: "image_url" as const,
-          image_url: { url: image.dataUrl },
-        }))
-      : undefined;
 
   console.log(
-    `[OpenRouterImages] model=${model} aspectRatio=${aspectRatio ?? "auto"} quality=${options.quality ?? "auto"} references=${referenceImages.length} moderation=${inputReferences ? (options.moderation ?? "low") : "n/a"} prompt="${prompt.slice(0, 80)}"`,
+    `[OpenRouterImages] model=${model} mode=${isImageToImage ? "img2img" : "txt2img"} aspectRatio=${aspectRatio ?? "auto"} quality=${options.quality ?? "auto"} references=${referenceImages.length} prompt="${prompt.slice(0, 80)}"`,
   );
 
+  // 最简请求体：只发必要参数
   const requestBody: Record<string, unknown> = {
     model,
     prompt,
-    n: 1,
-    ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
-    ...(options.quality && options.quality !== "auto"
-      ? { quality: options.quality }
-      : {}),
-    ...(options.background ? { background: options.background } : {}),
-    ...(options.outputCompression !== undefined
-      ? { output_compression: options.outputCompression }
-      : {}),
-    ...(inputReferences ? { input_references: inputReferences } : {}),
   };
 
-  // OpenAI 图生图容易被安全策略误拦，传 moderation: low 降低误判
-  if (inputReferences && options.moderation !== undefined) {
-    requestBody.provider = {
-      options: {
-        openai: {
-          moderation: options.moderation,
-        },
-      },
-    };
-  } else if (inputReferences) {
-    requestBody.provider = {
-      options: {
-        openai: {
-          moderation: "low",
-        },
-      },
-    };
+  // aspect_ratio（仅当有有效值时传）
+  if (aspectRatio) {
+    requestBody.aspect_ratio = aspectRatio;
+  }
+
+  // quality（仅当非 auto 时传）
+  if (options.quality && options.quality !== "auto") {
+    requestBody.quality = options.quality;
+  }
+
+  // 图生图：通过 input_references 传参考图
+  if (isImageToImage) {
+    requestBody.input_references = referenceImages.map((image) => ({
+      type: "image_url",
+      image_url: { url: image.dataUrl },
+    }));
   }
 
   const res = await fetch(`${baseUrl}/images`, {
@@ -271,14 +254,14 @@ async function callOpenRouterImages(
   if (!res.ok) {
     const errorText = await res.clone().text();
     console.error(
-      `[OpenRouterImages] upstream error ${res.status} ${res.statusText} model=${model} body=${errorText.slice(0, 1000)}`,
+      `[OpenRouterImages] upstream error ${res.status} ${res.statusText} model=${model} mode=${isImageToImage ? "img2img" : "txt2img"} body=${errorText.slice(0, 1000)}`,
     );
     return upstreamErrorResponse(res);
   }
 
   const json = await res.json();
   console.log(
-    `[OpenRouterImages] success model=${model} data.length=${json?.data?.length}`,
+    `[OpenRouterImages] success model=${model} mode=${isImageToImage ? "img2img" : "txt2img"} data.length=${json?.data?.length}`,
   );
   return Response.json(normalizedImageData(json), { status: 200 });
 }
@@ -295,8 +278,13 @@ export async function callOpenAIImages(
   const isImageToImage = imageUrls.length > 0;
   const isGptImage = isGptImageModel(model);
   const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, OPENAI_FALLBACK_BASE);
+  const isOpenRouterUrl = isOpenRouter(baseUrl);
+  // OpenRouter 需要带 provider 前缀（如 openai/gpt-image-2）
+  const effectiveModel = isOpenRouterUrl
+    ? openRouterModelId(ctx.model.provider, model)
+    : model;
   console.log(
-    `[OpenAIImages] model=${model} compatibleMode=${ctx.credential.useCompatibleMode} imageToImage=${isImageToImage} baseUrl=${baseUrl} prompt="${prompt.slice(0, 80)}"`,
+    `[OpenAIImages] model=${effectiveModel} isOpenRouter=${isOpenRouterUrl} imageToImage=${isImageToImage} baseUrl=${baseUrl} prompt="${prompt.slice(0, 80)}"`,
   );
 
   const headers = {
@@ -315,19 +303,18 @@ export async function callOpenAIImages(
     return gatewayJsonError(400, "valid reference image data URL is required");
   }
 
-  // OpenRouter 专用图片 API 分支
-  if (isOpenRouter(baseUrl)) {
+  // OpenRouter 文生图 + 图生图：统一走 /images 端点
+  // 文档确认 OpenRouter 只有 /images 一个端点，图生图通过 input_references 传参考图
+  if (isOpenRouterUrl) {
     return callOpenRouterImages(
-      ctx,
+      effectiveModel,
       prompt,
-      imageUrls,
       options,
       referenceImages,
       headers,
       baseUrl,
     );
   }
-
   const res =
     referenceImages.length > 0
       ? await fetch(`${baseUrl}/images/edits`, {
@@ -335,11 +322,10 @@ export async function callOpenAIImages(
           headers,
           body: (() => {
             const formData = new FormData();
-            formData.append("model", model);
+            formData.append("model", effectiveModel);
             formData.append("prompt", prompt);
 
             // GPT Image 图生图使用 OpenAI 官方 multipart 字段 image[]，且默认只发必填字段。
-            // 兼容模式只变更目标服务，不应继承旧 DALL-E 的 size/quality 等参数。
             referenceImages.forEach((image) => {
               formData.append(
                 isGptImage ? "image[]" : "image",
@@ -362,7 +348,7 @@ export async function callOpenAIImages(
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model,
+            model: effectiveModel,
             prompt,
             n: 1,
             ...(options.size ? { size: options.size } : {}),
@@ -381,14 +367,14 @@ export async function callOpenAIImages(
   if (!res.ok) {
     const errorText = await res.clone().text();
     console.error(
-      `[OpenAIImages] upstream error ${res.status} ${res.statusText} model=${model} body=${errorText.slice(0, 1000)}`,
+      `[OpenAIImages] upstream error ${res.status} ${res.statusText} model=${effectiveModel} body=${errorText.slice(0, 1000)}`,
     );
     return upstreamErrorResponse(res);
   }
 
   const json = await res.json();
   console.log(
-    `[OpenAIImages] success model=${model} data.length=${json?.data?.length}`,
+    `[OpenAIImages] success model=${effectiveModel} data.length=${json?.data?.length}`,
   );
   return Response.json(normalizedImageData(json), { status: 200 });
 }
