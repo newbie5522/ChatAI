@@ -41,9 +41,6 @@ import AutoIcon from "../icons/auto.svg";
 import BottomIcon from "../icons/bottom.svg";
 import StopIcon from "../icons/pause.svg";
 import RobotIcon from "../icons/robot.svg";
-import SizeIcon from "../icons/size.svg";
-import QualityIcon from "../icons/hd.svg";
-import StyleIcon from "../icons/palette.svg";
 import PluginIcon from "../icons/plugin.svg";
 import ShortcutkeyIcon from "../icons/shortcutkey.svg";
 import McpToolIcon from "../icons/tool.svg";
@@ -776,7 +773,15 @@ export function ChatActions(props: {
             aria-label="选择尺寸"
           >
             <span className={styles["media-param-label"]}>尺寸：</span>
-            <SizeIcon />
+            <span className={styles["media-param-value"]}>
+              {isCustomSize
+                ? `自定义 (${currentSize})`
+                : sizeOptions.find((o) => o.apiValue === currentSize)
+                      ?.label === "auto"
+                  ? "AUTO"
+                  : sizeOptions.find((o) => o.apiValue === currentSize)
+                      ?.label || currentSize}
+            </span>
             <select
               value={isCustomSize ? "__custom__" : currentSize}
               onChange={async (e) => {
@@ -825,7 +830,13 @@ export function ChatActions(props: {
             aria-label="选择清晰度"
           >
             <span className={styles["media-param-label"]}>清晰度：</span>
-            <QualityIcon />
+            <span className={styles["media-param-value"]}>
+              {qualityOptions.find((o) => o.apiValue === currentQuality)
+                ?.label === "auto"
+                ? "AUTO"
+                : qualityOptions.find((o) => o.apiValue === currentQuality)
+                    ?.label || currentQuality}
+            </span>
             <select
               value={currentQuality}
               onChange={(e) => {
@@ -854,7 +865,10 @@ export function ChatActions(props: {
             aria-label="选择风格"
           >
             <span className={styles["media-param-label"]}>风格：</span>
-            <StyleIcon />
+            <span className={styles["media-param-value"]}>
+              {styleOptions.find((o) => o.apiValue === currentStyle)?.label ||
+                currentStyle}
+            </span>
             <select
               value={currentStyle}
               onChange={(e) => {

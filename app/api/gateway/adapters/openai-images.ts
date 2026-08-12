@@ -213,11 +213,6 @@ async function callOpenRouterImages(
 ): Promise<Response> {
   const model = openRouterModelId(ctx.model.provider, ctx.model.model);
   const aspectRatio = toAspectRatio(options.size);
-
-  console.log(
-    `[OpenRouterImages] model=${model} aspectRatio=${aspectRatio ?? "auto"} quality=${options.quality ?? "auto"} references=${referenceImages.length} prompt="${prompt.slice(0, 80)}"`,
-  );
-
   const inputReferences =
     referenceImages.length > 0
       ? referenceImages.map((image) => ({
@@ -226,15 +221,43 @@ async function callOpenRouterImages(
         }))
       : undefined;
 
+  console.log(
+    `[OpenRouterImages] model=${model} aspectRatio=${aspectRatio ?? "auto"} quality=${options.quality ?? "auto"} references=${referenceImages.length} moderation=${inputReferences ? (options.moderation ?? "low") : "n/a"} prompt="${prompt.slice(0, 80)}"`,
+  );
+
   const requestBody: Record<string, unknown> = {
     model,
     prompt,
+    n: 1,
     ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
     ...(options.quality && options.quality !== "auto"
       ? { quality: options.quality }
       : {}),
+    ...(options.background ? { background: options.background } : {}),
+    ...(options.outputCompression !== undefined
+      ? { output_compression: options.outputCompression }
+      : {}),
     ...(inputReferences ? { input_references: inputReferences } : {}),
   };
+
+  // OpenAI 图生图容易被安全策略误拦，传 moderation: low 降低误判
+  if (inputReferences && options.moderation !== undefined) {
+    requestBody.provider = {
+      options: {
+        openai: {
+          moderation: options.moderation,
+        },
+      },
+    };
+  } else if (inputReferences) {
+    requestBody.provider = {
+      options: {
+        openai: {
+          moderation: "low",
+        },
+      },
+    };
+  }
 
   const res = await fetch(`${baseUrl}/images`, {
     method: "POST",

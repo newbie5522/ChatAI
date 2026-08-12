@@ -70,8 +70,8 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    height: 32px;
-    margin-bottom: 10px;
+    height: 30px;
+    margin-bottom: 0;
     padding: 0 8px;
     box-sizing: border-box;
     border: var(--border-in-light);
@@ -100,53 +100,71 @@
     }
   }
 
-  .media-param-label {
-    display: inline-block;
-    font-size: 11px;
-    color: var(--gray);
-    white-space: nowrap;
-    user-select: none;
-    line-height: 1;
-    flex: 0 0 auto;
-  }
-
   .media-param-select {
+    position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    height: 24px;
-    padding: 0 6px;
+    gap: 2px;
+    height: 30px;
+    padding: 0 22px 0 10px;
     box-sizing: border-box;
     border: var(--border-in-light);
-    border-radius: 6px;
+    border-radius: 8px;
     background: var(--white);
     box-shadow: var(--card-shadow);
     flex: 0 0 auto;
     margin-bottom: 0;
+    cursor: pointer;
 
-    svg {
-      width: 12px;
-      height: 12px;
-      flex: 0 0 12px;
+    // 下拉箭头
+    &::after {
+      content: "";
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 0;
+      height: 0;
+      border-left: 4px solid transparent;
+      border-right: 4px solid transparent;
+      border-top: 4px solid var(--gray);
+      pointer-events: none;
     }
 
     select {
-      width: auto;
-      min-width: 0;
-      max-width: none;
-      border: 0;
-      outline: 0;
-      background: transparent;
-      color: var(--black);
-      font-size: 11px;
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
       cursor: pointer;
-      padding: 0 14px 0 0;
+      padding: 0;
       margin: 0;
+      border: 0;
+      appearance: none;
+      -webkit-appearance: none;
     }
 
     &:has(select:disabled) {
       opacity: 0.5;
+      cursor: not-allowed;
     }
+  }
+
+  .media-param-label {
+    font-size: 12px;
+    color: var(--gray);
+    white-space: nowrap;
+    user-select: none;
+    line-height: 1;
+  }
+
+  .media-param-value {
+    font-size: 12px;
+    color: var(--black);
+    white-space: nowrap;
+    user-select: none;
+    line-height: 1;
   }
 }
 
