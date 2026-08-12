@@ -158,6 +158,7 @@ function referenceImageFromDataUrl(imageUrl: string, index: number) {
   return {
     blob: new Blob([Buffer.from(match[2], "base64")], { type: mimeType }),
     filename: `reference-${index + 1}.${extension}`,
+    dataUrl: imageUrl,
   };
 }
 
@@ -206,7 +207,7 @@ async function callOpenRouterImages(
     outputCompression?: number;
     moderation?: string;
   },
-  referenceImages: { blob: Blob; filename: string }[],
+  referenceImages: { blob: Blob; filename: string; dataUrl: string }[],
   headers: Record<string, string>,
   baseUrl: string,
 ): Promise<Response> {
@@ -214,8 +215,16 @@ async function callOpenRouterImages(
   const aspectRatio = toAspectRatio(options.size);
 
   console.log(
-    `[OpenRouterImages] model=${model} aspectRatio=${aspectRatio ?? "auto"} quality=${options.quality ?? "auto"} prompt="${prompt.slice(0, 80)}"`,
+    `[OpenRouterImages] model=${model} aspectRatio=${aspectRatio ?? "auto"} quality=${options.quality ?? "auto"} references=${referenceImages.length} prompt="${prompt.slice(0, 80)}"`,
   );
+
+  const inputReferences =
+    referenceImages.length > 0
+      ? referenceImages.map((image) => ({
+          type: "image_url" as const,
+          image_url: { url: image.dataUrl },
+        }))
+      : undefined;
 
   const requestBody: Record<string, unknown> = {
     model,
@@ -224,6 +233,7 @@ async function callOpenRouterImages(
     ...(options.quality && options.quality !== "auto"
       ? { quality: options.quality }
       : {}),
+    ...(inputReferences ? { input_references: inputReferences } : {}),
   };
 
   const res = await fetch(`${baseUrl}/images`, {
@@ -274,7 +284,10 @@ export async function callOpenAIImages(
   };
   const referenceImages = imageUrls
     .map(referenceImageFromDataUrl)
-    .filter((image): image is { blob: Blob; filename: string } => !!image);
+    .filter(
+      (image): image is { blob: Blob; filename: string; dataUrl: string } =>
+        !!image,
+    );
   if (imageUrls.length > 0 && referenceImages.length !== imageUrls.length) {
     return gatewayJsonError(400, "valid reference image data URL is required");
   }

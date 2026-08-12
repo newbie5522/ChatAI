@@ -695,9 +695,10 @@ export function ChatActions(props: {
           }}
         />
 
-        <label
-          className={styles["model-select"]}
-          title={currentModelName}
+        <div className={styles["model-select-group"]}>
+          <label
+            className={styles["model-select"]}
+            title={currentModelName}
           aria-label="选择模型"
           onMouseDown={(event) => {
             if (models.length === 0) {
@@ -770,7 +771,7 @@ export function ChatActions(props: {
 
         {isMedia && hasSizeOptions && (
           <label
-            className={clsx(styles["model-select"], styles["media-param-select"])}
+            className={styles["media-param-select"]}
             title="尺寸"
             aria-label="选择尺寸"
           >
@@ -819,7 +820,7 @@ export function ChatActions(props: {
 
         {isMedia && hasQualityOptions && (
           <label
-            className={clsx(styles["model-select"], styles["media-param-select"])}
+            className={styles["media-param-select"]}
             title="清晰度"
             aria-label="选择清晰度"
           >
@@ -848,10 +849,11 @@ export function ChatActions(props: {
 
         {isMedia && hasStyleOptions && (
           <label
-            className={styles["model-select"]}
+            className={styles["media-param-select"]}
             title="风格"
             aria-label="选择风格"
           >
+            <span className={styles["media-param-label"]}>风格：</span>
             <StyleIcon />
             <select
               value={currentStyle}
@@ -869,6 +871,7 @@ export function ChatActions(props: {
             </select>
           </label>
         )}
+        </div>
 
         {showPlugins(currentProviderName, currentModel) && (
           <ChatAction
