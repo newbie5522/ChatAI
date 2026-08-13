@@ -5,10 +5,17 @@ import {
   withDuplex,
 } from "./types";
 
-const GEMINI_FALLBACK_BASE = "https://generativelanguage.googleapis.com/v1beta";
+const GEMINI_FALLBACK_BASE = "https://generativelanguage.googleapis.com";
+
+function geminiBaseRoot(baseUrl?: string) {
+  return normalizeBaseUrl(baseUrl, GEMINI_FALLBACK_BASE).replace(
+    /\/v1(?:beta)?$/,
+    "",
+  );
+}
 
 export async function callGoogleGenerateContent(ctx: GatewayAdapterContext) {
-  const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, GEMINI_FALLBACK_BASE);
+  const baseUrl = geminiBaseRoot(ctx.credential.baseUrl);
   const path =
     ctx.path || `models/${ctx.model.model}:streamGenerateContent`;
 

@@ -7,10 +7,17 @@ import {
   withDuplex,
 } from "./types";
 
-const ANTHROPIC_FALLBACK_BASE = "https://api.anthropic.com/v1";
+const ANTHROPIC_FALLBACK_BASE = "https://api.anthropic.com";
+
+function anthropicBaseRoot(baseUrl?: string) {
+  return normalizeBaseUrl(baseUrl, ANTHROPIC_FALLBACK_BASE).replace(
+    /\/v1$/,
+    "",
+  );
+}
 
 export async function callAnthropicMessages(ctx: GatewayAdapterContext) {
-  const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, ANTHROPIC_FALLBACK_BASE);
+  const baseUrl = anthropicBaseRoot(ctx.credential.baseUrl);
   const path = ctx.path || "messages";
 
   const res = await fetch(

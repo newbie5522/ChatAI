@@ -1,5 +1,3 @@
-import { PERPLEXITY_BASE_URL } from "@/app/constant";
-
 import {
   GatewayAdapterContext,
   copyResponseHeaders,
@@ -7,6 +5,14 @@ import {
   normalizeBaseUrl,
   withDuplex,
 } from "./types";
+
+const PERPLEXITY_FALLBACK_BASE = "https://api.perplexity.ai/v1";
+
+function perplexityBaseUrl(baseUrl?: string) {
+  const normalized = normalizeBaseUrl(baseUrl, PERPLEXITY_FALLBACK_BASE);
+  if (normalized.endsWith("/v1")) return normalized;
+  return `${normalized}/v1`;
+}
 
 const FORWARDED_FIELDS = [
   "messages",
@@ -168,7 +174,7 @@ async function providerErrorMessage(res: Response) {
 }
 
 export async function callPerplexitySonar(ctx: GatewayAdapterContext) {
-  const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, PERPLEXITY_BASE_URL);
+  const baseUrl = perplexityBaseUrl(ctx.credential.baseUrl);
   const path = ctx.path || "chat/completions";
   const { bodyText } = ctx;
   const input = requestBody(bodyText);

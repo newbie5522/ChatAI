@@ -1,4 +1,4 @@
-import { DEFAULT_MODELS, ServiceProvider } from "../constant";
+import { DEFAULT_MODELS } from "../constant";
 import type { LLMModel } from "../client/api";
 
 const CustomSeq = {
