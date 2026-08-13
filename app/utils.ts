@@ -19,6 +19,7 @@ import {
   MediaQualityOption,
   MediaStyleOption,
 } from "./typing";
+import { DEFAULT_COMPANY_MODELS } from "./config/model-registry";
 
 export function trimTopic(topic: string) {
   // Fix an issue where double quotes still show in the Indonesian language
@@ -305,12 +306,19 @@ export function isDalle3(model: string) {
 }
 
 export function isImageModel(model: string): boolean {
-  const m = (model || "").toLowerCase();
+  const m = (model || "").toLowerCase().trim();
+  if (!m) return false;
+  // 优先以模型注册表中的 category 为准
+  const registered = DEFAULT_COMPANY_MODELS.find(
+    (cm) => cm.model.toLowerCase() === m,
+  );
+  if (registered) return registered.category === "image";
+  // 兜底：兼容自定义模型与旧命名
   return (
     m.startsWith("gpt-image-") ||
     m.includes("grok-imagine") ||
-    m.includes("flash-image") ||
-    m.includes("pro-image")
+    m.includes("-image") ||
+    m.startsWith("dall-e")
   );
 }
 
@@ -490,11 +498,26 @@ export function getMediaSizeOptions(model: string): MediaSizeOption[] {
 export function getMediaQualityOptions(model: string): MediaQualityOption[] {
   const key = matchModelKey(model, MODEL_QUALITY_MAP);
   const qualityMap = key ? MODEL_QUALITY_MAP[key] : {};
-  return ALL_QUALITY_LEVELS.map((level) => ({
-    label: level,
-    apiValue: qualityMap[level] || "",
-    disabled: !qualityMap[level],
-  }));
+  // Image models without an explicit quality map still offer quality choices;
+  // the value is passed through on compatible endpoints.
+  const defaultEnabled = isImageModel(model);
+  return ALL_QUALITY_LEVELS.map((level) => {
+    const hasExplicitEntry = Object.prototype.hasOwnProperty.call(
+      qualityMap,
+      level,
+    );
+    const apiValue = qualityMap[level];
+    return {
+      label: level,
+      apiValue:
+        apiValue === undefined
+          ? defaultEnabled
+            ? level
+            : ""
+          : apiValue,
+      disabled: !hasExplicitEntry && !defaultEnabled,
+    };
+  });
 }
 
 export function getMediaStyleOptions(model: string): MediaStyleOption[] {

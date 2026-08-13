@@ -23,16 +23,18 @@
     background-color: var(--white);
     color: var(--black);
     border: var(--border-in-light);
-    padding: 0 12px;
+    padding: 0 10px;
     animation: slide-in ease 0.3s;
     box-shadow: var(--card-shadow);
-    transition: border-color ease 0.2s, color ease 0.2s;
+    transition: width ease 0.3s, border-color ease 0.2s, color ease 0.2s;
     height: 36px;
-    width: auto;
+    width: var(--icon-width);
+    overflow: hidden;
     white-space: nowrap;
     cursor: pointer;
 
     &:hover {
+      width: var(--full-width);
       border-color: var(--primary);
       color: var(--primary);
     }
@@ -40,11 +42,16 @@
     .text {
       white-space: nowrap;
       padding-left: 2px;
-      opacity: 1;
-      transform: none;
-      transition: none;
+      opacity: 0;
+      transform: translateX(-5px);
+      transition: all ease 0.3s;
       pointer-events: none;
       font-size: 13px;
+    }
+
+    &:hover .text {
+      opacity: 1;
+      transform: translate(0);
     }
 
     .text,
