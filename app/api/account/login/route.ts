@@ -11,6 +11,9 @@ import {
   isAccountSessionConfigured,
   setAccountCookie,
 } from "@/app/config/account-auth";
+import { checkRateLimit } from "@/app/api/lib/rate-limit";
+
+const LOGIN_RATE_LIMIT = { limit: 10, windowMs: 15 * 60 * 1000 }; // 10 attempts per 15 min per IP
 
 async function readBody(req: NextRequest) {
   try {
@@ -21,6 +24,25 @@ async function readBody(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  // Brute-force protection: rate-limit by client IP
+  const ip =
+    req.ip ??
+    req.headers.get("x-real-ip") ??
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
+    "unknown";
+  const rl = checkRateLimit(`login:${ip}`, LOGIN_RATE_LIMIT);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: true, message: "请求过于频繁，请稍后再试" },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)),
+        },
+      },
+    );
+  }
+
   if (!isAccountSessionConfigured()) {
     return NextResponse.json(
       { error: true, message: "登录服务尚未配置会话密钥" },
