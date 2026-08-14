@@ -1,6 +1,71 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSideConfig } from "@/app/config/server";
 import { blockLegacyProviderApiInEmployeeMode } from "@/app/api/auth";
+import { requireAccount } from "@/app/config/account-auth";
+
+/**
+ * Validate that the target URL is safe to forward to (SSRF prevention).
+ * Returns true only for public http/https URLs.
+ */
+export function isSafeTargetUrl(rawUrl: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+
+  // Only http and https allowed
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return false;
+  }
+
+  // Reject URLs with embedded credentials
+  if (parsed.username || parsed.password) {
+    return false;
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+
+  // Reject loopback / link-local / local hostnames
+  if (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "0.0.0.0" ||
+    hostname === "::1" ||
+    hostname.endsWith(".local")
+  ) {
+    return false;
+  }
+
+  // Reject IPv6 loopback/ULA (fc00::/7)
+  if (hostname.startsWith("[")) {
+    const ipv6 = hostname.slice(1, -1).toLowerCase();
+    if (ipv6 === "::1" || ipv6.startsWith("fc") || ipv6.startsWith("fd")) {
+      return false;
+    }
+  }
+
+  // Reject RFC-1918 / reserved IPv4 ranges
+  const ipv4Match = hostname.match(
+    /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/,
+  );
+  if (ipv4Match) {
+    const a = Number(ipv4Match[1]);
+    const b = Number(ipv4Match[2]);
+    if (
+      a === 10 || // 10.0.0.0/8
+      (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+      (a === 192 && b === 168) || // 192.168.0.0/16
+      (a === 169 && b === 254) || // 169.254.0.0/16 (link-local / cloud metadata)
+      a === 127 || // 127.0.0.0/8
+      a === 0 // 0.0.0.0/8
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 export async function handle(
   req: NextRequest,
@@ -12,22 +77,41 @@ export async function handle(
     return NextResponse.json({ body: "OK" }, { status: 200 });
   }
 
+  // Require authenticated account for all proxy requests
+  const { response: authError } = requireAccount(req);
+  if (authError) return authError;
+
   const legacyProviderBlock = blockLegacyProviderApiInEmployeeMode();
   if (legacyProviderBlock) {
     return legacyProviderBlock;
   }
-
-  const serverConfig = getServerSideConfig();
 
   // remove path params from searchParams
   req.nextUrl.searchParams.delete("path");
   req.nextUrl.searchParams.delete("provider");
 
   const subpath = params.path.join("/");
-  const fetchUrl = `${req.headers.get(
-    "x-base-url",
-  )}/${subpath}?${req.nextUrl.searchParams.toString()}`;
-  const skipHeaders = ["connection", "host", "origin", "referer", "cookie"];
+  const baseUrl = req.headers.get("x-base-url");
+
+  // Validate target URL to prevent SSRF
+  if (!baseUrl || !isSafeTargetUrl(baseUrl)) {
+    return NextResponse.json(
+      { error: "Invalid or disallowed target URL" },
+      { status: 400 },
+    );
+  }
+
+  const fetchUrl = `${baseUrl}/${subpath}?${req.nextUrl.searchParams.toString()}`;
+
+  // Strip hop-by-hop, identifying, and sensitive response-leak headers
+  const skipHeaders = [
+    "connection",
+    "host",
+    "origin",
+    "referer",
+    "cookie",
+    "set-cookie",
+  ];
   const headers = new Headers(
     Array.from(req.headers.entries()).filter((item) => {
       if (
@@ -40,17 +124,6 @@ export async function handle(
       return true;
     }),
   );
-  // if dalle3 use openai api key
-    const baseUrl = req.headers.get("x-base-url");
-    if (baseUrl?.includes("api.openai.com")) {
-      if (!serverConfig.apiKey) {
-        return NextResponse.json(
-          { error: "OpenAI API key not configured" },
-          { status: 500 },
-        );
-      }
-      headers.set("Authorization", `Bearer ${serverConfig.apiKey}`);
-    }
 
   const controller = new AbortController();
   const fetchOptions: RequestInit = {
@@ -76,6 +149,7 @@ export async function handle(
     // to prevent browser prompt for credentials
     const newHeaders = new Headers(res.headers);
     newHeaders.delete("www-authenticate");
+    newHeaders.delete("set-cookie");
     // to disable nginx buffering
     newHeaders.set("X-Accel-Buffering", "no");
 
