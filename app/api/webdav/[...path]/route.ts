@@ -24,6 +24,24 @@ async function handle(
   if (req.method === "OPTIONS") {
     return NextResponse.json({ body: "OK" }, { status: 200 });
   }
+
+  // Validate each path segment to prevent path traversal attacks
+  const UNSAFE_SEGMENT = /(\.\.|%2e%2e|%252e|%2f|%5c)/i;
+  for (const segment of params.path) {
+    if (
+      !segment ||
+      segment === "." ||
+      segment === ".." ||
+      segment.includes("\\") ||
+      UNSAFE_SEGMENT.test(segment)
+    ) {
+      return NextResponse.json(
+        { error: true, msg: "Invalid path segment" },
+        { status: 400 },
+      );
+    }
+  }
+
   const folder = STORAGE_KEY;
   const fileName = `${folder}/backup.json`;
 
@@ -83,42 +101,66 @@ async function handle(
   }
 
   // for MKCOL request, only allow request ${folder}
-  if (proxy_method === "MKCOL" && !targetPath.endsWith(folder)) {
-    return NextResponse.json(
-      {
-        error: true,
-        msg: "you are not allowed to request " + targetPath,
-      },
-      {
-        status: 403,
-      },
-    );
+  if (proxy_method === "MKCOL") {
+    const normalizedTarget = normalizeUrl(targetPath);
+    const normalizedFolder = normalizeUrl(`${endpoint}${folder}`);
+    if (
+      !normalizedTarget ||
+      !normalizedFolder ||
+      normalizedTarget.href !== normalizedFolder.href
+    ) {
+      return NextResponse.json(
+        {
+          error: true,
+          msg: "you are not allowed to request " + targetPath,
+        },
+        {
+          status: 403,
+        },
+      );
+    }
   }
 
   // for GET request, only allow request ending with fileName
-  if (proxy_method === "GET" && !targetPath.endsWith(fileName)) {
-    return NextResponse.json(
-      {
-        error: true,
-        msg: "you are not allowed to request " + targetPath,
-      },
-      {
-        status: 403,
-      },
-    );
+  if (proxy_method === "GET") {
+    const normalizedTarget = normalizeUrl(targetPath);
+    const normalizedFile = normalizeUrl(`${endpoint}${fileName}`);
+    if (
+      !normalizedTarget ||
+      !normalizedFile ||
+      normalizedTarget.href !== normalizedFile.href
+    ) {
+      return NextResponse.json(
+        {
+          error: true,
+          msg: "you are not allowed to request " + targetPath,
+        },
+        {
+          status: 403,
+        },
+      );
+    }
   }
 
   //   for PUT request, only allow request ending with fileName
-  if (proxy_method === "PUT" && !targetPath.endsWith(fileName)) {
-    return NextResponse.json(
-      {
-        error: true,
-        msg: "you are not allowed to request " + targetPath,
-      },
-      {
-        status: 403,
-      },
-    );
+  if (proxy_method === "PUT") {
+    const normalizedTarget = normalizeUrl(targetPath);
+    const normalizedFile = normalizeUrl(`${endpoint}${fileName}`);
+    if (
+      !normalizedTarget ||
+      !normalizedFile ||
+      normalizedTarget.href !== normalizedFile.href
+    ) {
+      return NextResponse.json(
+        {
+          error: true,
+          msg: "you are not allowed to request " + targetPath,
+        },
+        {
+          status: 403,
+        },
+      );
+    }
   }
 
   const targetUrl = targetPath;
