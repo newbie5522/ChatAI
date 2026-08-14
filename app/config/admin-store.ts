@@ -3,12 +3,15 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  unlinkSync,
   writeFileSync,
 } from "fs";
 import path from "path";
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "crypto";
 
 import md5 from "spark-md5";
+
+import { withFileLockSync } from "@/app/api/lib/file-lock";
 
 import type { EmployeeAccessRecord } from "./employee";
 import {
@@ -448,14 +451,44 @@ export function readAdminStore(): AdminStore {
   }
 }
 
-export function writeAdminStore(store: AdminStore) {
+function writeAdminStoreInternal(store: AdminStore) {
   const filePath = getAdminConfigPath();
   mkdirSync(path.dirname(filePath), { recursive: true });
 
   const normalized = normalizeStore(store);
   const tempPath = `${filePath}.${process.pid}.tmp`;
-  writeFileSync(tempPath, JSON.stringify(normalized, null, 2), "utf8");
-  renameSync(tempPath, filePath);
+  try {
+    writeFileSync(tempPath, JSON.stringify(normalized, null, 2), "utf8");
+    renameSync(tempPath, filePath);
+  } catch (error) {
+    try {
+      unlinkSync(tempPath);
+    } catch {
+      // 清理失败忽略，避免掩盖原始错误
+    }
+    throw error;
+  }
+}
+
+export function writeAdminStore(store: AdminStore) {
+  const filePath = getAdminConfigPath();
+  withFileLockSync(`${filePath}.lock`, () => {
+    writeAdminStoreInternal(store);
+  });
+}
+
+/**
+ * 在文件锁保护下执行"读 → 变更 → 原子写"，避免多实例并发读改写互相覆盖。
+ * mutator 返回值为函数返回值；无论是否修改都会写回（保持语义简单一致）。
+ */
+export function updateAdminStore<T>(mutator: (store: AdminStore) => T): T {
+  const filePath = getAdminConfigPath();
+  return withFileLockSync(`${filePath}.lock`, () => {
+    const store = readAdminStore();
+    const result = mutator(store);
+    writeAdminStoreInternal(store);
+    return result;
+  });
 }
 
 export function hashPassword(password: string) {
@@ -481,37 +514,37 @@ export function verifyPassword(password: string, storedHash: string) {
 }
 
 export function ensureBootstrapSuperAdmin() {
-  const store = readAdminStore();
-  if (store.accounts.some((account) => account.role === "super_admin")) {
+  return updateAdminStore((store) => {
+    if (store.accounts.some((account) => account.role === "super_admin")) {
+      return store;
+    }
+
+    const password = process.env.ADMIN_PASSWORD ?? "";
+    if (!password.trim()) return store;
+
+    const username = (process.env.ADMIN_USERNAME || "admin").trim() || "admin";
+    const timestamp = now();
+    store.accounts.push({
+      id: "super-admin",
+      username,
+      name: username,
+      role: "super_admin",
+      passwordHash: hashPassword(password),
+      status: "active",
+      quotaUnlimited: true,
+      monthlyChatTurns: undefined,
+      monthlySearchTurns: undefined,
+      monthlyImageCount: undefined,
+      monthlyVideoCount: undefined,
+      monthlyQuota: undefined,
+      usedQuota: 0,
+      allowedModelIds: [],
+      allowedCategories: ["chat", "search", "image", "video"],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
     return store;
-  }
-
-  const password = process.env.ADMIN_PASSWORD ?? "";
-  if (!password.trim()) return store;
-
-  const username = (process.env.ADMIN_USERNAME || "admin").trim() || "admin";
-  const timestamp = now();
-  store.accounts.push({
-    id: "super-admin",
-    username,
-    name: username,
-    role: "super_admin",
-    passwordHash: hashPassword(password),
-    status: "active",
-    quotaUnlimited: true,
-    monthlyChatTurns: undefined,
-    monthlySearchTurns: undefined,
-    monthlyImageCount: undefined,
-    monthlyVideoCount: undefined,
-    monthlyQuota: undefined,
-    usedQuota: 0,
-    allowedModelIds: [],
-    allowedCategories: ["chat", "search", "image", "video"],
-    createdAt: timestamp,
-    updatedAt: timestamp,
   });
-  writeAdminStore(store);
-  return store;
 }
 
 export function toSafeAccount(record: AccountRecord): SafeAccountRecord {
@@ -567,37 +600,37 @@ export function authenticateAccount(username: string, password: string) {
 export function saveAccountRecord(
   record: Partial<AccountRecord> & { password?: string },
 ) {
-  const store = ensureBootstrapSuperAdmin();
-  const existingIndex = record.id
-    ? store.accounts.findIndex((account) => account.id === record.id)
-    : -1;
-  const existing =
-    existingIndex >= 0 ? store.accounts[existingIndex] : undefined;
-  const passwordHash = record.password
-    ? hashPassword(record.password)
-    : record.passwordHash || existing?.passwordHash || "";
+  return updateAdminStore((store) => {
+    const existingIndex = record.id
+      ? store.accounts.findIndex((account) => account.id === record.id)
+      : -1;
+    const existing =
+      existingIndex >= 0 ? store.accounts[existingIndex] : undefined;
+    const passwordHash = record.password
+      ? hashPassword(record.password)
+      : record.passwordHash || existing?.passwordHash || "";
 
-  if (!passwordHash) {
-    throw new Error("password is required");
-  }
+    if (!passwordHash) {
+      throw new Error("password is required");
+    }
 
-  const normalized = normalizeAccountRecord({
-    ...existing,
-    ...record,
-    id: record.id || existing?.id || randomUUID(),
-    passwordHash,
-    createdAt: existing?.createdAt || record.createdAt || now(),
-    updatedAt: now(),
+    const normalized = normalizeAccountRecord({
+      ...existing,
+      ...record,
+      id: record.id || existing?.id || randomUUID(),
+      passwordHash,
+      createdAt: existing?.createdAt || record.createdAt || now(),
+      updatedAt: now(),
+    });
+
+    if (existingIndex >= 0) {
+      store.accounts[existingIndex] = normalized;
+    } else {
+      store.accounts.push(normalized);
+    }
+
+    return normalized;
   });
-
-  if (existingIndex >= 0) {
-    store.accounts[existingIndex] = normalized;
-  } else {
-    store.accounts.push(normalized);
-  }
-
-  writeAdminStore(store);
-  return normalized;
 }
 
 export function deleteAccountRecord(id: string) {
@@ -684,77 +717,79 @@ export function getPrimaryProviderCredentialPublic(
 export function saveProviderCredential(
   record: Partial<ProviderCredential> & { clearApiKey?: boolean },
 ) {
-  const store = readAdminStore();
-  const existingIndex = store.credentials.findIndex(
-    (credential) => credential.id === record.id,
-  );
-  const existing =
-    existingIndex >= 0 ? store.credentials[existingIndex] : undefined;
-  const apiKey =
-    record.clearApiKey === true
-      ? ""
-      : typeof record.apiKey === "string" && record.apiKey.trim()
-      ? record.apiKey.trim()
-      : existing?.apiKey ?? "";
-  const normalized = normalizeCredentialRecord({
-    ...existing,
-    ...record,
-    id: record.id || existing?.id || `cred-${randomUUID()}`,
-    apiKey,
-    createdAt: existing?.createdAt || record.createdAt || now(),
-    updatedAt: now(),
+  return updateAdminStore((store) => {
+    const existingIndex = store.credentials.findIndex(
+      (credential) => credential.id === record.id,
+    );
+    const existing =
+      existingIndex >= 0 ? store.credentials[existingIndex] : undefined;
+    const apiKey =
+      record.clearApiKey === true
+        ? ""
+        : typeof record.apiKey === "string" && record.apiKey.trim()
+          ? record.apiKey.trim()
+          : existing?.apiKey ?? "";
+    const normalized = normalizeCredentialRecord({
+      ...existing,
+      ...record,
+      id: record.id || existing?.id || `cred-${randomUUID()}`,
+      apiKey,
+      createdAt: existing?.createdAt || record.createdAt || now(),
+      updatedAt: now(),
+    });
+    if (!normalized.apiKey) {
+      throw new Error("请先填写 API Key");
+    }
+
+    if (existingIndex >= 0) {
+      store.credentials[existingIndex] = normalized;
+    } else {
+      store.credentials.push(normalized);
+    }
+
+    const providerConfig = store.providers[normalized.provider];
+    store.providers[normalized.provider] = {
+      ...providerConfig,
+      id: normalized.provider,
+      enabled: normalized.enabled,
+      updatedAt: now(),
+    };
+    return normalized;
   });
-  if (!normalized.apiKey) {
-    throw new Error("请先填写 API Key");
-  }
-
-  if (existingIndex >= 0) {
-    store.credentials[existingIndex] = normalized;
-  } else {
-    store.credentials.push(normalized);
-  }
-
-  const providerConfig = store.providers[normalized.provider];
-  store.providers[normalized.provider] = {
-    ...providerConfig,
-    id: normalized.provider,
-    enabled: normalized.enabled,
-    updatedAt: now(),
-  };
-  writeAdminStore(store);
-  return normalized;
 }
 
 export function deleteProviderCredential(id: string) {
-  const store = readAdminStore();
-  const nextCredentials = store.credentials.filter(
-    (credential) => credential.id !== id,
-  );
-  const deleted = nextCredentials.length !== store.credentials.length;
-  if (deleted) {
-    const provider = store.credentials.find(
-      (credential) => credential.id === id,
-    )?.provider;
-    const providers = { ...store.providers };
-    if (
-      provider &&
-      !nextCredentials.some(
-        (credential) =>
-          credential.provider === provider &&
-          credential.enabled &&
-          credential.apiKey,
-      )
-    ) {
-      providers[provider] = {
-        ...providers[provider],
-        id: provider,
-        enabled: false,
-        updatedAt: now(),
-      };
+  return updateAdminStore((store) => {
+    const nextCredentials = store.credentials.filter(
+      (credential) => credential.id !== id,
+    );
+    const deleted = nextCredentials.length !== store.credentials.length;
+    if (deleted) {
+      const provider = store.credentials.find(
+        (credential) => credential.id === id,
+      )?.provider;
+      const providers = { ...store.providers };
+      if (
+        provider &&
+        !nextCredentials.some(
+          (credential) =>
+            credential.provider === provider &&
+            credential.enabled &&
+            credential.apiKey,
+        )
+      ) {
+        providers[provider] = {
+          ...providers[provider],
+          id: provider,
+          enabled: false,
+          updatedAt: now(),
+        };
+      }
+      store.credentials = nextCredentials;
+      store.providers = providers;
     }
-    writeAdminStore({ ...store, credentials: nextCredentials, providers });
-  }
-  return deleted;
+    return deleted;
+  });
 }
 
 export function listCompanyModels() {
@@ -762,30 +797,30 @@ export function listCompanyModels() {
 }
 
 export function saveCompanyModel(id: string, patch: Partial<CompanyModel>) {
-  const store = readAdminStore();
-  const existing =
-    store.models.find((model) => model.id === id) ||
-    DEFAULT_COMPANY_MODELS.find((model) => model.id === id);
-  if (!existing) {
-    throw new Error("model not found");
-  }
+  return updateAdminStore((store) => {
+    const existing =
+      store.models.find((model) => model.id === id) ||
+      DEFAULT_COMPANY_MODELS.find((model) => model.id === id);
+    if (!existing) {
+      throw new Error("model not found");
+    }
 
-  const model = normalizeCompanyModel(
-    {
-      ...existing,
-      id,
-      enabled:
-        typeof patch.enabled === "boolean" ? patch.enabled : existing.enabled,
-      endpointType: patch.endpointType ?? existing.endpointType,
-    },
-    existing,
-  );
-  store.models = mergeCompanyModels([
-    ...store.models.filter((item) => item.id !== id),
-    model,
-  ]);
-  writeAdminStore(store);
-  return model;
+    const model = normalizeCompanyModel(
+      {
+        ...existing,
+        id,
+        enabled:
+          typeof patch.enabled === "boolean" ? patch.enabled : existing.enabled,
+        endpointType: patch.endpointType ?? existing.endpointType,
+      },
+      existing,
+    );
+    store.models = mergeCompanyModels([
+      ...store.models.filter((item) => item.id !== id),
+      model,
+    ]);
+    return model;
+  });
 }
 
 export function getCompanyModelById(id: string) {
@@ -876,23 +911,23 @@ export function getAdminEmployeeRecords() {
 }
 
 export function saveAdminEmployeeRecord(record: Partial<EmployeeAccessRecord>) {
-  const store = readAdminStore();
-  const normalized = normalizeEmployeeRecord(record);
-  const index = store.employees.findIndex((item) => item.id === normalized.id);
+  return updateAdminStore((store) => {
+    const normalized = normalizeEmployeeRecord(record);
+    const index = store.employees.findIndex((item) => item.id === normalized.id);
 
-  if (index >= 0) {
-    store.employees[index] = {
-      ...store.employees[index],
-      ...normalized,
-      createdAt: store.employees[index].createdAt || normalized.createdAt,
-      updatedAt: now(),
-    };
-  } else {
-    store.employees.push(normalized);
-  }
+    if (index >= 0) {
+      store.employees[index] = {
+        ...store.employees[index],
+        ...normalized,
+        createdAt: store.employees[index].createdAt || normalized.createdAt,
+        updatedAt: now(),
+      };
+    } else {
+      store.employees.push(normalized);
+    }
 
-  writeAdminStore(store);
-  return normalized;
+    return normalized;
+  });
 }
 
 export function hasAdminEmployeeRecord(id: string) {
@@ -900,18 +935,16 @@ export function hasAdminEmployeeRecord(id: string) {
 }
 
 export function deleteAdminEmployeeRecord(id: string) {
-  const store = readAdminStore();
-  const nextEmployees = store.employees.filter((record) => record.id !== id);
-  const deleted = nextEmployees.length !== store.employees.length;
+  return updateAdminStore((store) => {
+    const nextEmployees = store.employees.filter((record) => record.id !== id);
+    const deleted = nextEmployees.length !== store.employees.length;
 
-  if (deleted) {
-    writeAdminStore({
-      ...store,
-      employees: nextEmployees,
-    });
-  }
+    if (deleted) {
+      store.employees = nextEmployees;
+    }
 
-  return deleted;
+    return deleted;
+  });
 }
 
 export function getAdminProviderConfig(id: AdminProviderId) {
@@ -923,34 +956,34 @@ export function saveAdminProviderConfig(
   id: AdminProviderId,
   config: Partial<AdminProviderConfig>,
 ) {
-  const store = readAdminStore();
-  const current = store.providers[id] ?? {
-    id,
-    enabled: false,
-  };
-  const enabled = config.enabled ?? current.enabled ?? false;
-  const credential = store.credentials
-    .filter((item) => item.provider === id)
-    .sort((a, b) => a.priority - b.priority)
-    .at(0);
-  if (enabled && !credential?.apiKey.trim()) {
-    throw new Error("启用服务商前必须填写 API Key");
-  }
+  return updateAdminStore((store) => {
+    const current = store.providers[id] ?? {
+      id,
+      enabled: false,
+    };
+    const enabled = config.enabled ?? current.enabled ?? false;
+    const credential = store.credentials
+      .filter((item) => item.provider === id)
+      .sort((a, b) => a.priority - b.priority)
+      .at(0);
+    if (enabled && !credential?.apiKey.trim()) {
+      throw new Error("启用服务商前必须填写 API Key");
+    }
 
-  store.providers[id] = {
-    ...current,
-    ...config,
-    id,
-    enabled,
-    updatedAt: now(),
-  };
-  if (credential) {
-    credential.enabled = enabled;
-    credential.updatedAt = now();
-  }
+    store.providers[id] = {
+      ...current,
+      ...config,
+      id,
+      enabled,
+      updatedAt: now(),
+    };
+    if (credential) {
+      credential.enabled = enabled;
+      credential.updatedAt = now();
+    }
 
-  writeAdminStore(store);
-  return store.providers[id] as AdminProviderConfig;
+    return store.providers[id] as AdminProviderConfig;
+  });
 }
 
 function envValue(key?: keyof NodeJS.ProcessEnv) {

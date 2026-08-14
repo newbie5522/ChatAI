@@ -1,9 +1,10 @@
 import { randomUUID } from "crypto";
-import { mkdir, readFile, rename, writeFile } from "fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "fs/promises";
 import path from "path";
 
 import type { ModelCategory } from "./model-registry";
 import type { SafeAccountRecord } from "./admin-store";
+import { withFileLock } from "@/app/api/lib/file-lock";
 
 export type UsageStatus =
   | "pending"
@@ -181,8 +182,17 @@ async function writeStoreUnsafe(store: UsageStore) {
   };
 
   const tempPath = `${filePath}.${process.pid}.tmp`;
-  await writeFile(tempPath, JSON.stringify(trimmedStore, null, 2), "utf8");
-  await rename(tempPath, filePath);
+  try {
+    await writeFile(tempPath, JSON.stringify(trimmedStore, null, 2), "utf8");
+    await rename(tempPath, filePath);
+  } catch (error) {
+    try {
+      await unlink(tempPath);
+    } catch {
+      // 清理失败忽略，避免掩盖原始错误
+    }
+    throw error;
+  }
 }
 
 function enqueueWrite<T>(task: () => Promise<T>) {
@@ -194,25 +204,44 @@ function enqueueWrite<T>(task: () => Promise<T>) {
   return run;
 }
 
+/**
+ * 在进程内 promise queue 之上叠加跨进程文件锁：
+ * 锁内执行"读 → 变更 → 原子写"，多实例部署下不会互相覆盖。
+ * fn 返回 { value, changed }，changed 为 false 时跳过写盘。
+ */
+async function withUsageStore<T>(
+  fn: (store: UsageStore) => Promise<{ value: T; changed: boolean }>,
+): Promise<T> {
+  const filePath = getUsageLogPath();
+  return withFileLock(`${filePath}.lock`, async () => {
+    const store = await readStoreUnsafe();
+    const { value, changed } = await fn(store);
+    if (changed) {
+      await writeStoreUnsafe(store);
+    }
+    return value;
+  });
+}
+
 export async function readUsageRecords() {
   const store = await readStoreUnsafe();
   return store.records;
 }
 
 export async function appendUsageRecord(input: UsageRecordInput) {
-  return enqueueWrite(async () => {
-    const record = normalizeRecord({
-      ...input,
-      id: randomUUID(),
-      createdAt: input.createdAt ?? new Date().toISOString(),
-    });
+  return enqueueWrite(() =>
+    withUsageStore(async (store) => {
+      const record = normalizeRecord({
+        ...input,
+        id: randomUUID(),
+        createdAt: input.createdAt ?? new Date().toISOString(),
+      });
 
-    const store = await readStoreUnsafe();
-    store.records.push(record);
-    await writeStoreUnsafe(store);
+      store.records.push(record);
 
-    return record;
-  });
+      return { value: record, changed: true };
+    }),
+  );
 }
 
 function categoryLimit(account: SafeAccountRecord, category: ModelCategory) {
@@ -226,102 +255,113 @@ export async function reserveCategoryQuota(
   account: SafeAccountRecord,
   input: UsageReservationInput,
 ): Promise<UsageReservationResult> {
-  return enqueueWrite(async () => {
-    const store = await readStoreUnsafe();
-    const month = getMonthKey();
-    const existing = store.records.find(
-      (record) => record.requestId === input.requestId,
-    );
-    const categoryRecords = getMonthlyRecords(
-      store.records,
-      account.id,
-      month,
-    ).filter((record) => record.category === input.category);
-    const used = categoryRecords.filter(
-      (record) => record.status === "success" && record.usageUnits === 1,
-    ).length;
-    const pending = categoryRecords.filter(
-      (record) => record.status === "pending",
-    ).length;
-    const unlimited =
-      account.role === "admin" ||
-      account.role === "super_admin" ||
-      account.quotaUnlimited;
-    const limit = unlimited
-      ? undefined
-      : categoryLimit(account, input.category) ?? 0;
-
-    if (existing) {
-      return {
-        allowed: existing.status === "pending" || existing.status === "success",
-        requestId: input.requestId,
-        category: input.category,
-        used,
-        pending,
-        limit,
-        remaining:
-          limit === undefined ? undefined : Math.max(0, limit - used - pending),
-      };
-    }
-
-    if (limit !== undefined && used + pending >= limit) {
-      return {
-        allowed: false,
-        requestId: input.requestId,
-        category: input.category,
-        used,
-        pending,
-        limit,
-        remaining: 0,
-      };
-    }
-
-    store.records.push(
-      normalizeRecord({
-        ...input,
-        id: randomUUID(),
-        requestId: input.requestId,
-        status: "pending",
-        usageUnits: 0,
-        quotaUnits: 1,
+  return enqueueWrite(() =>
+    withUsageStore(async (store) => {
+      const month = getMonthKey();
+      const existing = store.records.find(
+        (record) => record.requestId === input.requestId,
+      );
+      const categoryRecords = getMonthlyRecords(
+        store.records,
+        account.id,
         month,
-        createdAt: input.createdAt ?? new Date().toISOString(),
-      }),
-    );
-    await writeStoreUnsafe(store);
+      ).filter((record) => record.category === input.category);
+      const used = categoryRecords.filter(
+        (record) => record.status === "success" && record.usageUnits === 1,
+      ).length;
+      const pending = categoryRecords.filter(
+        (record) => record.status === "pending",
+      ).length;
+      const unlimited =
+        account.role === "admin" ||
+        account.role === "super_admin" ||
+        account.quotaUnlimited;
+      const limit = unlimited
+        ? undefined
+        : categoryLimit(account, input.category) ?? 0;
 
-    return {
-      allowed: true,
-      requestId: input.requestId,
-      category: input.category,
-      used,
-      pending: pending + 1,
-      limit,
-      remaining:
-        limit === undefined
-          ? undefined
-          : Math.max(0, limit - used - pending - 1),
-    };
-  });
+      if (existing) {
+        return {
+          value: {
+            allowed: existing.status === "pending" || existing.status === "success",
+            requestId: input.requestId,
+            category: input.category,
+            used,
+            pending,
+            limit,
+            remaining:
+              limit === undefined ? undefined : Math.max(0, limit - used - pending),
+          },
+          changed: false,
+        };
+      }
+
+      if (limit !== undefined && used + pending >= limit) {
+        return {
+          value: {
+            allowed: false,
+            requestId: input.requestId,
+            category: input.category,
+            used,
+            pending,
+            limit,
+            remaining: 0,
+          },
+          changed: false,
+        };
+      }
+
+      store.records.push(
+        normalizeRecord({
+          ...input,
+          id: randomUUID(),
+          requestId: input.requestId,
+          status: "pending",
+          usageUnits: 0,
+          quotaUnits: 1,
+          month,
+          createdAt: input.createdAt ?? new Date().toISOString(),
+        }),
+      );
+
+      return {
+        value: {
+          allowed: true,
+          requestId: input.requestId,
+          category: input.category,
+          used,
+          pending: pending + 1,
+          limit,
+          remaining:
+            limit === undefined
+              ? undefined
+              : Math.max(0, limit - used - pending - 1),
+        },
+        changed: true,
+      };
+    }),
+  );
 }
 
 export async function confirmCategoryQuota(
   requestId: string,
   httpStatus?: number,
 ) {
-  return enqueueWrite(async () => {
-    const store = await readStoreUnsafe();
-    const record = store.records.find((item) => item.requestId === requestId);
-    if (!record || record.status !== "pending") return record;
+  return enqueueWrite(() =>
+    withUsageStore(async (store) => {
+      const record = store.records.find((item) => item.requestId === requestId);
+      if (!record || record.status !== "pending") {
+        return { value: record, changed: false };
+      }
 
-    record.status = "success";
-    record.usageUnits = 1;
-    record.quotaUnits = 1;
-    record.httpStatus = httpStatus;
-    record.errorMessage = undefined;
-    await writeStoreUnsafe(store);
-    return record;
-  });
+      record.status = "success";
+      record.usageUnits = 1;
+      record.quotaUnits = 1;
+      record.httpStatus = httpStatus;
+      record.errorMessage = undefined;
+      return { value: record, changed: true };
+    }),
+  );
 }
 
 export async function releaseCategoryQuota(
@@ -330,19 +370,21 @@ export async function releaseCategoryQuota(
   errorMessage?: string,
   httpStatus?: number,
 ) {
-  return enqueueWrite(async () => {
-    const store = await readStoreUnsafe();
-    const record = store.records.find((item) => item.requestId === requestId);
-    if (!record || record.status !== "pending") return record;
+  return enqueueWrite(() =>
+    withUsageStore(async (store) => {
+      const record = store.records.find((item) => item.requestId === requestId);
+      if (!record || record.status !== "pending") {
+        return { value: record, changed: false };
+      }
 
-    record.status = status;
-    record.usageUnits = 0;
-    record.quotaUnits = 0;
-    record.httpStatus = httpStatus;
-    record.errorMessage = errorMessage?.slice(0, 1000);
-    await writeStoreUnsafe(store);
-    return record;
-  });
+      record.status = status;
+      record.usageUnits = 0;
+      record.quotaUnits = 0;
+      record.httpStatus = httpStatus;
+      record.errorMessage = errorMessage?.slice(0, 1000);
+      return { value: record, changed: true };
+    }),
+  );
 }
 
 export function estimateTokensFromBody(bodyText?: string) {
