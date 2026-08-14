@@ -29,6 +29,7 @@ describe("isModelNotavailableInServer", () => {
     process.env.DISABLE_GPT4 = "1";
     const result = isModelNotavailableInServer("", "gpt-4", "OpenAI");
     expect(result).toBe(true);
+    delete process.env.DISABLE_GPT4;
   });
 
   test("should handle empty provider names", () => {
@@ -53,18 +54,17 @@ describe("isModelNotavailableInServer", () => {
     expect(result).toBe(true);
   });
 
-  // FIXME: 这个测试用例有问题，需要修复
-  //   test("support passing multiple providers, model available on one of the providers will return false", () => {
-  //     const customModels = "-all,gpt-4@google";
-  //     const modelName = "gpt-4";
-  //     const providerNames = ["OpenAI", "Google"];
-  //     const result = isModelNotavailableInServer(
-  //       customModels,
-  //       modelName,
-  //       providerNames,
-  //     );
-  //     expect(result).toBe(false);
-  //   });
+  test("support passing multiple providers, model available on one of the providers will return false", () => {
+    const customModels = "-all,gpt-4@google";
+    const modelName = "gpt-4";
+    const providerNames = ["OpenAI", "Google"];
+    const result = isModelNotavailableInServer(
+      customModels,
+      modelName,
+      providerNames,
+    );
+    expect(result).toBe(false);
+  });
 
   test("test custom model without setting provider", () => {
     const customModels = "-all,mistral-large";

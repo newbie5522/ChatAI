@@ -111,27 +111,6 @@ export abstract class LLMApi {
   abstract models(): Promise<LLMModel[]>;
 }
 
-type ProviderName = "openai" | "azure" | "claude" | "palm";
-
-interface Model {
-  name: string;
-  provider: ProviderName;
-  ctxlen: number;
-}
-
-interface ChatProvider {
-  name: ProviderName;
-  apiConfig: {
-    baseUrl: string;
-    apiKey: string;
-    summaryModel: Model;
-  };
-  models: Model[];
-
-  chat: () => void;
-  usage: () => void;
-}
-
 export class ClientApi {
   public llm: LLMApi;
 
@@ -176,12 +155,6 @@ export class ClientApi {
         this.llm = new ChatGPTApi();
     }
   }
-
-  config() {}
-
-  prompts() {}
-
-  masks() {}
 
   async share(messages: ChatMessage[], avatarUrl: string | null = null) {
     const msgs = messages
