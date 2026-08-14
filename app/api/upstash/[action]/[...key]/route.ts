@@ -11,8 +11,36 @@ async function handle(
     return NextResponse.json({ body: "OK" }, { status: 200 });
   }
   const [...key] = params.key;
+
+  if (!endpoint) {
+    return NextResponse.json(
+      {
+        error: true,
+        msg: "endpoint 参数缺失",
+      },
+      {
+        status: 400,
+      },
+    );
+  }
+
+  let endpointHost: string;
+  try {
+    endpointHost = new URL(endpoint).hostname;
+  } catch {
+    return NextResponse.json(
+      {
+        error: true,
+        msg: "endpoint 参数不是合法的 URL",
+      },
+      {
+        status: 400,
+      },
+    );
+  }
+
   // only allow to request to *.upstash.io
-  if (!endpoint || !new URL(endpoint).hostname.endsWith(".upstash.io")) {
+  if (!endpointHost.endsWith(".upstash.io")) {
     return NextResponse.json(
       {
         error: true,

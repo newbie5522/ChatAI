@@ -559,14 +559,17 @@ async function handle(
       res.status,
     );
     return res;
-  } catch {
+  } catch (error) {
     await releaseCategoryQuota(
       requestId,
       "failed",
       "gateway request failed",
       502,
     );
-    console.error("[Gateway] request failed");
+    console.error(
+      `[Gateway] request failed provider=${provider} model=${companyModel?.model ?? "unknown"} requestId=${requestId}`,
+      error instanceof Error ? error.message : String(error),
+    );
     return gatewayError(provider, 502, "gateway request failed");
   }
 }

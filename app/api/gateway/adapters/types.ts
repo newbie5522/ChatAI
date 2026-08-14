@@ -36,6 +36,10 @@ export function withDuplex(init: RequestInit) {
   return { ...init, duplex: "half" } as RequestInit & { duplex: "half" };
 }
 
-export function gatewayJsonError(status: number, message: string) {
-  return Response.json({ error: true, message }, { status });
+export function gatewayJsonError(
+  status: number,
+  message: string,
+  extra?: Record<string, unknown>,
+) {
+  return Response.json({ error: true, message, ...extra }, { status });
 }

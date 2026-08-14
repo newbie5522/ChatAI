@@ -125,7 +125,14 @@ export async function callOpenAICompatibleVideo(
     "https://openrouter.ai/api/v1",
   );
 
-  const body = bodyText ? JSON.parse(bodyText) : {};
+  let body: Record<string, unknown>;
+  try {
+    body = bodyText ? JSON.parse(bodyText) : {};
+  } catch {
+    return gatewayJsonError(400, "请求体不是合法的 JSON", {
+      provider_error: "invalid json body",
+    });
+  }
   const prompt = extractPrompt(body);
   if (!prompt) {
     return gatewayJsonError(400, "视频生成需要提供提示词 (prompt)");
