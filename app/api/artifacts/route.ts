@@ -43,7 +43,7 @@ async function handle(req: NextRequest) {
   const storeUrl = () =>
     `https://api.cloudflare.com/client/v4/accounts/${serverConfig.cloudflareAccountId}/storage/kv/namespaces/${serverConfig.cloudflareKVNamespaceId}`;
   const storeHeaders = () => ({
-    Authorization: `******`
+    Authorization: `Bearer ${serverConfig.cloudflareKVApiKey}`,
   });
 
   if (req.method === "POST") {

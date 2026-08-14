@@ -45,6 +45,18 @@ import type {
   ModelEndpointType,
   ModelProvider,
 } from "@/app/config/model-registry";
+import { checkRateLimit } from "@/app/api/lib/rate-limit";
+
+const ADMIN_LOGIN_RATE_LIMIT = { limit: 10, windowMs: 5 * 60 * 1000 }; // 10 attempts per 5 min per IP
+
+function clientIp(req: NextRequest): string {
+  return (
+    req.ip ??
+    req.headers.get("x-real-ip") ??
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
+    "unknown"
+  );
+}
 
 async function readBody(req: NextRequest) {
   try {
@@ -180,6 +192,20 @@ async function handleLegacyLogin(req: NextRequest) {
     return NextResponse.json(
       { error: true, message: "admin password is not configured" },
       { status: 503 },
+    );
+  }
+
+  // Brute-force protection: rate-limit by client IP
+  const rl = checkRateLimit(`admin-login:${clientIp(req)}`, ADMIN_LOGIN_RATE_LIMIT);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: true, message: "请求过于频繁，请稍后再试" },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)),
+        },
+      },
     );
   }
 
