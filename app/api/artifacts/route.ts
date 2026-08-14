@@ -26,9 +26,12 @@ function generateId(): string {
   return randomBytes(16).toString("hex");
 }
 
-/** Validate that id is a 32-char hex string or UUID */
+/** Validate that id is a 32-char hex string or a standard UUID */
 function isValidId(id: string): boolean {
-  return /^[0-9a-f]{32}$/i.test(id) || /^[0-9a-f-]{36}$/i.test(id);
+  return (
+    /^[0-9a-f]{32}$/i.test(id) ||
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+  );
 }
 
 async function handle(req: NextRequest) {

@@ -1,6 +1,12 @@
 /**
  * Lightweight in-memory sliding-window rate limiter.
  * No third-party dependencies.
+ *
+ * NOTE: This store is process-local. In serverless deployments where multiple
+ * instances run in parallel each instance maintains its own independent window,
+ * so the effective limit is per-instance rather than globally shared.
+ * For a globally-enforced limit, replace this with a distributed store
+ * (e.g. Redis / Upstash).
  */
 
 interface WindowEntry {
