@@ -129,6 +129,20 @@ function stringValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
+function dataUrlToInlineData(imageUrl: string):
+  | { mimeType: string; data: string }
+  | undefined {
+  const match = imageUrl.match(
+    /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=]+)$/i,
+  );
+  if (!match) return undefined;
+
+  return {
+    mimeType: match[1].toLowerCase(),
+    data: match[2],
+  };
+}
+
 function dataUrlToInteractionImage(imageUrl: string) {
   const match = imageUrl.match(
     /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=]+)$/i,
@@ -140,53 +154,6 @@ function dataUrlToInteractionImage(imageUrl: string) {
     data: match[2],
     mime_type: match[1].toLowerCase(),
   };
-}
-
-function collectImageData(value: unknown, output: Set<string>) {
-  const item = objectValue(value);
-  if (!item) return;
-
-  const data = stringValue(item.data);
-  const mimeType = stringValue(item.mime_type) ?? stringValue(item.mimeType);
-  if (item.type === "image" && data) {
-    output.add(data);
-  } else if (data && mimeType?.startsWith("image/")) {
-    output.add(data);
-  }
-
-  const outputImage = objectValue(item.output_image);
-  const outputImageData = stringValue(outputImage?.data);
-  if (outputImageData) {
-    output.add(outputImageData);
-  }
-
-  const steps = Array.isArray(item.steps) ? item.steps : [];
-  steps.forEach((step) => {
-    const stepObject = objectValue(step);
-    if (!stepObject) return;
-    for (const field of ["content", "summary"]) {
-      const blocks = stepObject[field];
-      if (Array.isArray(blocks)) {
-        blocks.forEach((block) => collectImageData(block, output));
-      }
-    }
-  });
-
-  for (const field of ["output", "outputs", "output_images", "images"]) {
-    const nested = item[field];
-    if (Array.isArray(nested)) {
-      nested.forEach((block) => collectImageData(block, output));
-    } else {
-      collectImageData(nested, output);
-    }
-  }
-}
-
-function extractInteractionImages(json: unknown) {
-  const imageData = new Set<string>();
-  collectImageData(json, imageData);
-
-  return Array.from(imageData).map((b64_json) => ({ b64_json }));
 }
 
 function sanitizeGoogleError(message: string) {
@@ -242,9 +209,97 @@ async function googleErrorMessage(res: Response) {
   }
 }
 
-export async function callGoogleImage(
+interface GeminiContentPart {
+  text?: string;
+  inlineData?: {
+    mimeType: string;
+    data: string;
+  };
+}
+
+interface GeminiGenerateContentResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: GeminiContentPart[];
+    };
+    finishReason?: string;
+  }>;
+  error?: Record<string, unknown>;
+}
+
+function findImagePart(json: GeminiGenerateContentResponse) {
+  return json.candidates?.[0]?.content?.parts?.find((part) => part.inlineData);
+}
+
+function findTextPart(json: GeminiGenerateContentResponse) {
+  return json.candidates?.[0]?.content?.parts?.find(
+    (part) => typeof part.text === "string" && part.text.trim(),
+  );
+}
+
+function isGoogleOfficialHost(baseUrl: string) {
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase();
+    return (
+      host === "generativelanguage.googleapis.com" ||
+      host.endsWith(".googleapis.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function collectImageData(value: unknown, output: Set<string>) {
+  const item = objectValue(value);
+  if (!item) return;
+
+  const data = stringValue(item.data);
+  const mimeType = stringValue(item.mime_type) ?? stringValue(item.mimeType);
+  if (item.type === "image" && data) {
+    output.add(data);
+  } else if (data && mimeType?.startsWith("image/")) {
+    output.add(data);
+  }
+
+  const outputImage = objectValue(item.output_image);
+  const outputImageData = stringValue(outputImage?.data);
+  if (outputImageData) {
+    output.add(outputImageData);
+  }
+
+  const steps = Array.isArray(item.steps) ? item.steps : [];
+  steps.forEach((step) => {
+    const stepObject = objectValue(step);
+    if (!stepObject) return;
+    for (const field of ["content", "summary"]) {
+      const blocks = stepObject[field];
+      if (Array.isArray(blocks)) {
+        blocks.forEach((block) => collectImageData(block, output));
+      }
+    }
+  });
+
+  for (const field of ["output", "outputs", "output_images", "images"]) {
+    const nested = item[field];
+    if (Array.isArray(nested)) {
+      nested.forEach((block) => collectImageData(block, output));
+    } else {
+      collectImageData(nested, output);
+    }
+  }
+}
+
+function extractInteractionImages(json: unknown) {
+  const imageData = new Set<string>();
+  collectImageData(json, imageData);
+
+  return Array.from(imageData).map((b64_json) => ({ b64_json }));
+}
+
+async function callGeminiNativeImage(
   ctx: GatewayAdapterContext,
-): Promise<Response> {
+  baseUrl: string,
+) {
   const { prompt, imageUrls } = extractPayload(ctx.bodyText);
   if (!prompt) {
     return gatewayJsonError(400, "image prompt is required");
@@ -256,23 +311,31 @@ export async function callGoogleImage(
   if (imageUrls.length > 0 && referenceImages.length !== imageUrls.length) {
     return gatewayJsonError(400, "valid reference image data URL is required");
   }
-  const input =
-    referenceImages.length > 0
-      ? [{ type: "text", text: prompt }, ...referenceImages]
-      : prompt;
 
-  const baseUrl = googleBaseRoot(ctx.credential.baseUrl);
-  const res = await fetch(`${baseUrl}/v1beta/interactions`, {
+  const parts: GeminiContentPart[] = [];
+  for (const image of referenceImages) {
+    parts.push({
+      inlineData: {
+        mimeType: image.mime_type,
+        data: image.data,
+      },
+    });
+  }
+  parts.push({ text: prompt });
+
+  const model = ctx.model.model;
+  const upstreamUrl = `${baseUrl}/v1beta/models/${model}:generateContent`;
+
+  const res = await fetch(upstreamUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "x-goog-api-key": ctx.credential.apiKey,
     },
     body: JSON.stringify({
-      model: ctx.model.model,
-      input,
-      response_format: {
-        type: "image",
+      contents: [{ role: "user", parts }],
+      generationConfig: {
+        responseModalities: ["TEXT", "IMAGE"],
       },
     }),
   });
@@ -281,20 +344,79 @@ export async function callGoogleImage(
     return gatewayJsonError(res.status, await googleErrorMessage(res));
   }
 
-  const json = await res.json();
-  const data = extractInteractionImages(json);
-  if (data.length === 0) {
+  const json = (await res.json()) as GeminiGenerateContentResponse;
+  const imagePart = findImagePart(json);
+  if (!imagePart?.inlineData?.data) {
     return gatewayJsonError(
       502,
       "google image response did not include image data",
     );
   }
 
+  const textPart = findTextPart(json);
+  const mimeType = imagePart.inlineData.mimeType || "image/png";
+  const b64_json = imagePart.inlineData.data;
+  const url = `data:${mimeType};base64,${b64_json}`;
+
   return Response.json(
     {
       created: Math.floor(Date.now() / 1000),
-      data,
+      data: [
+        {
+          url,
+          b64_json,
+          revised_prompt: textPart?.text || prompt,
+        },
+      ],
     },
     { status: 200 },
   );
+}
+
+async function callOpenAICompatibleImage(
+  ctx: GatewayAdapterContext,
+  baseUrl: string,
+) {
+  const path = "images/generations";
+  const res = await fetch(`${baseUrl}/${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${ctx.credential.apiKey}`,
+    },
+    body: ctx.bodyText,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "unknown");
+    return gatewayJsonError(
+      res.status,
+      `Google-compatible image error: ${sanitizeGoogleError(text)}`,
+    );
+  }
+
+  return new Response(res.body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers: {
+      "Content-Type": res.headers.get("Content-Type") || "application/json",
+    },
+  });
+}
+
+export async function callGoogleImage(
+  ctx: GatewayAdapterContext,
+): Promise<Response> {
+  const baseUrl = googleBaseRoot(ctx.credential.baseUrl);
+
+  try {
+    if (isGoogleOfficialHost(baseUrl)) {
+      return await callGeminiNativeImage(ctx, baseUrl);
+    }
+    return await callOpenAICompatibleImage(ctx, baseUrl);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "google image request failed";
+    return gatewayJsonError(502, sanitizeGoogleError(message));
+  }
 }
