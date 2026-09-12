@@ -21,7 +21,6 @@ import SpeakStopIcon from "../icons/speak-stop.svg";
 import LoadingIcon from "../icons/three-dots.svg";
 import LoadingButtonIcon from "../icons/loading.svg";
 import PromptIcon from "../icons/prompt.svg";
-import MaskIcon from "../icons/mask.svg";
 import MaxIcon from "../icons/max.svg";
 import MinIcon from "../icons/min.svg";
 import ResetIcon from "../icons/reload.svg";
@@ -104,8 +103,7 @@ import {
   UNFINISHED_INPUT,
 } from "../constant";
 import { Avatar } from "./emoji";
-import { ContextPrompts, MaskAvatar, MaskConfig } from "./mask";
-import { useMaskStore } from "../store/mask";
+import { ContextPrompts, MaskAvatar } from "./mask";
 import { ChatCommandPrefix, useChatCommand, useCommand } from "../command";
 import { prettyObject } from "../utils/format";
 import { ExportMessageModal } from "./exporter";
@@ -116,7 +114,7 @@ import { createTTSPlayer } from "../utils/audio";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "../utils/ms_edge_tts";
 
 import { findAccountModel, getModelProvider } from "../utils/model";
-import { getGroupedModels } from "./model-config";
+import { getGroupedModels, ModelConfigList } from "./model-config";
 import { RealtimeChat } from "@/app/components/realtime-chat";
 import clsx from "clsx";
 import { getAvailableClientsCount, isMcpEnabled } from "../mcp/actions";
@@ -165,66 +163,25 @@ const MCPAction = () => {
 export function SessionConfigModel(props: { onClose: () => void }) {
   const chatStore = useChatStore();
   const session = chatStore.currentSession();
-  const maskStore = useMaskStore();
-  const navigate = useNavigate();
-
   return (
     <div className="modal-mask">
-      <Modal
-        title={Locale.Context.Edit}
-        onClose={() => props.onClose()}
-        actions={[
-          <IconButton
-            key="reset"
-            icon={<ResetIcon />}
-            bordered
-            text={Locale.Chat.Config.Reset}
-            onClick={async () => {
-              if (await showConfirm(Locale.Memory.ResetConfirm)) {
-                chatStore.updateTargetSession(
-                  session,
-                  (session) => (session.memoryPrompt = ""),
-                );
-              }
+      <Modal title="对话设置" onClose={props.onClose}>
+        <List>
+          <ModelConfigList
+            modelConfig={session.mask.modelConfig}
+            updateConfig={(updater) => {
+              chatStore.updateTargetSession(session, (target) => {
+                const modelConfig = { ...target.mask.modelConfig };
+                updater(modelConfig);
+                target.mask = {
+                  ...target.mask,
+                  modelConfig,
+                  syncGlobalConfig: false,
+                };
+              });
             }}
-          />,
-          <IconButton
-            key="copy"
-            icon={<CopyIcon />}
-            bordered
-            text={Locale.Chat.Config.SaveAs}
-            onClick={() => {
-              navigate(Path.Masks);
-              setTimeout(() => {
-                maskStore.create(session.mask);
-              }, 500);
-            }}
-          />,
-        ]}
-      >
-        <MaskConfig
-          mask={session.mask}
-          updateMask={(updater) => {
-            const mask = { ...session.mask };
-            updater(mask);
-            chatStore.updateTargetSession(
-              session,
-              (session) => (session.mask = mask),
-            );
-          }}
-          shouldSyncFromGlobal
-          extraListItems={
-            session.mask.modelConfig.sendMemory ? (
-              <ListItem
-                className="copyable"
-                title={`${Locale.Memory.Title} (${session.lastSummarizeIndex} of ${session.messages.length})`}
-                subTitle={session.memoryPrompt || Locale.Memory.EmptyContent}
-              ></ListItem>
-            ) : (
-              <></>
-            )
-          }
-        ></MaskConfig>
+          />
+        </List>
       </Modal>
     </div>
   );
@@ -564,12 +521,23 @@ export function ChatActions(props: {
   const currentStyle = session.mask.modelConfig?.style ?? "vivid";
   // Check if current size/quality matches a preset option
   const sizePresetValues = useMemo(
-    () => new Set(sizeOptions.filter((o) => !o.disabled && o.apiValue).map((o) => o.apiValue)),
+    () =>
+      new Set(
+        sizeOptions
+          .filter((o) => !o.disabled && o.apiValue)
+          .map((o) => o.apiValue),
+      ),
     [sizeOptions],
   );
-  const isCustomSize = currentSize !== "auto" && !sizePresetValues.has(currentSize);
+  const isCustomSize =
+    currentSize !== "auto" && !sizePresetValues.has(currentSize);
   const qualityPresetValues = useMemo(
-    () => new Set(qualityOptions.filter((o) => !o.disabled && o.apiValue).map((o) => o.apiValue)),
+    () =>
+      new Set(
+        qualityOptions
+          .filter((o) => !o.disabled && o.apiValue)
+          .map((o) => o.apiValue),
+      ),
     [qualityOptions],
   );
 
@@ -606,7 +574,9 @@ export function ChatActions(props: {
     }
     // If current quality is not supported, reset to "auto" or first available
     if (currentQuality !== "auto" && !qualityPresetValues.has(currentQuality)) {
-      const firstAvailable = qualityOptions.find((o) => !o.disabled && o.apiValue);
+      const firstAvailable = qualityOptions.find(
+        (o) => !o.disabled && o.apiValue,
+      );
       chatStore.updateTargetSession(session, (s) => {
         s.mask.modelConfig.quality = firstAvailable?.apiValue || "auto";
       });
@@ -667,14 +637,6 @@ export function ChatActions(props: {
         />
 
         <ChatAction
-          onClick={() => {
-            navigate(Path.Masks);
-          }}
-          text={Locale.Chat.InputActions.Masks}
-          icon={<MaskIcon />}
-        />
-
-        <ChatAction
           text={Locale.Chat.InputActions.Clear}
           icon={<BreakIcon />}
           onClick={() => {
@@ -693,195 +655,195 @@ export function ChatActions(props: {
           <label
             className={styles["model-select"]}
             title={currentModelName}
-          aria-label="选择模型"
-          onMouseDown={(event) => {
-            if (models.length === 0) {
-              event.preventDefault();
-              showToast("当前账号暂无可用模型，请联系管理员。");
-            }
-          }}
-        >
-          <RobotIcon />
-          <select
-            value={
-              models.some(
+            aria-label="选择模型"
+            onMouseDown={(event) => {
+              if (models.length === 0) {
+                event.preventDefault();
+                showToast("当前账号暂无可用模型，请联系管理员。");
+              }
+            }}
+          >
+            <RobotIcon />
+            <select
+              value={
+                models.some(
+                  (model) =>
+                    model.name === currentModel &&
+                    model.provider.providerName === currentProviderName,
+                )
+                  ? `${currentModel}@${currentProviderName}`
+                  : ""
+              }
+              disabled={models.length === 0}
+              onChange={(event) => {
+                const [model, providerName] = getModelProvider(
+                  event.currentTarget.value,
+                );
+                const selectedModel = models.find(
+                  (item) =>
+                    item.name === model &&
+                    item.provider.providerName === providerName,
+                );
+                if (!selectedModel) return;
+                chatStore.updateTargetSession(session, (target) => {
+                  target.mask.modelConfig.model = model as ModelType;
+                  target.mask.modelConfig.providerName =
+                    providerName as ServiceProvider;
+                  target.mask.syncGlobalConfig = false;
+                });
+                showToast(selectedModel.displayName ?? selectedModel.name);
+              }}
+            >
+              {!models.some(
                 (model) =>
                   model.name === currentModel &&
                   model.provider.providerName === currentProviderName,
-              )
-                ? `${currentModel}@${currentProviderName}`
-                : ""
-            }
-            disabled={models.length === 0}
-            onChange={(event) => {
-              const [model, providerName] = getModelProvider(
-                event.currentTarget.value,
-              );
-              const selectedModel = models.find(
-                (item) =>
-                  item.name === model &&
-                  item.provider.providerName === providerName,
-              );
-              if (!selectedModel) return;
-              chatStore.updateTargetSession(session, (target) => {
-                target.mask.modelConfig.model = model as ModelType;
-                target.mask.modelConfig.providerName =
-                  providerName as ServiceProvider;
-                target.mask.syncGlobalConfig = false;
-              });
-              showToast(selectedModel.displayName ?? selectedModel.name);
-            }}
-          >
-            {!models.some(
-              (model) =>
-                model.name === currentModel &&
-                model.provider.providerName === currentProviderName,
-            ) && (
-              <option value="" disabled>
-                暂无可用模型
-              </option>
-            )}
-            {groupedModels.map((group) => (
-              <optgroup label={group.title} key={group.category}>
-                {group.models.length === 0 ? (
-                  <option disabled value={`__empty_${group.category}`}>
-                    {group.emptyText}
-                  </option>
-                ) : (
-                  group.models.map((model) => (
-                    <option
-                      value={`${model.name}@${model.provider?.providerName}`}
-                      key={`${model.provider?.providerName}:${model.name}`}
-                    >
-                      {model.displayName || model.name} (
-                      {model.provider?.providerName})
+              ) && (
+                <option value="" disabled>
+                  暂无可用模型
+                </option>
+              )}
+              {groupedModels.map((group) => (
+                <optgroup label={group.title} key={group.category}>
+                  {group.models.length === 0 ? (
+                    <option disabled value={`__empty_${group.category}`}>
+                      {group.emptyText}
                     </option>
-                  ))
-                )}
-              </optgroup>
-            ))}
-          </select>
-        </label>
+                  ) : (
+                    group.models.map((model) => (
+                      <option
+                        value={`${model.name}@${model.provider?.providerName}`}
+                        key={`${model.provider?.providerName}:${model.name}`}
+                      >
+                        {model.displayName || model.name} (
+                        {model.provider?.providerName})
+                      </option>
+                    ))
+                  )}
+                </optgroup>
+              ))}
+            </select>
+          </label>
 
-        {isMedia && hasSizeOptions && (
-          <label
-            className={styles["media-param-select"]}
-            title="尺寸"
-            aria-label="选择尺寸"
-          >
-            <span className={styles["media-param-label"]}>尺寸：</span>
-            <span className={styles["media-param-value"]}>
-              {isCustomSize
-                ? `自定义 (${currentSize})`
-                : sizeOptions.find((o) => o.apiValue === currentSize)
+          {isMedia && hasSizeOptions && (
+            <label
+              className={styles["media-param-select"]}
+              title="尺寸"
+              aria-label="选择尺寸"
+            >
+              <span className={styles["media-param-label"]}>尺寸：</span>
+              <span className={styles["media-param-value"]}>
+                {isCustomSize
+                  ? `自定义 (${currentSize})`
+                  : sizeOptions.find((o) => o.apiValue === currentSize)
                       ?.label === "auto"
                   ? "AUTO"
                   : sizeOptions.find((o) => o.apiValue === currentSize)
                       ?.label || currentSize}
-            </span>
-            <select
-              value={isCustomSize ? "__custom__" : currentSize}
-              onChange={async (e) => {
-                const val = e.target.value;
-                if (val === "__custom__") {
-                  const custom = await showPrompt(
-                    "自定义尺寸 - 请输入宽x高 (如 1024x768)",
-                    currentSize,
-                  );
-                  if (custom && /^\d+x\d+$/.test(custom)) {
+              </span>
+              <select
+                value={isCustomSize ? "__custom__" : currentSize}
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  if (val === "__custom__") {
+                    const custom = await showPrompt(
+                      "自定义尺寸 - 请输入宽x高 (如 1024x768)",
+                      currentSize,
+                    );
+                    if (custom && /^\d+x\d+$/.test(custom)) {
+                      chatStore.updateTargetSession(session, (s) => {
+                        s.mask.modelConfig.size = custom;
+                      });
+                    }
+                  } else {
                     chatStore.updateTargetSession(session, (s) => {
-                      s.mask.modelConfig.size = custom;
+                      s.mask.modelConfig.size = val;
                     });
                   }
-                } else {
-                  chatStore.updateTargetSession(session, (s) => {
-                    s.mask.modelConfig.size = val;
-                  });
-                }
-              }}
-            >
-              {sizeOptions.map((opt) => (
-                <option
-                  key={opt.label}
-                  value={opt.apiValue || "__disabled__"}
-                  disabled={opt.disabled}
-                >
-                  {opt.label === "auto"
-                    ? "AUTO"
-                    : opt.label === "custom"
+                }}
+              >
+                {sizeOptions.map((opt) => (
+                  <option
+                    key={opt.label}
+                    value={opt.apiValue || "__disabled__"}
+                    disabled={opt.disabled}
+                  >
+                    {opt.label === "auto"
+                      ? "AUTO"
+                      : opt.label === "custom"
                       ? "自定义"
                       : opt.label}
-                </option>
-              ))}
-              {isCustomSize && (
-                <option value="__custom__">自定义 ({currentSize})</option>
-              )}
-            </select>
-          </label>
-        )}
+                  </option>
+                ))}
+                {isCustomSize && (
+                  <option value="__custom__">自定义 ({currentSize})</option>
+                )}
+              </select>
+            </label>
+          )}
 
-        {isMedia && hasQualityOptions && (
-          <label
-            className={styles["media-param-select"]}
-            title="清晰度"
-            aria-label="选择清晰度"
-          >
-            <span className={styles["media-param-label"]}>清晰度：</span>
-            <span className={styles["media-param-value"]}>
-              {qualityOptions.find((o) => o.apiValue === currentQuality)
-                ?.label === "auto"
-                ? "AUTO"
-                : qualityOptions.find((o) => o.apiValue === currentQuality)
-                    ?.label || currentQuality}
-            </span>
-            <select
-              value={currentQuality}
-              onChange={(e) => {
-                chatStore.updateTargetSession(session, (s) => {
-                  s.mask.modelConfig.quality = e.target.value;
-                });
-              }}
+          {isMedia && hasQualityOptions && (
+            <label
+              className={styles["media-param-select"]}
+              title="清晰度"
+              aria-label="选择清晰度"
             >
-              {qualityOptions.map((opt) => (
-                <option
-                  key={opt.label}
-                  value={opt.apiValue || "__disabled__"}
-                  disabled={opt.disabled}
-                >
-                  {opt.label === "auto" ? "auto" : opt.label.toUpperCase()}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+              <span className={styles["media-param-label"]}>清晰度：</span>
+              <span className={styles["media-param-value"]}>
+                {qualityOptions.find((o) => o.apiValue === currentQuality)
+                  ?.label === "auto"
+                  ? "AUTO"
+                  : qualityOptions.find((o) => o.apiValue === currentQuality)
+                      ?.label || currentQuality}
+              </span>
+              <select
+                value={currentQuality}
+                onChange={(e) => {
+                  chatStore.updateTargetSession(session, (s) => {
+                    s.mask.modelConfig.quality = e.target.value;
+                  });
+                }}
+              >
+                {qualityOptions.map((opt) => (
+                  <option
+                    key={opt.label}
+                    value={opt.apiValue || "__disabled__"}
+                    disabled={opt.disabled}
+                  >
+                    {opt.label === "auto" ? "auto" : opt.label.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
-        {isMedia && hasStyleOptions && (
-          <label
-            className={styles["media-param-select"]}
-            title="风格"
-            aria-label="选择风格"
-          >
-            <span className={styles["media-param-label"]}>风格：</span>
-            <span className={styles["media-param-value"]}>
-              {styleOptions.find((o) => o.apiValue === currentStyle)?.label ||
-                currentStyle}
-            </span>
-            <select
-              value={currentStyle}
-              onChange={(e) => {
-                chatStore.updateTargetSession(session, (s) => {
-                  s.mask.modelConfig.style = e.target.value;
-                });
-              }}
+          {isMedia && hasStyleOptions && (
+            <label
+              className={styles["media-param-select"]}
+              title="风格"
+              aria-label="选择风格"
             >
-              {styleOptions.map((opt) => (
-                <option key={opt.apiValue} value={opt.apiValue}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+              <span className={styles["media-param-label"]}>风格：</span>
+              <span className={styles["media-param-value"]}>
+                {styleOptions.find((o) => o.apiValue === currentStyle)?.label ||
+                  currentStyle}
+              </span>
+              <select
+                value={currentStyle}
+                onChange={(e) => {
+                  chatStore.updateTargetSession(session, (s) => {
+                    s.mask.modelConfig.style = e.target.value;
+                  });
+                }}
+              >
+                {styleOptions.map((opt) => (
+                  <option key={opt.apiValue} value={opt.apiValue}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
 
         {showPlugins(currentProviderName, currentModel) && (
@@ -1206,7 +1168,10 @@ function _Chat() {
   // chat commands shortcuts
   const chatCommands = useChatCommand({
     new: () => chatStore.newSession(),
-    newm: () => navigate(Path.NewChat),
+    newm: () => {
+      chatStore.newSession();
+      navigate(Path.Chat);
+    },
     prev: () => chatStore.nextSession(-1),
     next: () => chatStore.nextSession(1),
     clear: () =>
@@ -1410,8 +1375,7 @@ function _Chat() {
     // when it is resending a message
     // 1. for a user's message, find the next bot response
     // 2. for a bot's message, find the last user's input
-    // 3. delete original user input and bot's message
-    // 4. resend the user's input
+    // 3. replay the original input and replace only its answer
 
     const resendingIndex = session.messages.findIndex(
       (m) => m.id === message.id,
@@ -1450,14 +1414,15 @@ function _Chat() {
       return;
     }
 
-    // delete the original messages
-    deleteMessage(userMessage.id);
-    deleteMessage(botMessage?.id);
-
     // resend the message
     setIsLoading(true);
     const textContent = getMessageTextContent(userMessage);
-    chatStore.onUserInput(textContent).then(() => setIsLoading(false));
+    void chatStore
+      .onUserInput(textContent, undefined, false, userMessage.id)
+      .catch((error) =>
+        showToast(error instanceof Error ? error.message : "重新生成失败。"),
+      )
+      .finally(() => setIsLoading(false));
     inputRef.current?.focus();
   };
 
@@ -2420,7 +2385,9 @@ function _Chat() {
                       <SendWhiteIcon />
                     )
                   }
-                  text={couldStop ? Locale.Chat.InputActions.Stop : Locale.Chat.Send}
+                  text={
+                    couldStop ? Locale.Chat.InputActions.Stop : Locale.Chat.Send
+                  }
                   className={
                     couldStop
                       ? styles["chat-input-stop"]
