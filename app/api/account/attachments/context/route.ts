@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireAccount } from "@/app/config/account-auth";
 import { readAttachmentAnalysisSession } from "@/app/config/attachment-analysis-store";
+import { AttachmentArchiveError } from "@/app/config/attachment-analysis-archive";
 import type { AttachmentContextItem } from "@/app/types/attachment";
 import {
   buildCombinedTableSummary,
@@ -47,9 +48,19 @@ export async function POST(req: NextRequest) {
     return errorResponse("附件分析请求无效。");
   }
 
-  const sessions = analysisIds.map((analysisId) =>
-    readAttachmentAnalysisSession(account.id, analysisId),
-  );
+  let sessions: ReturnType<typeof readAttachmentAnalysisSession>[];
+  try {
+    sessions = analysisIds.map((analysisId) =>
+      readAttachmentAnalysisSession(account.id, analysisId),
+    );
+  } catch (error) {
+    return errorResponse(
+      error instanceof AttachmentArchiveError
+        ? error.message
+        : "文档读取暂时失败，请稍后重试。",
+      503,
+    );
+  }
   if (sessions.some((session) => !session)) {
     return errorResponse("附件分析内容已过期，请重新上传文件。", 410);
   }

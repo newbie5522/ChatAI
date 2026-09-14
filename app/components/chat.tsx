@@ -1259,11 +1259,18 @@ function _Chat() {
     setIsLoading(true);
     setAnalyzingAttachments(hasIndexedAttachment);
     try {
-      await chatStore.onUserInput(userInput, attachments);
-      deleteAttachmentAnalysis(attachments);
-      setAttachments([]);
-      chatStore.setLastInput(userInput);
-      setUserInput("");
+      await chatStore.onUserInput(
+        userInput,
+        attachments,
+        false,
+        undefined,
+        () => {
+          // Sent documents belong to the message, not the draft cleanup lifecycle.
+          setAttachments([]);
+          chatStore.setLastInput(userInput);
+          setUserInput("");
+        },
+      );
       setPromptHints([]);
       if (!isMobileScreen) inputRef.current?.focus();
       setAutoScroll(true);

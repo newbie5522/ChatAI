@@ -1,4 +1,26 @@
 import type { RequestMessage } from "../client/api";
+import { estimateTokenLength } from "./token";
+
+// Batch complete turns; never advance the coverage marker past unprocessed text.
+export function summaryBatchEnd(
+  messages: RequestMessage[],
+  start: number,
+  end: number,
+  tokenTarget = 12000,
+): number {
+  let tokens = 0;
+  for (let i = start; i < end; i++) {
+    if (i > start && messages[i].role === "user" && tokens >= tokenTarget)
+      return i;
+    const content = messages[i].content;
+    tokens += estimateTokenLength(
+      typeof content === "string"
+        ? content
+        : content.map((part) => part.text ?? "").join("\n"),
+    );
+  }
+  return end;
+}
 
 // Preserve complete recent turns; only older, contiguous messages can be summarized.
 export function summaryBoundary(

@@ -1,6 +1,7 @@
 import {
   historyStart,
   summaryBoundary,
+  summaryBatchEnd,
 } from "../app/utils/conversation-history";
 import type { RequestMessage } from "../app/client/api";
 
@@ -10,6 +11,20 @@ const messages: RequestMessage[] = Array.from({ length: 60 }, (_, i) => ({
 }));
 test("short conversations retain their first message without a summary", () => {
   expect(historyStart(0, 0, false, false)).toBe(0);
+});
+
+test("summary batches cover contiguous complete turns without losing intervening messages", () => {
+  const end = summaryBoundary(messages, 0);
+  let cursor = 0;
+  const covered: RequestMessage[] = [];
+  while (cursor < end) {
+    const next = summaryBatchEnd(messages, cursor, end, 2);
+    expect(next).toBeGreaterThan(cursor);
+    expect(messages[next].role).toBe("user");
+    covered.push(...messages.slice(cursor, next));
+    cursor = next;
+  }
+  expect([...covered, ...messages.slice(end)]).toEqual(messages);
 });
 test("summary and raw history cover all messages exactly once", () => {
   const end = summaryBoundary(messages, 0);

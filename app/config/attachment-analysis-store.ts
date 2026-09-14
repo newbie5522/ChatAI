@@ -1,4 +1,10 @@
 import "server-only";
+import {
+  ARCHIVE_TTL_MS,
+  saveAnalysisArchive,
+  readAnalysisArchive,
+  deleteAnalysisArchive,
+} from "./attachment-analysis-archive";
 
 import type { AttachmentKind } from "@/app/types/attachment";
 import type {
@@ -30,7 +36,7 @@ declare global {
     | undefined;
 }
 
-const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
+const SESSION_TTL_MS = ARCHIVE_TTL_MS;
 const MAX_PER_ACCOUNT = 5;
 const MAX_GLOBAL = 30;
 const MAX_BYTES = 256 * 1024 * 1024;
@@ -99,9 +105,10 @@ export function createAttachmentAnalysisSession(
     lastAccessedAt: now,
     expiresAt: now + SESSION_TTL_MS,
   };
+  saveAnalysisArchive(session);
   sessions.set(session.id, session);
   cleanup(now);
-  return sessions.get(session.id);
+  return session;
 }
 
 export function readAttachmentAnalysisSession(
@@ -109,11 +116,12 @@ export function readAttachmentAnalysisSession(
   analysisId: string,
 ) {
   cleanup();
-  const session = sessions.get(analysisId);
+  const session =
+    sessions.get(analysisId) ?? readAnalysisArchive(accountId, analysisId);
   if (!session || session.accountId !== accountId) return undefined;
   session.lastAccessedAt = Date.now();
   cleanup();
-  return sessions.get(analysisId);
+  return session;
 }
 
 export function deleteAttachmentAnalysisSessions(
@@ -122,6 +130,7 @@ export function deleteAttachmentAnalysisSessions(
 ) {
   cleanup();
   analysisIds.forEach((analysisId) => {
+    deleteAnalysisArchive(accountId, analysisId);
     const session = sessions.get(analysisId);
     if (session?.accountId === accountId) sessions.delete(analysisId);
   });

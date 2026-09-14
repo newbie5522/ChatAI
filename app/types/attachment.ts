@@ -17,14 +17,14 @@ export interface StoredAttachmentMetadata {
   columnCount?: number;
   sheetCount?: number;
   chunkCount?: number;
+  text?: string;
+  analysisId?: string;
+  expiresAt?: string;
 }
 
 export interface TransientChatAttachment extends StoredAttachmentMetadata {
-  text?: string;
   dataUrl?: string;
-  analysisId?: string;
   analysisStatus?: AttachmentAnalysisStatus;
-  expiresAt?: string;
 }
 
 export interface AttachmentUploadResponse {
