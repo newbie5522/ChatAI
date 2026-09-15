@@ -15,7 +15,8 @@ const config: Config = {
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
   },
-  extensionsToTreatAsEsm: [".ts", ".tsx"],
+  // Keep next/jest transforms and jest.mock semantics consistent locally and in CI.
+  extensionsToTreatAsEsm: [],
   injectGlobals: true,
 };
 
