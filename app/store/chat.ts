@@ -31,6 +31,16 @@ import {
 import Locale, { getLang } from "../locales";
 import { createPersistStore } from "../utils/store";
 import { estimateTokenLength } from "../utils/token";
+import {
+  summaryBoundary,
+  summaryBatchEnd,
+  historyStart,
+} from "../utils/conversation-history";
+import { conversationAttachments } from "../utils/conversation-attachments";
+import {
+  prepareRequestHistory,
+  MEMORY_SUMMARY_PROMPT,
+} from "../utils/request-history";
 import { ModelConfig, ModelType, useAppConfig } from "./config";
 import { useAccessStore } from "./access";
 import { useAccountStore } from "./account";
@@ -53,6 +63,7 @@ import {
 } from "../utils/attachments";
 
 const localStorage = safeLocalStorage();
+const pendingSummaries = new Set<string>();
 
 export type ChatMessageTool = {
   id: string;
@@ -172,19 +183,18 @@ function getSummarizeModel(
 function getCompanyBackgroundModel(modelConfig: ModelConfig) {
   const accountStore = useAccountStore.getState();
   if (!accountStore.authenticated) return undefined;
+  const textModels = accountStore.models.filter(
+    (model) => model.category === "chat" || model.category === "search",
+  );
 
   const configuredModel = findAccountModel(
-    accountStore.models,
+    textModels,
     modelConfig.compressModel,
     modelConfig.compressProviderName,
   );
   return (
     configuredModel ??
-    findAccountModel(
-      accountStore.models,
-      modelConfig.model,
-      modelConfig.providerName,
-    )
+    findAccountModel(textModels, modelConfig.model, modelConfig.providerName)
   );
 }
 
@@ -555,41 +565,84 @@ export const useChatStore = createPersistStore(
         content: string,
         attachments?: TransientChatAttachment[],
         isMcpResponse?: boolean,
+        replayMessageId?: string,
+        onInputAccepted?: () => void,
       ) {
         const session = get().currentSession();
-        const modelConfig = session.mask.modelConfig;
+        const modelConfig = { ...session.mask.modelConfig };
+        const replayIndex = replayMessageId
+          ? session.messages.findIndex(
+              (message) =>
+                message.id === replayMessageId && message.role === "user",
+            )
+          : -1;
+        if (replayMessageId && replayIndex < 0)
+          throw new Error("原始消息已不存在。");
+        const replayMessage =
+          replayIndex >= 0 ? session.messages[replayIndex] : undefined;
 
         const attachmentList = isMcpResponse ? [] : attachments ?? [];
         const queryContent =
           !isMcpResponse && !content.trim() && attachmentList.length > 0
             ? "请完整分析这些附件，并总结关键数据、异常和可执行结论。"
             : content;
-        const analysisIds = attachmentList
+        const selectedModel = findAccountModel(
+          useAccountStore.getState().models,
+          modelConfig.model,
+          modelConfig.providerName,
+        );
+        const documentAttachments =
+          isMcpResponse ||
+          selectedModel?.category === "image" ||
+          selectedModel?.category === "video"
+            ? []
+            : conversationAttachments(
+                session.messages.slice(
+                  session.clearContextIndex ?? 0,
+                  replayIndex >= 0 ? replayIndex : undefined,
+                ),
+                replayMessage?.attachments ?? attachmentList,
+                queryContent,
+              );
+        if (
+          documentAttachments.some(
+            (item) => !item.analysisId && item.text === undefined,
+          )
+        ) {
+          throw new Error(
+            "这条历史消息的文档正文未保存，请重新上传文件后继续分析。",
+          );
+        }
+        const analysisIds = documentAttachments
           .map((attachment) => attachment.analysisId)
           .filter((analysisId): analysisId is string => Boolean(analysisId));
         let analysisContext = "";
-        if (analysisIds.length > 0) {
+        for (let offset = 0; offset < analysisIds.length; offset += 4) {
           const response = await fetch("/api/account/attachments/context", {
             method: "POST",
             credentials: "same-origin",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: queryContent, analysisIds }),
+            body: JSON.stringify({
+              query: queryContent,
+              analysisIds: analysisIds.slice(offset, offset + 4),
+            }),
           });
           const body = (await response.json()) as AttachmentContextResponse;
           if (!response.ok || body.error || !body.contexts) {
             throw new Error(body.message || "附件分析失败，请稍后重试。");
           }
-          analysisContext = body.contexts
-            .map((context) => {
-              const content = context.content.replace(
-                /\[附件(?:开始|结束)\]/g,
-                "[附件标记]",
-              );
-              return `[附件开始]\n文件名：${context.name}\n文件类型：服务器临时分析上下文\n覆盖范围：${context.coverage}\n内容：\n${content}\n[附件结束]`;
-            })
-            .join("\n\n");
+          analysisContext +=
+            body.contexts
+              .map((context) => {
+                const content = context.content.replace(
+                  /\[附件(?:开始|结束)\]/g,
+                  "[附件标记]",
+                );
+                return `[附件开始]\n文件名：${context.name}\n文件类型：服务器临时分析上下文\n覆盖范围：${context.coverage}\n内容：\n${content}\n[附件结束]`;
+              })
+              .join("\n\n") + "\n\n";
         }
-        const attachmentContext = buildAttachmentContext(attachmentList);
+        const attachmentContext = buildAttachmentContext(documentAttachments);
         const imageUrls = attachmentList
           .map((attachment) => attachment.dataUrl)
           .filter((url): url is string => !!url);
@@ -635,9 +688,19 @@ export const useChatStore = createPersistStore(
           isMcpResponse,
         });
         const requestUserMessage: ChatMessage = {
-          ...userMessage,
-          content: requestContent,
+          ...(replayMessage ?? userMessage),
+          content: replayMessage
+            ? Array.isArray(replayMessage.content)
+              ? [
+                  { type: "text", text: requestText },
+                  ...replayMessage.content.filter(
+                    (part) => part.type !== "text",
+                  ),
+                ]
+              : requestText
+            : requestContent,
         };
+        if (replayMessage) userMessage = replayMessage;
 
         const botMessage: ChatMessage = createMessage({
           role: "assistant",
@@ -646,89 +709,231 @@ export const useChatStore = createPersistStore(
         });
 
         // get recent messages
-        const recentMessages = await get().getMessagesWithMemory();
-        const sendMessages = recentMessages.concat(requestUserMessage);
+        const recentMessages = await get().getMessagesWithMemory(
+          session,
+          replayIndex >= 0 ? replayIndex : undefined,
+        );
+        const backgroundModel = getCompanyBackgroundModel(modelConfig);
+        const originalSnapshot = JSON.stringify(session.messages);
+        const preparedHistory =
+          !isMcpResponse &&
+          backgroundModel &&
+          selectedModel?.category !== "image" &&
+          selectedModel?.category !== "video"
+            ? await prepareRequestHistory(
+                recentMessages,
+                (batch) =>
+                  new Promise<string>((resolve, reject) => {
+                    let controller: AbortController | undefined;
+                    let settled = false;
+                    const finish = (message?: string, error?: Error) => {
+                      if (settled) return;
+                      settled = true;
+                      clearTimeout(timer);
+                      if (error) reject(error);
+                      else resolve(message ?? "");
+                    };
+                    const timer = setTimeout(() => {
+                      finish(
+                        undefined,
+                        new Error(
+                          "历史整理超时，原始记录和输入已保留，请重试。",
+                        ),
+                      );
+                      controller?.abort();
+                    }, 30000);
+                    Promise.resolve()
+                      .then(() =>
+                        getClientApi(
+                          backgroundModel.provider.providerName,
+                        ).llm.chat({
+                          messages: [
+                            ...batch,
+                            { role: "system", content: MEMORY_SUMMARY_PROMPT },
+                          ],
+                          config: {
+                            model: backgroundModel.name,
+                            providerName: backgroundModel.provider.providerName,
+                            stream: false,
+                          },
+                          onController(value) {
+                            controller = value;
+                            if (settled) value.abort();
+                          },
+                          onFinish(message, response) {
+                            if (response?.status !== 200)
+                              finish(
+                                undefined,
+                                new Error(
+                                  "历史整理失败，原始记录已保留，请重试。",
+                                ),
+                              );
+                            else finish(message);
+                          },
+                          onError() {
+                            finish(
+                              undefined,
+                              new Error(
+                                "历史整理失败，原始记录和输入已保留，请重试。",
+                              ),
+                            );
+                          },
+                        }),
+                      )
+                      .catch(() =>
+                        finish(
+                          undefined,
+                          new Error("历史整理失败，原始记录已保留，请重试。"),
+                        ),
+                      );
+                  }),
+              )
+            : recentMessages;
+        if (
+          JSON.stringify(session.messages) !== originalSnapshot ||
+          get().currentSession().id !== session.id ||
+          session.mask.modelConfig.model !== modelConfig.model ||
+          session.mask.modelConfig.providerName !== modelConfig.providerName
+        )
+          throw new Error(
+            "对话已发生变化，输入尚未发送，请在当前会话重新发送。",
+          );
+        const sendMessages = preparedHistory.concat(requestUserMessage);
         const messageIndex = session.messages.length + 1;
+        const previousResponse =
+          replayMessage &&
+          session.messages[replayIndex + 1]?.role === "assistant"
+            ? session.messages[replayIndex + 1]
+            : undefined;
 
         // save the original visible input separately from the model request.
         get().updateTargetSession(session, (session) => {
-          session.messages = session.messages.concat([userMessage, botMessage]);
+          if (replayMessage) {
+            session.messages = session.messages.slice();
+            session.messages.splice(
+              replayIndex + 1,
+              previousResponse ? 1 : 0,
+              botMessage,
+            );
+            session.memoryPrompt = "";
+            session.lastSummarizeIndex = 0;
+          } else {
+            session.messages = session.messages.concat([
+              userMessage,
+              botMessage,
+            ]);
+          }
         });
 
+        onInputAccepted?.();
         const api: ClientApi = getClientApi(modelConfig.providerName);
         // make request
-        api.llm.chat({
-          messages: sendMessages,
-          config: { ...modelConfig, stream: true },
-          onUpdate(message) {
-            botMessage.streaming = true;
-            if (message) {
-              botMessage.content = message;
-            }
-            get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
-          },
-          async onFinish(message) {
-            botMessage.streaming = false;
-            if (message) {
-              botMessage.content = message;
-              botMessage.date = new Date().toLocaleString();
-              get().onNewMessage(botMessage, session);
-            }
-            ChatControllerPool.remove(session.id, botMessage.id);
-          },
-          onBeforeTool(tool: ChatMessageTool) {
-            (botMessage.tools = botMessage?.tools || []).push(tool);
-            get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
-          },
-          onAfterTool(tool: ChatMessageTool) {
-            botMessage?.tools?.forEach((t, i, tools) => {
-              if (tool.id == t.id) {
-                tools[i] = { ...tool };
+        await api.llm
+          .chat({
+            messages: sendMessages,
+            config: { ...modelConfig, stream: true },
+            onUpdate(message) {
+              botMessage.streaming = true;
+              if (message) {
+                botMessage.content = message;
               }
-            });
-            get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
-          },
-          onError(error) {
-            const isAborted = error.message?.includes?.("aborted");
-            const rawMessage =
-              error instanceof Error && error.message
-                ? error.message
-                : "请求失败，请稍后重试。";
-            botMessage.content =
-              sanitizeDisplayError(rawMessage) || "请求失败，请稍后重试。";
-            botMessage.streaming = false;
-            userMessage.isError = !isAborted;
-            botMessage.isError = !isAborted;
-            get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
-            ChatControllerPool.remove(
-              session.id,
-              botMessage.id ?? messageIndex,
-            );
+              get().updateTargetSession(session, (session) => {
+                session.messages = session.messages.concat();
+              });
+            },
+            async onFinish(message) {
+              botMessage.streaming = false;
+              if (message.trim()) {
+                botMessage.content = message;
+                botMessage.date = new Date().toLocaleString();
+                userMessage.isError = false;
+                get().onNewMessage(botMessage, session);
+              } else if (previousResponse) {
+                get().updateTargetSession(session, (target) => {
+                  target.messages = target.messages.map((item) =>
+                    item.id === botMessage.id ? previousResponse : item,
+                  );
+                });
+                showToast("模型未返回内容，已保留原回复。");
+              }
+              ChatControllerPool.remove(session.id, botMessage.id);
+            },
+            onBeforeTool(tool: ChatMessageTool) {
+              (botMessage.tools = botMessage?.tools || []).push(tool);
+              get().updateTargetSession(session, (session) => {
+                session.messages = session.messages.concat();
+              });
+            },
+            onAfterTool(tool: ChatMessageTool) {
+              botMessage?.tools?.forEach((t, i, tools) => {
+                if (tool.id == t.id) {
+                  tools[i] = { ...tool };
+                }
+              });
+              get().updateTargetSession(session, (session) => {
+                session.messages = session.messages.concat();
+              });
+            },
+            onError(error) {
+              const isAborted = error.message?.includes?.("aborted");
+              const rawMessage =
+                error instanceof Error && error.message
+                  ? error.message
+                  : "请求失败，请稍后重试。";
+              botMessage.content =
+                sanitizeDisplayError(rawMessage) || "请求失败，请稍后重试。";
+              botMessage.streaming = false;
+              if (!replayMessage) userMessage.isError = !isAborted;
+              botMessage.isError = !isAborted;
+              get().updateTargetSession(session, (session) => {
+                if (previousResponse) {
+                  const index = session.messages.findIndex(
+                    (message) => message.id === botMessage.id,
+                  );
+                  if (index >= 0) session.messages[index] = previousResponse;
+                  showToast(botMessage.content as string);
+                }
+                session.messages = session.messages.concat();
+              });
+              ChatControllerPool.remove(
+                session.id,
+                botMessage.id ?? messageIndex,
+              );
 
-            console.error("[Chat] request failed");
-          },
-          onController(controller) {
-            // collect controller for stop/retry
-            ChatControllerPool.addController(
-              session.id,
-              botMessage.id ?? messageIndex,
-              controller,
+              console.error("[Chat] request failed");
+            },
+            onController(controller) {
+              // collect controller for stop/retry
+              ChatControllerPool.addController(
+                session.id,
+                botMessage.id ?? messageIndex,
+                controller,
+              );
+            },
+          })
+          .catch((error: unknown) => {
+            botMessage.streaming = false;
+            botMessage.isError = true;
+            const message = sanitizeDisplayError(
+              error instanceof Error ? error.message : "请求失败，请稍后重试。",
             );
-          },
-        });
+            botMessage.content = message;
+            get().updateTargetSession(session, (target) => {
+              if (previousResponse) {
+                const index = target.messages.findIndex(
+                  (item) => item.id === botMessage.id,
+                );
+                if (index >= 0) target.messages[index] = previousResponse;
+                showToast(message);
+              }
+              target.messages = target.messages.slice();
+            });
+            ChatControllerPool.remove(session.id, botMessage.id);
+          });
       },
 
-      getMemoryPrompt() {
-        const session = get().currentSession();
-
+      getMemoryPrompt(targetSession?: ChatSession): ChatMessage | undefined {
+        const session = targetSession ?? get().currentSession();
         if (session.memoryPrompt.length) {
           return {
             role: "system",
@@ -738,12 +943,15 @@ export const useChatStore = createPersistStore(
         }
       },
 
-      async getMessagesWithMemory() {
-        const session = get().currentSession();
+      async getMessagesWithMemory(
+        targetSession?: ChatSession,
+        beforeIndex?: number,
+      ): Promise<ChatMessage[]> {
+        const session = targetSession ?? get().currentSession();
         const modelConfig = session.mask.modelConfig;
         const clearContextIndex = session.clearContextIndex ?? 0;
-        const messages = session.messages.slice();
-        const totalMessageCount = session.messages.length;
+        const messages = session.messages.slice(0, beforeIndex);
+        const totalMessageCount = messages.length;
 
         // in-context prompts
         const contextPrompts = session.mask.context.slice();
@@ -779,47 +987,28 @@ export const useChatStore = createPersistStore(
           ];
         }
 
-        const memoryPrompt = get().getMemoryPrompt();
+        const memoryPrompt = get().getMemoryPrompt(session);
         // long term memory
         const shouldSendLongTermMemory =
-          modelConfig.sendMemory &&
+          beforeIndex === undefined &&
           session.memoryPrompt &&
           session.memoryPrompt.length > 0 &&
           session.lastSummarizeIndex > clearContextIndex;
         const longTermMemoryPrompts =
           shouldSendLongTermMemory && memoryPrompt ? [memoryPrompt] : [];
-        const longTermMemoryStartIndex = session.lastSummarizeIndex;
-
-        // short term memory
-        const shortTermMemoryStartIndex = Math.max(
-          0,
-          totalMessageCount - modelConfig.historyMessageCount,
+        // Never omit a message until a completed summary covers it.
+        const contextStartIndex = historyStart(
+          clearContextIndex,
+          session.lastSummarizeIndex,
+          Boolean(shouldSendLongTermMemory),
+          beforeIndex !== undefined,
         );
-
-        // lets concat send messages, including 4 parts:
-        // 0. system prompt: to get close to OpenAI Web ChatGPT
-        // 1. long term memory: summarized memory messages
-        // 2. pre-defined in-context prompts
-        // 3. short term memory: latest n messages
-        // 4. newest input message
-        const memoryStartIndex = shouldSendLongTermMemory
-          ? Math.min(longTermMemoryStartIndex, shortTermMemoryStartIndex)
-          : shortTermMemoryStartIndex;
-        // and if user has cleared history messages, we should exclude the memory too.
-        const contextStartIndex = Math.max(clearContextIndex, memoryStartIndex);
-        const historyTokenThreshold =
-          modelConfig.compressMessageLengthThreshold;
 
         // get recent messages as much as possible
         const reversedRecentMessages = [];
-        for (
-          let i = totalMessageCount - 1, tokenCount = 0;
-          i >= contextStartIndex && tokenCount < historyTokenThreshold;
-          i -= 1
-        ) {
+        for (let i = totalMessageCount - 1; i >= contextStartIndex; i -= 1) {
           const msg = messages[i];
           if (!msg || msg.isError || !hasUsableMessageContent(msg)) continue;
-          tokenCount += estimateTokenLength(getMessageTextContent(msg));
           reversedRecentMessages.push({
             ...msg,
             content: msg.content,
@@ -863,7 +1052,16 @@ export const useChatStore = createPersistStore(
         const session = targetSession;
         const modelConfig = session.mask.modelConfig;
         // skip summarize when using dalle3?
-        if (isDalle3(modelConfig.model)) {
+        const selected = findAccountModel(
+          useAccountStore.getState().models,
+          modelConfig.model,
+          modelConfig.providerName,
+        );
+        if (
+          selected?.category === "image" ||
+          selected?.category === "video" ||
+          isDalle3(modelConfig.model)
+        ) {
           return;
         }
 
@@ -930,66 +1128,97 @@ export const useChatStore = createPersistStore(
           session.lastSummarizeIndex,
           session.clearContextIndex ?? 0,
         );
+        const eligibleEndIndex = summaryBoundary(messages, summarizeIndex);
+        const summaryEndIndex = summaryBatchEnd(
+          messages,
+          summarizeIndex,
+          eligibleEndIndex,
+        );
         let toBeSummarizedMsgs = messages
-          .filter((msg) => !msg.isError)
-          .slice(summarizeIndex);
+          .slice(summarizeIndex, summaryEndIndex)
+          .filter((msg) => !msg.isError && !msg.streaming);
 
-        const historyMsgLength = countMessages(toBeSummarizedMsgs);
+        const historyMsgLength = countMessages(
+          messages.slice(summarizeIndex, eligibleEndIndex),
+        );
 
+        const memoryPrompt = get().getMemoryPrompt(session);
         if (
-          historyMsgLength >
-          (modelConfig?.compressMessageLengthThreshold || 8000)
+          memoryPrompt &&
+          session.lastSummarizeIndex > (session.clearContextIndex ?? 0)
         ) {
-          const n = toBeSummarizedMsgs.length;
-          toBeSummarizedMsgs = toBeSummarizedMsgs.slice(
-            Math.max(0, n - modelConfig.historyMessageCount),
-          );
-        }
-        const memoryPrompt = get().getMemoryPrompt();
-        if (memoryPrompt) {
           // add memory prompt
           toBeSummarizedMsgs.unshift(memoryPrompt);
         }
 
-        const lastSummarizeIndex = session.messages.length;
+        const lastSummarizeIndex = summaryEndIndex;
 
         if (
-          historyMsgLength > modelConfig.compressMessageLengthThreshold &&
-          modelConfig.sendMemory
+          historyMsgLength > 12000 &&
+          !messages
+            .slice(summarizeIndex, summaryEndIndex)
+            .some((item) => item.streaming) &&
+          !pendingSummaries.has(session.id)
         ) {
+          pendingSummaries.add(session.id);
+          const coveredMessages = messages
+            .slice(0, lastSummarizeIndex)
+            .map((item) =>
+              JSON.stringify([item.id, item.content, item.isError]),
+            );
           /** Destruct max_tokens while summarizing
            * this param is just shit
            **/
           const { max_tokens, ...modelcfg } = modelConfig;
-          api.llm.chat({
-            messages: toBeSummarizedMsgs.concat(
-              createMessage({
-                role: "system",
-                content: Locale.Store.Prompt.Summarize,
-                date: "",
-              }),
-            ),
-            config: {
-              ...modelcfg,
-              stream: true,
-              model,
-              providerName,
-            },
-            onUpdate(message) {
-              session.memoryPrompt = message;
-            },
-            onFinish(message, responseRes) {
-              if (responseRes?.status === 200) {
-                get().updateTargetSession(session, (session) => {
-                  session.lastSummarizeIndex = lastSummarizeIndex;
-                  session.memoryPrompt = message; // Update the memory prompt for stored it in local storage
-                });
-              }
-            },
-            onError() {
-              console.error("[Summarize] request failed");
-            },
-          });
+          api.llm
+            .chat({
+              messages: toBeSummarizedMsgs.concat(
+                createMessage({
+                  role: "system",
+                  content: MEMORY_SUMMARY_PROMPT,
+                  date: "",
+                }),
+              ),
+              config: {
+                ...modelcfg,
+                stream: true,
+                model,
+                providerName,
+              },
+              onFinish(message, responseRes) {
+                pendingSummaries.delete(session.id);
+                if (responseRes?.status === 200 && message.trim()) {
+                  get().updateTargetSession(session, (session) => {
+                    if (
+                      Math.max(
+                        session.lastSummarizeIndex,
+                        session.clearContextIndex ?? 0,
+                      ) !== summarizeIndex ||
+                      coveredMessages.some((snapshot, index) => {
+                        const item = session.messages[index];
+                        return (
+                          !item ||
+                          snapshot !==
+                            JSON.stringify([
+                              item.id,
+                              item.content,
+                              item.isError,
+                            ])
+                        );
+                      })
+                    )
+                      return;
+                    session.lastSummarizeIndex = lastSummarizeIndex;
+                    session.memoryPrompt = message; // Update the memory prompt for stored it in local storage
+                  });
+                }
+              },
+              onError() {
+                pendingSummaries.delete(session.id);
+                console.error("[Summarize] request failed");
+              },
+            })
+            .catch(() => pendingSummaries.delete(session.id));
         }
       },
 
@@ -1054,7 +1283,7 @@ export const useChatStore = createPersistStore(
   },
   {
     name: StoreKey.Chat,
-    version: 3.4,
+    version: 3.5,
     migrate(persistedState, version) {
       const state = persistedState as any;
       const newState = JSON.parse(
@@ -1125,6 +1354,14 @@ export const useChatStore = createPersistStore(
           session.mask.context = session.mask.context.map(
             stripTransientMessageData,
           );
+        });
+      }
+
+      if (version < 3.5) {
+        // Old summaries may have skipped messages. Rebuild from retained originals.
+        newState.sessions.forEach((session) => {
+          session.memoryPrompt = "";
+          session.lastSummarizeIndex = 0;
         });
       }
 

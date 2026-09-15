@@ -33,6 +33,9 @@ export function toStoredAttachmentMetadata(
     columnCount,
     sheetCount,
     chunkCount,
+    text,
+    analysisId,
+    expiresAt,
   } = attachment;
   return {
     id,
@@ -46,6 +49,7 @@ export function toStoredAttachmentMetadata(
     columnCount,
     sheetCount,
     chunkCount,
+    ...(kind !== "image" ? { text, analysisId, expiresAt } : {}),
   };
 }
 

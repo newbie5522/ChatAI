@@ -43,7 +43,6 @@ import {
 } from "../api";
 import Locale from "../../locales";
 import {
-  getMessageImages,
   getMessageTextContent,
   isVisionModel,
   getTimeoutMSByModel,
@@ -243,9 +242,9 @@ export class ChatGPTApi implements LLMApi {
       requestedModel.startsWith("o4-mini");
     const isGpt5 = requestedModel.startsWith("gpt-5");
     if (isImageModel) {
-      const lastMessage = options.messages.slice(-1)?.pop() as any;
-      const prompt = getMessageTextContent(lastMessage);
-      const imageUrls = getMessageImages(lastMessage).filter(Boolean);
+      const { prompt, imageUrls } = await prepareImageConversation(
+        options.messages,
+      );
       const isGptImage = requestedModel.toLowerCase().startsWith("gpt-image-");
       const imageRequest = {
         model: options.config.model,
@@ -262,9 +261,7 @@ export class ChatGPTApi implements LLMApi {
               ...imageRequest,
               n: 1,
               size: modelConfig.size ?? "1024x1024",
-              ...(modelConfig.quality
-                ? { quality: modelConfig.quality }
-                : {}),
+              ...(modelConfig.quality ? { quality: modelConfig.quality } : {}),
             };
     } else if (isVideoModel) {
       const lastMessage = options.messages.slice(-1)?.pop() as any;
@@ -334,7 +331,8 @@ export class ChatGPTApi implements LLMApi {
       }
     }
 
-    const shouldStream = !isImageModel && !isVideoModel && !!options.config.stream;
+    const shouldStream =
+      !isImageModel && !isVideoModel && !!options.config.stream;
     const controller = new AbortController();
     options.onController?.(controller);
 
@@ -370,8 +368,8 @@ export class ChatGPTApi implements LLMApi {
           isImageModel
             ? OpenaiPath.ImagePath
             : isVideoModel
-              ? OpenaiPath.VideoPath
-              : OpenaiPath.ChatPath,
+            ? OpenaiPath.VideoPath
+            : OpenaiPath.ChatPath,
         );
       }
       if (shouldStream) {
@@ -602,3 +600,4 @@ export class ChatGPTApi implements LLMApi {
   }
 }
 export { OpenaiPath };
+import { prepareImageConversation } from "@/app/utils/image-conversation";

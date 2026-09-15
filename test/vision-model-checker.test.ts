@@ -1,16 +1,17 @@
-import { jest } from "@jest/globals";
 import { isVisionModel } from "../app/utils";
+import { useAccessStore } from "../app/store";
+
+jest.mock("../app/components/ui-lib", () => ({ showToast: jest.fn() }));
+jest.mock("../app/store", () => ({ useAccessStore: { getState: jest.fn() } }));
+jest.mock("../app/utils/stream", () => ({ fetch: jest.fn() }));
 
 describe("isVisionModel", () => {
-  const originalEnv = process.env;
-
   beforeEach(() => {
-    jest.resetModules();
-    process.env = { ...originalEnv };
-  });
-
-  afterEach(() => {
-    process.env = originalEnv;
+    jest
+      .mocked(useAccessStore.getState)
+      .mockReturnValue({ visionModels: "" } as ReturnType<
+        typeof useAccessStore.getState
+      >);
   });
 
   test("should identify vision models using regex patterns", () => {
@@ -49,19 +50,21 @@ describe("isVisionModel", () => {
     });
   });
 
-  test("should identify models from VISION_MODELS env var", () => {
-    process.env.VISION_MODELS = "custom-vision-model,another-vision-model";
+  test("should identify models from the loaded access configuration", () => {
+    jest
+      .mocked(useAccessStore.getState)
+      .mockReturnValue({
+        visionModels: "custom-vision-model,another-vision-model",
+      } as ReturnType<typeof useAccessStore.getState>);
 
     expect(isVisionModel("custom-vision-model")).toBe(true);
     expect(isVisionModel("another-vision-model")).toBe(true);
     expect(isVisionModel("unrelated-model")).toBe(false);
   });
 
-  test("should handle empty or missing VISION_MODELS", () => {
-    process.env.VISION_MODELS = "";
+  test("should handle empty vision configuration", () => {
     expect(isVisionModel("unrelated-model")).toBe(false);
 
-    delete process.env.VISION_MODELS;
     expect(isVisionModel("unrelated-model")).toBe(false);
     expect(isVisionModel("gpt-4-vision")).toBe(true);
   });

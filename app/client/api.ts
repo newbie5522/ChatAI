@@ -1,16 +1,10 @@
 import { getClientConfig } from "../config/client";
-import {
-  ACCESS_CODE_PREFIX,
-  ModelProvider,
-  ServiceProvider,
-} from "../constant";
+import { ModelProvider, ServiceProvider } from "../constant";
 import {
   ChatMessageTool,
   ChatMessage,
   ModelType,
-  useAccessStore,
   useAccountStore,
-  useChatStore,
 } from "../store";
 import { ChatGPTApi, DalleRequestPayload } from "./platforms/openai";
 import { GeminiProApi } from "./platforms/google";
@@ -235,104 +229,12 @@ export function validString(x: string): boolean {
   return x?.length > 0;
 }
 
-export function getHeaders(ignoreHeaders: boolean = false) {
-  const accessStore = useAccessStore.getState();
-  const chatStore = useChatStore.getState();
-  let headers: Record<string, string> = {};
-  if (!ignoreHeaders) {
-    headers = {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    };
-  }
-  if (useAccountStore.getState().authenticated) {
-    return headers;
-  }
-
-  const clientConfig = getClientConfig();
-
-  function getConfig() {
-    const modelConfig = chatStore.currentSession().mask.modelConfig;
-    const isGoogle = modelConfig.providerName === ServiceProvider.Google;
-    const isPerplexity =
-      modelConfig.providerName === ServiceProvider.Perplexity;
-    const isAzure = modelConfig.providerName === ServiceProvider.Azure;
-    const isAnthropic = modelConfig.providerName === ServiceProvider.Anthropic;
-    const isAlibaba = modelConfig.providerName === ServiceProvider.Alibaba;
-    const isDeepSeek = modelConfig.providerName === ServiceProvider.DeepSeek;
-    const isXAI = modelConfig.providerName === ServiceProvider.XAI;
-    const isChatGLM = modelConfig.providerName === ServiceProvider.ChatGLM;
-    const isEnabledAccessControl = accessStore.enabledAccessControl();
-    const userApiKey =
-      isPerplexity || isAnthropic
-        ? ""
-        : isGoogle
-        ? accessStore.googleApiKey
-        : isAzure
-        ? accessStore.azureApiKey
-        : isAnthropic
-        ? accessStore.anthropicApiKey
-        : isAlibaba
-        ? accessStore.alibabaApiKey
-        : isXAI
-        ? accessStore.xaiApiKey
-        : isDeepSeek
-        ? accessStore.deepseekApiKey
-        : isChatGLM
-        ? accessStore.chatglmApiKey
-        : accessStore.openaiApiKey;
-    const apiKey = accessStore.hideUserApiKey ? "" : userApiKey;
-    return {
-      isGoogle,
-      isPerplexity,
-      isAzure,
-      isAnthropic,
-      isAlibaba,
-      isDeepSeek,
-      isXAI,
-      isChatGLM,
-      apiKey,
-      isEnabledAccessControl,
-    };
-  }
-
-  function getAuthHeader(): string {
-    return isAzure
-      ? "api-key"
-      : isAnthropic
-      ? "x-api-key"
-      : isGoogle
-      ? "x-goog-api-key"
-      : "Authorization";
-  }
-
-  const {
-    isGoogle,
-    isAzure,
-    isAnthropic,
-    isAlibaba,
-    isDeepSeek,
-    isXAI,
-    isChatGLM,
-    apiKey,
-    isEnabledAccessControl,
-  } = getConfig();
-  const authHeader = getAuthHeader();
-
-  const bearerToken = getBearerToken(
-    apiKey,
-    isAzure || isAnthropic || isGoogle,
-  );
-
-  if (bearerToken) {
-    headers[authHeader] = bearerToken;
-  } else if (isEnabledAccessControl && validString(accessStore.accessCode)) {
-    headers["Authorization"] = getBearerToken(
-      ACCESS_CODE_PREFIX + accessStore.accessCode,
-    );
-  }
-
-  return headers;
+export function getHeaders(
+  ignoreHeaders: boolean = false,
+): Record<string, string> {
+  return ignoreHeaders
+    ? {}
+    : { "Content-Type": "application/json", Accept: "application/json" };
 }
 
 export function getClientApi(provider: ServiceProvider | string): ClientApi {

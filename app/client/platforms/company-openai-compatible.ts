@@ -1,6 +1,7 @@
 "use client";
 
 import { COMPANY_API_PATH, REQUEST_TIMEOUT_MS } from "@/app/constant";
+import { buildImageConversation } from "@/app/utils/image-conversation";
 import {
   ChatMessageTool,
   useAccountStore,
@@ -132,8 +133,7 @@ export class CompanyOpenAICompatibleApi implements LLMApi {
   constructor(private readonly provider: CompanyOpenAICompatibleProvider) {}
 
   private async requestImage(options: ChatOptions) {
-    const lastMessage = options.messages.at(-1);
-    const prompt = lastMessage ? getMessageTextContent(lastMessage) : "";
+    const { prompt } = buildImageConversation(options.messages);
     if (!prompt.trim()) {
       throw new Error("image prompt is required");
     }
