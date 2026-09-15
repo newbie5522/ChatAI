@@ -94,7 +94,9 @@ function extractPayload(bodyText?: string) {
         background:
           typeof body.background === "string" ? body.background : undefined,
         outputFormat:
-          typeof body.output_format === "string" ? body.output_format : undefined,
+          typeof body.output_format === "string"
+            ? body.output_format
+            : undefined,
         outputCompression:
           typeof body.output_compression === "number"
             ? body.output_compression
@@ -129,6 +131,7 @@ function upstreamErrorResponse(res: Response) {
 }
 
 function normalizedImageData(json: any) {
+  if (json?.error || !Array.isArray(json?.data)) return json;
   const data = Array.isArray(json?.data)
     ? json.data
         .map((item: any) => {
@@ -210,12 +213,17 @@ async function callOpenRouterImages(
   referenceImages: { blob: Blob; filename: string; dataUrl: string }[],
   headers: Record<string, string>,
   baseUrl: string,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const isImageToImage = referenceImages.length > 0;
   const aspectRatio = toAspectRatio(options.size);
 
   console.log(
-    `[OpenRouterImages] model=${model} mode=${isImageToImage ? "img2img" : "txt2img"} aspectRatio=${aspectRatio ?? "auto"} quality=${options.quality ?? "auto"} references=${referenceImages.length} prompt="${prompt.slice(0, 80)}"`,
+    `[OpenRouterImages] model=${model} mode=${
+      isImageToImage ? "img2img" : "txt2img"
+    } aspectRatio=${aspectRatio ?? "auto"} quality=${
+      options.quality ?? "auto"
+    } references=${referenceImages.length} prompt="${prompt.slice(0, 80)}"`,
   );
 
   // 最简请求体：只发必要参数
@@ -249,19 +257,23 @@ async function callOpenRouterImages(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(requestBody),
+    signal,
   });
 
   if (!res.ok) {
-    const errorText = await res.clone().text();
     console.error(
-      `[OpenRouterImages] upstream error ${res.status} ${res.statusText} model=${model} mode=${isImageToImage ? "img2img" : "txt2img"} body=${errorText.slice(0, 1000)}`,
+      `[OpenRouterImages] upstream error ${res.status} ${
+        res.statusText
+      } model=${model} mode=${isImageToImage ? "img2img" : "txt2img"}`,
     );
     return upstreamErrorResponse(res);
   }
 
   const json = await res.json();
   console.log(
-    `[OpenRouterImages] success model=${model} mode=${isImageToImage ? "img2img" : "txt2img"} data.length=${json?.data?.length}`,
+    `[OpenRouterImages] success model=${model} mode=${
+      isImageToImage ? "img2img" : "txt2img"
+    } data.length=${json?.data?.length}`,
   );
   return Response.json(normalizedImageData(json), { status: 200 });
 }
@@ -277,14 +289,20 @@ export async function callOpenAIImages(
   const model = ctx.model.model;
   const isImageToImage = imageUrls.length > 0;
   const isGptImage = isGptImageModel(model);
-  const baseUrl = normalizeBaseUrl(ctx.credential.baseUrl, OPENAI_FALLBACK_BASE);
+  const baseUrl = normalizeBaseUrl(
+    ctx.credential.baseUrl,
+    OPENAI_FALLBACK_BASE,
+  );
   const isOpenRouterUrl = isOpenRouter(baseUrl);
   // OpenRouter 需要带 provider 前缀（如 openai/gpt-image-2）
   const effectiveModel = isOpenRouterUrl
     ? openRouterModelId(ctx.model.provider, model)
     : model;
   console.log(
-    `[OpenAIImages] model=${effectiveModel} isOpenRouter=${isOpenRouterUrl} imageToImage=${isImageToImage} baseUrl=${baseUrl} prompt="${prompt.slice(0, 80)}"`,
+    `[OpenAIImages] model=${effectiveModel} isOpenRouter=${isOpenRouterUrl} imageToImage=${isImageToImage} baseUrl=${baseUrl} prompt="${prompt.slice(
+      0,
+      80,
+    )}"`,
   );
 
   const headers = {
@@ -313,6 +331,7 @@ export async function callOpenAIImages(
       referenceImages,
       headers,
       baseUrl,
+      ctx.signal,
     );
   }
   const res =
@@ -335,11 +354,16 @@ export async function callOpenAIImages(
             });
             if (!isGptImage) {
               formData.append("n", "1");
-              appendFormDataField(formData, "size", options.size ?? "1024x1024");
+              appendFormDataField(
+                formData,
+                "size",
+                options.size ?? "1024x1024",
+              );
               appendFormDataField(formData, "quality", options.quality);
             }
             return formData;
           })(),
+          signal: ctx.signal,
         })
       : await fetch(`${baseUrl}/images/generations`, {
           method: "POST",
@@ -362,12 +386,12 @@ export async function callOpenAIImages(
               : {}),
             ...(options.moderation ? { moderation: options.moderation } : {}),
           }),
+          signal: ctx.signal,
         });
 
   if (!res.ok) {
-    const errorText = await res.clone().text();
     console.error(
-      `[OpenAIImages] upstream error ${res.status} ${res.statusText} model=${effectiveModel} body=${errorText.slice(0, 1000)}`,
+      `[OpenAIImages] upstream error ${res.status} ${res.statusText} model=${effectiveModel}`,
     );
     return upstreamErrorResponse(res);
   }

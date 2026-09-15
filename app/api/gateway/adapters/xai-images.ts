@@ -43,6 +43,7 @@ export async function callXAIImages(
       n: 1,
     }),
     redirect: "manual",
+    signal: ctx.signal,
   });
 
   return new Response(res.body, {

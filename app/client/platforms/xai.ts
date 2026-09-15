@@ -9,7 +9,7 @@ import {
   ChatMessageTool,
   usePluginStore,
 } from "@/app/store";
-import { stream } from "@/app/utils/chat";
+import { base64Image2Blob, stream, uploadImage } from "@/app/utils/chat";
 import {
   ChatOptions,
   getHeaders,
@@ -20,6 +20,13 @@ import {
 import { getClientConfig } from "@/app/config/client";
 import { getTimeoutMSByModel } from "@/app/utils";
 import { preProcessImageContent } from "@/app/utils/chat";
+import { prepareImageConversation } from "@/app/utils/image-conversation";
+import {
+  mediaResponseToMessage,
+  readMediaResponse,
+} from "@/app/utils/media-response";
+import { mediaAbortError } from "@/app/utils/media-error";
+import { getModelCategory } from "@/app/utils/model";
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
 
@@ -70,6 +77,49 @@ export class XAIApi implements LLMApi {
   }
 
   async chat(options: ChatOptions) {
+    const modelCategory = getModelCategory(
+      useAccountStore.getState().models,
+      options.config.model,
+      options.config.providerName,
+    );
+    if (modelCategory === "image") {
+      const controller = new AbortController();
+      options.onController?.(controller);
+      let timedOut = false;
+      try {
+        const { prompt } = await prepareImageConversation(options.messages);
+        const timeoutId = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, getTimeoutMSByModel(options.config.model));
+        const res = await fetch(COMPANY_API_PATH.XAI, {
+          method: "POST",
+          body: JSON.stringify({ model: options.config.model, prompt }),
+          signal: controller.signal,
+          headers: getHeaders(),
+        });
+        clearTimeout(timeoutId);
+        const json = await readMediaResponse(res);
+        const message = await mediaResponseToMessage(
+          json,
+          (b64Json) => uploadImage(base64Image2Blob(b64Json, "image/png")),
+          {
+            requestId: res.headers.get("x-request-id") ?? "",
+            provider: "xai",
+            model: options.config.model,
+          },
+        );
+        options.onFinish(message as any, res);
+      } catch (error) {
+        options.onError?.(
+          (error as Error)?.name === "AbortError"
+            ? mediaAbortError(timedOut, "xai", options.config.model)
+            : (error as Error),
+        );
+      }
+      return;
+    }
+
     const messages: ChatOptions["messages"] = [];
     for (const v of options.messages) {
       const content = await preProcessImageContent(v.content);

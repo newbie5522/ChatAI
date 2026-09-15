@@ -7,7 +7,10 @@ import {
   getCompanyModelForRequest,
   selectProviderCredentialForModel,
 } from "@/app/config/admin-store";
-import type { ProviderCredential, SafeAccountRecord } from "@/app/config/admin-store";
+import type {
+  ProviderCredential,
+  SafeAccountRecord,
+} from "@/app/config/admin-store";
 import type {
   CompanyModel,
   ModelCategory,
@@ -24,6 +27,8 @@ import {
   reserveCategoryQuota,
   sanitizePromptForLog,
 } from "@/app/config/usage";
+import { MediaErrorCode, MediaErrorPayload } from "@/app/utils/media-error";
+import { classifyMediaJson } from "@/app/utils/media-response";
 
 import { callAnthropicMessages } from "../../adapters/anthropic-messages";
 import { callGoogleGenerateContent } from "../../adapters/google-generate-content";
@@ -38,6 +43,8 @@ import type { GatewayAdapterContext } from "../../adapters/types";
 import { callXAIImages } from "../../adapters/xai-images";
 
 type GatewayProvider = ModelProvider;
+
+const MEDIA_REQUEST_TIMEOUT_MS = 120_000;
 
 const SUPPORTED_PROVIDERS: GatewayProvider[] = [
   "openai",
@@ -61,6 +68,47 @@ function gatewayError(
     { error: true, provider, message, details },
     { status },
   );
+}
+
+function mediaErrorResponse(
+  input: Omit<MediaErrorPayload, "error">,
+  status: number,
+) {
+  const payload: MediaErrorPayload = { error: true, ...input };
+  return NextResponse.json(payload, {
+    status,
+    headers: { "x-request-id": input.requestId },
+  });
+}
+
+function mediaCodeForStatus(status: number): MediaErrorCode {
+  if (status === 401 || status === 403) return "AUTH_OR_PERMISSION_ERROR";
+  if (status === 408 || status === 504) return "REQUEST_TIMEOUT";
+  if (status === 429) return "PROVIDER_RATE_LIMIT";
+  return "PROVIDER_ERROR";
+}
+
+function mediaMessage(code: MediaErrorCode) {
+  switch (code) {
+    case "MEDIA_EMPTY_RESPONSE":
+      return "图片服务没有返回有效图片，请重新生成。";
+    case "MEDIA_INVALID_RESPONSE":
+      return "图片服务返回格式不兼容，请联系管理员检查线路。";
+    case "PROVIDER_RATE_LIMIT":
+      return "图片服务当前请求过多，请稍后重试。";
+    case "REQUEST_TIMEOUT":
+      return "图片生成等待超时，请重新生成。";
+    case "REQUEST_ABORTED":
+      return "图片生成已取消。";
+    case "ARTIFACT_UPLOAD_FAILED":
+      return "图片已生成，但保存失败，请重新生成。";
+    case "AUTH_OR_PERMISSION_ERROR":
+      return "图片服务鉴权或权限不足，请联系管理员检查线路。";
+    case "QUOTA_EXCEEDED":
+      return "本月图片额度已用完，请联系管理员。";
+    default:
+      return "图片服务请求失败，请稍后重试。";
+  }
 }
 
 async function getRequestBody(req: NextRequest) {
@@ -392,6 +440,38 @@ async function validateJsonResponse(
 ) {
   try {
     const value: unknown = await res.clone().json();
+    if (model.category === "image") {
+      const result = classifyMediaJson(value);
+      if (!result.valid) {
+        await releaseCategoryQuota(
+          requestId,
+          "failed",
+          result.code,
+          res.status,
+        );
+        return mediaErrorResponse(
+          {
+            code: result.code,
+            message: mediaMessage(result.code),
+            retryable: result.code !== "PROVIDER_ERROR" || res.status >= 500,
+            requestId,
+            provider: model.provider,
+            model: model.model,
+            upstreamStatus: res.status,
+            safeDetails: result.safeDetails,
+          },
+          502,
+        );
+      }
+      await confirmCategoryQuota(requestId, res.status);
+      const headers = new Headers(res.headers);
+      headers.set("x-request-id", requestId);
+      return new Response(res.body, {
+        status: res.status,
+        statusText: res.statusText,
+        headers,
+      });
+    }
     if (hasValidJson(model, value)) {
       await confirmCategoryQuota(requestId, res.status);
     } else {
@@ -409,8 +489,50 @@ async function validateJsonResponse(
       "response could not be parsed",
       res.status,
     );
+    if (model.category === "image") {
+      return mediaErrorResponse(
+        {
+          code: "MEDIA_INVALID_RESPONSE",
+          message: mediaMessage("MEDIA_INVALID_RESPONSE"),
+          retryable: true,
+          requestId,
+          provider: model.provider,
+          model: model.model,
+          upstreamStatus: res.status,
+        },
+        502,
+      );
+    }
   }
   return res;
+}
+
+async function normalizeMediaHttpError(
+  res: Response,
+  model: CompanyModel,
+  requestId: string,
+) {
+  let value: unknown;
+  try {
+    value = await res.clone().json();
+  } catch {
+    value = undefined;
+  }
+  const code = mediaCodeForStatus(res.status);
+  const classified = classifyMediaJson(value);
+  return mediaErrorResponse(
+    {
+      code,
+      message: mediaMessage(code),
+      retryable: code === "PROVIDER_RATE_LIMIT" || res.status >= 500,
+      requestId,
+      provider: model.provider,
+      model: model.model,
+      upstreamStatus: res.status,
+      safeDetails: classified.valid ? undefined : classified.safeDetails,
+    },
+    res.status,
+  );
 }
 
 async function handle(
@@ -511,6 +633,20 @@ async function handle(
       httpStatus: 429,
       errorMessage: message,
     });
+    if (companyModel.category === "image") {
+      return mediaErrorResponse(
+        {
+          code: "QUOTA_EXCEEDED",
+          message: mediaMessage("QUOTA_EXCEEDED"),
+          retryable: false,
+          requestId,
+          provider: companyModel.provider,
+          model: companyModel.model,
+          upstreamStatus: 429,
+        },
+        429,
+      );
+    }
     return gatewayError(provider, 429, message, reservation);
   }
 
@@ -521,7 +657,24 @@ async function handle(
     bodyText,
     model: companyModel,
     credential,
+    signal: req.signal,
   };
+
+  let mediaTimedOut = false;
+  let mediaTimeout: ReturnType<typeof setTimeout> | undefined;
+  let mediaAbortController: AbortController | undefined;
+  const abortMediaRequest = () => mediaAbortController?.abort();
+  if (companyModel.category === "image") {
+    mediaAbortController = new AbortController();
+    adapterContext.signal = mediaAbortController.signal;
+    if (req.signal.aborted) mediaAbortController.abort();
+    else
+      req.signal.addEventListener("abort", abortMediaRequest, { once: true });
+    mediaTimeout = setTimeout(() => {
+      mediaTimedOut = true;
+      mediaAbortController?.abort();
+    }, MEDIA_REQUEST_TIMEOUT_MS);
+  }
 
   try {
     const res = await adapter(adapterContext);
@@ -532,7 +685,9 @@ async function handle(
         "provider returned an HTTP error",
         res.status,
       );
-      return res;
+      return companyModel.category === "image"
+        ? normalizeMediaHttpError(res, companyModel, requestId)
+        : res;
     }
     if (!res.body) {
       await releaseCategoryQuota(
@@ -541,7 +696,20 @@ async function handle(
         "response did not contain a body",
         res.status,
       );
-      return res;
+      return companyModel.category === "image"
+        ? mediaErrorResponse(
+            {
+              code: "MEDIA_INVALID_RESPONSE",
+              message: mediaMessage("MEDIA_INVALID_RESPONSE"),
+              retryable: true,
+              requestId,
+              provider: companyModel.provider,
+              model: companyModel.model,
+              upstreamStatus: res.status,
+            },
+            502,
+          )
+        : res;
     }
 
     const contentType = res.headers.get("content-type")?.toLowerCase() ?? "";
@@ -558,16 +726,58 @@ async function handle(
       "unsupported response content type",
       res.status,
     );
-    return res;
+    return companyModel.category === "image"
+      ? mediaErrorResponse(
+          {
+            code: "MEDIA_INVALID_RESPONSE",
+            message: mediaMessage("MEDIA_INVALID_RESPONSE"),
+            retryable: true,
+            requestId,
+            provider: companyModel.provider,
+            model: companyModel.model,
+            upstreamStatus: res.status,
+          },
+          502,
+        )
+      : res;
   } catch {
+    if (companyModel.category !== "image") {
+      await releaseCategoryQuota(
+        requestId,
+        "failed",
+        "gateway request failed",
+        502,
+      );
+      console.error("[Gateway] request failed");
+      return gatewayError(provider, 502, "gateway request failed");
+    }
+    const aborted = req.signal.aborted;
+    const mediaCode: MediaErrorCode = mediaTimedOut
+      ? "REQUEST_TIMEOUT"
+      : aborted
+      ? "REQUEST_ABORTED"
+      : "PROVIDER_ERROR";
     await releaseCategoryQuota(
       requestId,
-      "failed",
-      "gateway request failed",
-      502,
+      mediaCode === "REQUEST_ABORTED" ? "canceled" : "failed",
+      mediaCode,
+      mediaCode === "REQUEST_ABORTED" ? 499 : 502,
     );
     console.error("[Gateway] request failed");
-    return gatewayError(provider, 502, "gateway request failed");
+    return mediaErrorResponse(
+      {
+        code: mediaCode,
+        message: mediaMessage(mediaCode),
+        retryable: mediaCode !== "REQUEST_ABORTED",
+        requestId,
+        provider: companyModel.provider,
+        model: companyModel.model,
+      },
+      mediaCode === "REQUEST_ABORTED" ? 499 : 502,
+    );
+  } finally {
+    if (mediaTimeout) clearTimeout(mediaTimeout);
+    req.signal.removeEventListener("abort", abortMediaRequest);
   }
 }
 

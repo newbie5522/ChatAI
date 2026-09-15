@@ -30,6 +30,11 @@ import {
   responseErrorMessage,
 } from "@/app/utils/chat";
 import { cloudflareAIGatewayUrl } from "@/app/utils/cloudflare";
+import {
+  mediaResponseToMessage,
+  readMediaResponse,
+} from "@/app/utils/media-response";
+import { mediaAbortError } from "@/app/utils/media-error";
 // ModelSize, DalleQuality, DalleStyle types replaced with string in DalleRequestPayload
 
 import {
@@ -178,6 +183,14 @@ export class ChatGPTApi implements LLMApi {
       ];
     }
     return res.choices?.at(0)?.message?.content ?? res;
+  }
+
+  async extractImageMessage(res: unknown, requestId = "", model = "") {
+    return mediaResponseToMessage(
+      res,
+      (b64Json) => uploadImage(base64Image2Blob(b64Json, "image/png")),
+      { requestId, provider: "openai", model },
+    );
   }
 
   async speech(options: SpeechOptions): Promise<ArrayBuffer> {
@@ -335,6 +348,7 @@ export class ChatGPTApi implements LLMApi {
       !isImageModel && !isVideoModel && !!options.config.stream;
     const controller = new AbortController();
     options.onController?.(controller);
+    let imageRequestTimedOut = false;
 
     try {
       let chatPath = "";
@@ -478,24 +492,40 @@ export class ChatGPTApi implements LLMApi {
         };
 
         // make a fetch request
-        const requestTimeoutId = setTimeout(
-          () => controller.abort(),
-          getTimeoutMSByModel(options.config.model),
-        );
+        const requestTimeoutId = setTimeout(() => {
+          imageRequestTimedOut = isImageModel;
+          controller.abort();
+        }, getTimeoutMSByModel(options.config.model));
 
         const res = await fetch(chatPath, chatPayload);
         clearTimeout(requestTimeoutId);
-        if (!res.ok) {
+        if (!res.ok && !isImageModel) {
           throw new Error(await responseErrorMessage(res));
         }
 
-        const resJson = await res.json();
-        const message = await this.extractMessage(resJson);
-        options.onFinish(message, res);
+        const resJson = isImageModel
+          ? await readMediaResponse(res)
+          : await res.json();
+        const message = isImageModel
+          ? await this.extractImageMessage(
+              resJson,
+              res.headers.get("x-request-id") ?? "",
+              options.config.model,
+            )
+          : await this.extractMessage(resJson);
+        options.onFinish(message as any, res);
       }
     } catch (e) {
       console.error("[OpenAI] chat request failed");
-      options.onError?.(e as Error);
+      options.onError?.(
+        isImageModel && (e as Error)?.name === "AbortError"
+          ? mediaAbortError(
+              imageRequestTimedOut,
+              "openai",
+              options.config.model,
+            )
+          : (e as Error),
+      );
     }
   }
   async usage() {
