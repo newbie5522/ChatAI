@@ -1,6 +1,7 @@
 import { useChatStore, createMessage } from "../app/store/chat";
 import { getClientApi, ChatOptions } from "../app/client/api";
 import { useAccountStore } from "../app/store/account";
+import { MediaRequestError } from "../app/utils/media-error";
 
 jest.mock("nanoid", () => {
   let id = 0;
@@ -412,3 +413,86 @@ test.each(["throw", "empty", "callback"])(
     expect(session.messages).toEqual([original, oldAnswer]);
   },
 );
+
+test("media failure is stored as a safe error instead of raw JSON", async () => {
+  jest.mocked(useAccountStore.getState).mockReturnValue({
+    ...useAccountStore.getState(),
+    authenticated: true,
+    models: [
+      {
+        name: "test-image",
+        category: "image",
+        available: true,
+        sorted: 0,
+        provider: {
+          id: "openai",
+          providerName: "OpenAI",
+          providerType: "custom",
+          sorted: 0,
+        },
+      },
+    ],
+  });
+  const session = useChatStore.getState().currentSession();
+  session.mask.modelConfig.model = "test-image";
+  jest.mocked(getClientApi).mockReturnValue({
+    llm: {
+      chat: async (options: ChatOptions) => {
+        options.onError?.(
+          new MediaRequestError({
+            error: true,
+            code: "MEDIA_EMPTY_RESPONSE",
+            message: "图片服务没有返回有效图片，请重新生成。",
+            retryable: true,
+            requestId: "request-15",
+            provider: "openai",
+            model: "test-image",
+          }),
+        );
+      },
+      speech: jest.fn(),
+      usage: jest.fn(),
+      models: jest.fn(),
+    },
+    config: jest.fn(),
+    prompts: jest.fn(),
+    masks: jest.fn(),
+    share: jest.fn(),
+  });
+  await useChatStore.getState().onUserInput("draw");
+  const errorMessage = session.messages.at(-1)!;
+  expect(errorMessage).toMatchObject({
+    role: "assistant",
+    isError: true,
+    errorCode: "MEDIA_EMPTY_RESPONSE",
+    errorRetryable: true,
+    requestId: "request-15",
+  });
+  expect(errorMessage.content).toBe("图片服务没有返回有效图片，请重新生成。");
+  expect(errorMessage.content).not.toContain('{"error"');
+});
+
+test("media failure preserves already received partial content", async () => {
+  const session = useChatStore.getState().currentSession();
+  jest.mocked(getClientApi).mockReturnValue({
+    llm: {
+      chat: async (options: ChatOptions) => {
+        options.onUpdate?.("partial result", "partial result");
+        options.onError?.(new Error("provider disconnected"));
+      },
+      speech: jest.fn(),
+      usage: jest.fn(),
+      models: jest.fn(),
+    },
+    config: jest.fn(),
+    prompts: jest.fn(),
+    masks: jest.fn(),
+    share: jest.fn(),
+  });
+  await useChatStore.getState().onUserInput("continue");
+  expect(session.messages.at(-1)).toMatchObject({
+    content: "partial result",
+    errorMessage: "provider disconnected",
+    isError: true,
+  });
+});

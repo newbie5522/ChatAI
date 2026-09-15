@@ -61,6 +61,7 @@ import {
   buildAttachmentContext,
   toStoredAttachmentMetadata,
 } from "../utils/attachments";
+import { MediaErrorCode, MediaRequestError } from "../utils/media-error";
 
 const localStorage = safeLocalStorage();
 const pendingSummaries = new Set<string>();
@@ -88,6 +89,10 @@ export type ChatMessage = RequestMessage & {
   audio_url?: string;
   isMcpResponse?: boolean;
   attachments?: StoredAttachmentMetadata[];
+  errorCode?: MediaErrorCode;
+  errorMessage?: string;
+  errorRetryable?: boolean;
+  requestId?: string;
 };
 
 export function createMessage(override: Partial<ChatMessage>): ChatMessage {
@@ -843,9 +848,16 @@ export const useChatStore = createPersistStore(
             },
             async onFinish(message) {
               botMessage.streaming = false;
-              if (message.trim()) {
-                botMessage.content = message;
+              const responseContent = message as ChatMessage["content"];
+              botMessage.content = responseContent;
+              if (hasUsableMessageContent(botMessage)) {
+                botMessage.content = responseContent;
                 botMessage.date = new Date().toLocaleString();
+                botMessage.isError = false;
+                botMessage.errorCode = undefined;
+                botMessage.errorMessage = undefined;
+                botMessage.errorRetryable = undefined;
+                botMessage.requestId = undefined;
                 userMessage.isError = false;
                 get().onNewMessage(botMessage, session);
               } else if (previousResponse) {
@@ -855,6 +867,18 @@ export const useChatStore = createPersistStore(
                   );
                 });
                 showToast("模型未返回内容，已保留原回复。");
+              } else {
+                botMessage.content = "模型未返回有效内容，请重新生成。";
+                botMessage.isError = true;
+                botMessage.errorCode =
+                  selectedModel?.category === "image"
+                    ? "MEDIA_EMPTY_RESPONSE"
+                    : undefined;
+                botMessage.errorRetryable = true;
+                userMessage.isError = true;
+                get().updateTargetSession(session, (target) => {
+                  target.messages = target.messages.slice();
+                });
               }
               ChatControllerPool.remove(session.id, botMessage.id);
             },
@@ -875,23 +899,32 @@ export const useChatStore = createPersistStore(
               });
             },
             onError(error) {
-              const isAborted = error.message?.includes?.("aborted");
+              const mediaError =
+                error instanceof MediaRequestError ? error : undefined;
               const rawMessage =
                 error instanceof Error && error.message
                   ? error.message
                   : "请求失败，请稍后重试。";
-              botMessage.content =
+              const safeMessage =
                 sanitizeDisplayError(rawMessage) || "请求失败，请稍后重试。";
+              if (!hasUsableMessageContent(botMessage)) {
+                botMessage.content = safeMessage;
+              } else {
+                botMessage.errorMessage = safeMessage;
+              }
               botMessage.streaming = false;
-              if (!replayMessage) userMessage.isError = !isAborted;
-              botMessage.isError = !isAborted;
+              if (!replayMessage) userMessage.isError = true;
+              botMessage.isError = true;
+              botMessage.errorCode = mediaError?.code;
+              botMessage.errorRetryable = mediaError?.retryable;
+              botMessage.requestId = mediaError?.requestId || undefined;
               get().updateTargetSession(session, (session) => {
                 if (previousResponse) {
                   const index = session.messages.findIndex(
                     (message) => message.id === botMessage.id,
                   );
                   if (index >= 0) session.messages[index] = previousResponse;
-                  showToast(botMessage.content as string);
+                  showToast(safeMessage);
                 }
                 session.messages = session.messages.concat();
               });
@@ -914,10 +947,19 @@ export const useChatStore = createPersistStore(
           .catch((error: unknown) => {
             botMessage.streaming = false;
             botMessage.isError = true;
+            const mediaError =
+              error instanceof MediaRequestError ? error : undefined;
             const message = sanitizeDisplayError(
               error instanceof Error ? error.message : "请求失败，请稍后重试。",
             );
-            botMessage.content = message;
+            if (!hasUsableMessageContent(botMessage)) {
+              botMessage.content = message;
+            } else {
+              botMessage.errorMessage = message;
+            }
+            botMessage.errorCode = mediaError?.code;
+            botMessage.errorRetryable = mediaError?.retryable;
+            botMessage.requestId = mediaError?.requestId || undefined;
             get().updateTargetSession(session, (target) => {
               if (previousResponse) {
                 const index = target.messages.findIndex(

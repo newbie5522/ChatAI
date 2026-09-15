@@ -129,9 +129,9 @@ function stringValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-function dataUrlToInlineData(imageUrl: string):
-  | { mimeType: string; data: string }
-  | undefined {
+function dataUrlToInlineData(
+  imageUrl: string,
+): { mimeType: string; data: string } | undefined {
   const match = imageUrl.match(
     /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/=]+)$/i,
   );
@@ -338,6 +338,7 @@ async function callGeminiNativeImage(
         responseModalities: ["TEXT", "IMAGE"],
       },
     }),
+    signal: ctx.signal,
   });
 
   if (!res.ok) {
@@ -385,6 +386,7 @@ async function callOpenAICompatibleImage(
       Authorization: `Bearer ${ctx.credential.apiKey}`,
     },
     body: ctx.bodyText,
+    signal: ctx.signal,
   });
 
   if (!res.ok) {

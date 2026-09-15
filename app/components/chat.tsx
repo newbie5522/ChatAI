@@ -1318,10 +1318,7 @@ function _Chat() {
 
           if (m.content.length === 0) {
             m.isError = true;
-            m.content = prettyObject({
-              error: true,
-              message: "empty response",
-            });
+            m.content = "模型未返回有效内容，请重新生成。";
           }
         }
       });
@@ -2092,11 +2089,14 @@ function _Chat() {
                                     />
                                   ) : (
                                     <>
-                                      <ChatAction
-                                        text={Locale.Chat.Actions.Retry}
-                                        icon={<ResetIcon />}
-                                        onClick={() => onResend(message)}
-                                      />
+                                      {(!message.isError ||
+                                        message.errorRetryable !== false) && (
+                                        <ChatAction
+                                          text={Locale.Chat.Actions.Retry}
+                                          icon={<ResetIcon />}
+                                          onClick={() => onResend(message)}
+                                        />
+                                      )}
 
                                       <ChatAction
                                         text={Locale.Chat.Actions.Delete}
@@ -2192,6 +2192,14 @@ function _Chat() {
                               parentRef={scrollRef}
                               defaultShow={i >= messages.length - 6}
                             />
+                            {message.errorMessage && (
+                              <div role="alert">
+                                {message.errorMessage}
+                                {message.requestId
+                                  ? `（请求编号：${message.requestId}）`
+                                  : ""}
+                              </div>
+                            )}
                             {getMessageImages(message).length == 1 && (
                               <img
                                 className={styles["chat-message-item-image"]}

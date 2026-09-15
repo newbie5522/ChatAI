@@ -15,13 +15,13 @@ import {
   usePluginStore,
   ChatMessageTool,
 } from "@/app/store";
-import {
-  stream,
-  base64Image2Blob,
-  uploadImage,
-  responseErrorMessage,
-} from "@/app/utils/chat";
+import { stream, base64Image2Blob, uploadImage } from "@/app/utils/chat";
 import { findAccountModel, getModelCategory } from "@/app/utils/model";
+import {
+  mediaResponseToMessage,
+  readMediaResponse,
+} from "@/app/utils/media-response";
+import { mediaAbortError } from "@/app/utils/media-error";
 
 import {
   getMessageTextContent,
@@ -93,27 +93,12 @@ export class GeminiProApi implements LLMApi {
     );
   }
 
-  async extractImageMessage(res: any) {
-    if (res?.error) {
-      return res?.message || res?.error?.message || "";
-    }
-
-    let url = res?.data?.at(0)?.url ?? "";
-    const b64Json = res?.data?.at(0)?.b64_json ?? "";
-    if (!url && b64Json) {
-      url = await uploadImage(base64Image2Blob(b64Json, "image/png"));
-    }
-
-    return url
-      ? [
-          {
-            type: "image_url",
-            image_url: {
-              url,
-            },
-          },
-        ]
-      : "";
+  async extractImageMessage(res: unknown, requestId = "", model = "") {
+    return mediaResponseToMessage(
+      res,
+      (b64Json) => uploadImage(base64Image2Blob(b64Json, "image/png")),
+      { requestId, provider: "google", model },
+    );
   }
 
   speech(options: SpeechOptions): Promise<ArrayBuffer> {
@@ -131,6 +116,7 @@ export class GeminiProApi implements LLMApi {
     if (modelCategory === "image") {
       const controller = new AbortController();
       options.onController?.(controller);
+      let timedOut = false;
       try {
         const { prompt, imageUrls } = await prepareImageConversation(
           options.messages,
@@ -140,10 +126,10 @@ export class GeminiProApi implements LLMApi {
           prompt,
           ...(imageUrls.length > 0 ? { image_urls: imageUrls } : {}),
         };
-        const requestTimeoutId = setTimeout(
-          () => controller.abort(),
-          getTimeoutMSByModel(options.config.model),
-        );
+        const requestTimeoutId = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, getTimeoutMSByModel(options.config.model));
         const res = await fetch(COMPANY_API_PATH.Google, {
           method: "POST",
           body: JSON.stringify(requestPayload),
@@ -151,16 +137,20 @@ export class GeminiProApi implements LLMApi {
           headers: getHeaders(),
         });
         clearTimeout(requestTimeoutId);
-        if (!res.ok) {
-          throw new Error(await responseErrorMessage(res));
-        }
-
-        const resJson = await res.json();
-        const message = await apiClient.extractImageMessage(resJson);
+        const resJson = await readMediaResponse(res);
+        const message = await apiClient.extractImageMessage(
+          resJson,
+          res.headers.get("x-request-id") ?? "",
+          options.config.model,
+        );
         options.onFinish(message as any, res);
       } catch (e) {
         console.error("[Google] image request failed");
-        options.onError?.(e as Error);
+        options.onError?.(
+          (e as Error)?.name === "AbortError"
+            ? mediaAbortError(timedOut, "google", options.config.model)
+            : (e as Error),
+        );
       }
       return;
     }
