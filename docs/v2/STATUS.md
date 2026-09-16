@@ -4,7 +4,7 @@
 
 | 工作项 | 状态 | 主执行 | 审查 | 依赖 | 当前动作 |
 |---|---|---|---|---|---|
-| #14 CSS Chunk/设置页恢复 | READY | WorkBuddy + GPT | Codex | 无 | WorkBuddy认领并建立分支 |
+| #14 CSS Chunk/设置页恢复 | IN_REVIEW | WorkBuddy + GPT | Codex | 无 | 分支 v2/14-css-chunk-recovery 已提交，PR 待审查 |
 | #15 生图空响应/错误协议 | READY | Codex | WorkBuddy + Claude | 无 | Codex认领并建立分支 |
 | #16 会话数据模型 | DESIGN-ONLY | Codex | WorkBuddy + Claude | #14 #15 | Claude先提交schema评审意见 |
 | #20 统一 Model Gateway | BLOCKED | Codex + WorkBuddy GPT | Claude | #16 | 等待S1接口边界 |
