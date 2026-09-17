@@ -22,6 +22,7 @@ jest.mock("../app/utils/chunk-recovery", () => {
 
 import { ErrorBoundary } from "../app/components/error";
 import { ErrorPage } from "../app/components/error-page";
+import { REDACTED, sanitizeErrorText } from "../app/utils/error-display";
 
 function chunkError(message = "Loading CSS chunk 6814 failed") {
   const error = new Error(message);
@@ -186,10 +187,137 @@ describe("ErrorPage", () => {
     expect(screen.getByRole("link", { name: "回到聊天" })).toBeInTheDocument();
   });
 
-  it("shows the underlying error only inside the collapsed details area", () => {
+  it("shows only the sanitized error type inside the collapsed details area", () => {
     render(<ErrorPage kind="chunk" error={chunkError()} />);
+
+    // 折叠区里保留"错误类型"，方便管理员定位
+    expect(screen.getByText(/错误类型：ChunkLoadError/)).toBeInTheDocument();
     expect(
-      screen.getByText("ChunkLoadError: Loading CSS chunk 6814 failed"),
+      screen.getByText("技术信息（反馈问题时请复制这里）"),
     ).toBeInTheDocument();
+
+    // 但错误原文（message）不再出现
+    expect(document.body.textContent ?? "").not.toContain(
+      "Loading CSS chunk 6814 failed",
+    );
+  });
+
+  it("never promises that the chat data is stored or safe", () => {
+    render(<ErrorPage kind="runtime" error={new Error("boom")} />);
+
+    expect(screen.getByText("这一步没能完成")).toBeInTheDocument();
+    expect(document.body.textContent ?? "").not.toMatch(
+      /保存在服务器|保存在云端|不会丢失|已备份|不会丢/,
+    );
+  });
+});
+
+/**
+ * #14 修复项 3：错误信息脱敏。
+ *
+ * 员工会把折叠区里的内容复制给管理员，因此这里必须保证：
+ * 令牌、密钥、查询参数、服务器路径、内联 base64 图片都不能出现在页面上。
+ */
+describe("错误页技术信息脱敏", () => {
+  /** 一条"什么都夹带"的错误，用来确认各类敏感内容都被挡住 */
+  const SECRET_BEARER = "sk-live-abcdef0123456789";
+  const SECRET_API_KEY = "hf_0123456789abcdef";
+  const SECRET_QUERY = "token=supersecret&user=42";
+  const SECRET_PATH = "/opt/newbiechat/.next/server/app/api/gateway/route.js";
+  const SECRET_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg";
+
+  function leakyError() {
+    const error = new Error(
+      [
+        "请求处理失败",
+        `Authorization: Bearer ${SECRET_BEARER}`,
+        `x-api-key: ${SECRET_API_KEY}`,
+        `url: https://api.example.com/v1/chat?${SECRET_QUERY}`,
+        `path: ${SECRET_PATH}`,
+        `image: ${SECRET_IMAGE}`,
+      ].join("\n"),
+    );
+    error.name = "ChunkLoadError";
+    return error;
+  }
+
+  it("does not render the raw error message anywhere on the page", () => {
+    const error = leakyError();
+    render(<ErrorPage kind="chunk" error={error} />);
+
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain(error.message);
+    expect(text).not.toContain("请求处理失败");
+  });
+
+  it("does not leak bearer tokens or api keys", () => {
+    render(<ErrorPage kind="chunk" error={leakyError()} />);
+
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain(SECRET_BEARER);
+    expect(text).not.toContain(SECRET_API_KEY);
+    expect(text).not.toContain("Bearer sk-live");
+    expect(text).not.toContain("x-api-key:");
+  });
+
+  it("does not leak url query parameters, server paths or inline base64 images", () => {
+    render(<ErrorPage kind="chunk" error={leakyError()} />);
+
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain(SECRET_QUERY);
+    expect(text).not.toContain("?token=");
+    expect(text).not.toContain(SECRET_PATH);
+    expect(text).not.toContain("/opt/");
+    expect(text).not.toContain(SECRET_IMAGE);
+    expect(text).not.toContain("iVBORw0KGgoAAAANSUhEUg");
+  });
+
+  it("keeps the page usable: the reload action is still there", () => {
+    render(<ErrorPage kind="chunk" error={leakyError()} />);
+    expect(
+      screen.getByRole("button", { name: "重新加载页面" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "回到聊天" })).toBeInTheDocument();
+  });
+});
+
+describe("sanitizeErrorText", () => {
+  it("redacts bearer tokens", () => {
+    const output = sanitizeErrorText(
+      "Authorization: Bearer sk-live-abcdef0123456789",
+    );
+    expect(output).not.toContain("sk-live-abcdef0123456789");
+    expect(output).toContain(REDACTED);
+  });
+
+  it("redacts key=value credentials", () => {
+    const output = sanitizeErrorText("api_key=abcdef123456&x=1");
+    expect(output).not.toContain("abcdef123456");
+    expect(output).toContain(REDACTED);
+  });
+
+  it("redacts url query parameters", () => {
+    const output = sanitizeErrorText("failed on https://api.test/v1?a=1&b=2");
+    expect(output).not.toContain("a=1");
+    expect(output).not.toContain("b=2");
+  });
+
+  it("redacts server absolute paths on both platforms", () => {
+    const posix = sanitizeErrorText("at /opt/newbiechat/server.js:12");
+    expect(posix).not.toContain("/opt/newbiechat");
+
+    const win = sanitizeErrorText("at C:\\Users\\MyPC\\secrets\\key.txt:1");
+    expect(win).not.toContain("MyPC");
+  });
+
+  it("redacts inline base64 images", () => {
+    const output = sanitizeErrorText("data:image/png;base64,AAAAAAAABBBBBBBBCCCC");
+    expect(output).not.toContain("AAAAAAAABBBBBBBBCCCC");
+  });
+
+  it("leaves ordinary text untouched", () => {
+    expect(sanitizeErrorText("Loading CSS chunk 6814 failed")).toBe(
+      "Loading CSS chunk 6814 failed",
+    );
   });
 });

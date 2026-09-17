@@ -11,8 +11,9 @@ import { expect, test, type Page } from "@playwright/test";
  * 单元测试只能证明"判定逻辑正确"，证明不了"在真实构建产物里真的会这样触发"，
  * 所以这里跑真实的 standalone 产物，并在网络层精确模拟"分包已被新版本删掉"。
  *
- * 模拟方式：只让接下来第一个 `/_next/static/**` 请求返回 404。
- * 这与"旧页面请求了一个新容器里不存在的分包文件"在网络表现上完全一致。
+ * 模拟方式：在网络层精确打断**命中的那一个** `/_next/static/**` 请求，让它返回 404。
+ * 这与"旧页面请求了一个新容器里不存在的分包文件"在网络表现上完全一致，
+ * 而且不会牵连页面主包（否则浏览器直接白屏，就测不到错误页了）。
  */
 
 const RECOVERY_KEY = "newbiechat:chunk-recovery";
@@ -24,6 +25,19 @@ const SETTINGS_TITLE = ".window-header-main-title";
  * 用地址而不是按钮文案来定位：文案会随界面语言变化，地址不会。
  */
 const SETTINGS_ENTRY = 'a[href="#/settings"]';
+
+/**
+ * UI 证据截图目录（可选）。
+ *
+ * 本机跑 E2E 时用环境变量指定，用来产出附在 PR 里的证据截图；
+ * CI 不设置该变量，因此不会在仓库工作区里留下未跟踪文件。
+ */
+const EVIDENCE_DIR = process.env.E2E_EVIDENCE_DIR ?? "";
+
+async function captureEvidence(page: Page, name: string) {
+  if (!EVIDENCE_DIR) return;
+  await page.screenshot({ path: `${EVIDENCE_DIR}/${name}.png` });
+}
 
 /** 员工账号会话（员工角色是这一号问题明确要求覆盖的场景） */
 const EMPLOYEE_SESSION = {
@@ -216,6 +230,8 @@ test.describe("#14 设置页分包崩溃与全局恢复", () => {
     await expect(page.getByText("这一步没能完成")).toHaveCount(0);
     expect(await readLoadCount(page)).toBe(1);
     expect(await readRecoveryRecord(page)).toBeNull();
+
+    await captureEvidence(page, "01-settings-page-ok");
   });
 
   test("部署切换后打开设置：自动恢复一次即可正常打开，刷新不超过一次", async ({
@@ -265,13 +281,11 @@ test.describe("#14 设置页分包崩溃与全局恢复", () => {
 
     await clickSettings(page);
 
-    // 自动刷新一次后仍然失败，此时冷却窗口生效，必须停在错误页上
+    // 自动刷新一次后仍然失败，此时会话上限生效，必须停在错误页上
     await expect(page.getByText("页面加载失败")).toBeVisible({
       timeout: 45_000,
     });
-    await expect(
-      page.getByText("刚刚已经自动重新加载过一次"),
-    ).toBeVisible();
+    await expect(page.getByText("自动重试次数已经用完")).toBeVisible();
 
     const loadsWhenErrored = await readLoadCount(page);
     expect(loadsWhenErrored).toBe(2);
@@ -288,6 +302,59 @@ test.describe("#14 设置页分包崩溃与全局恢复", () => {
 
     // 错误页里不能出现会破坏用户数据的「清空全部数据」
     await expect(page.getByText("清空全部数据")).toHaveCount(0);
+
+    await captureEvidence(page, "02-chunk-error-page-zh");
+  });
+
+  test("已经自动刷新过一次后，即使冷却窗口早已过去也不会再刷新", async ({
+    page,
+  }) => {
+    const fault = await startAsEmployee(page);
+
+    await page.goto("/");
+    await waitForAppReady(page);
+    expect(await readLoadCount(page)).toBe(1);
+
+    // 预置"本会话已经自动刷新过一次，且那次刷新发生在很久以前"的记录。
+    //   冷却窗口只有 60 秒，这里刻意写到 1 小时之前 —— 也就是说：
+    //   如果只靠冷却窗口，这次是会被允许刷新的；拦住它的只能是会话上限。
+    //   刻意不真的等 60 秒：那既拖慢测试也不稳定。
+    const seededAttemptAt = Date.now() - 60 * 60 * 1000;
+    await page.evaluate(
+      ({ key, record }) => {
+        sessionStorage.setItem(key, JSON.stringify(record));
+      },
+      {
+        key: RECOVERY_KEY,
+        record: { lastAttemptAt: seededAttemptAt, totalAttempts: 1 },
+      },
+    );
+
+    // ↓ 时间点：分包一直拿不到
+    fault.failForever = 1;
+
+    await clickSettings(page);
+
+    // 直接停在中文错误页，而且一次刷新都没有发生
+    await expect(page.getByText("页面加载失败")).toBeVisible({
+      timeout: 45_000,
+    });
+    await expect(page.getByText("自动重试次数已经用完")).toBeVisible();
+    await expect(page.getByText("刚刚已经自动重新加载过一次")).toHaveCount(0);
+
+    // 核心断言 1：页面加载次数仍为 1，说明确实没有自动刷新
+    expect(await readLoadCount(page)).toBe(1);
+
+    // 核心断言 2：恢复记录没有被改写，说明没有产生新的刷新写入
+    const record = await readRecoveryRecord(page);
+    expect(record).toEqual({
+      lastAttemptAt: seededAttemptAt,
+      totalAttempts: 1,
+    });
+
+    // 再等一会儿，确认没有延迟触发的刷新
+    await page.waitForTimeout(3_000);
+    expect(await readLoadCount(page)).toBe(1);
   });
 
   test("不存在的地址展示中文提示页，且没有破坏性操作", async ({ page }) => {

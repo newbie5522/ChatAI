@@ -96,17 +96,22 @@ describe("decideChunkRecovery", () => {
     expect(decision).toEqual({ reload: false, reason: "offline" });
   });
 
-  it("suppresses a second reload inside the cooldown window", () => {
+  it("suppresses a reload inside the cooldown window even when the counter is missing", () => {
+    // 第二重保护：会话上限是第一重保护；当恢复记录里的计数不完整（例如被部分写入、
+    // 或有其它代码清空了计数）时，冷却窗口仍能拦住短时间内的高频刷新。
     const decision = decideChunkRecovery({
       error: chunkError(),
       now,
       offline: false,
-      record: { lastAttemptAt: now - 1_000, totalAttempts: 1 },
+      record: { lastAttemptAt: now - 1_000, totalAttempts: 0 },
     });
     expect(decision).toEqual({ reload: false, reason: "cooldown-active" });
   });
 
-  it("allows one more reload after the cooldown window has elapsed", () => {
+  it("never reloads again once the tab has already auto reloaded, even after the cooldown window elapsed", () => {
+    // 验收要求的核心证明：整个标签页会话内最多自动刷新一次。
+    // 记录为 totalAttempts: 1（已经自动刷新过一次）且冷却窗口早已过去时，
+    // 判定结果必须是 session-limit，而不是 cooldown-elapsed。
     const decision = decideChunkRecovery({
       error: chunkError(),
       now,
@@ -114,6 +119,19 @@ describe("decideChunkRecovery", () => {
       record: {
         lastAttemptAt: now - RECOVERY_COOLDOWN_MS - 1,
         totalAttempts: 1,
+      },
+    });
+    expect(decision).toEqual({ reload: false, reason: "session-limit" });
+  });
+
+  it("allows the single auto reload after the cooldown window when no attempt was recorded yet", () => {
+    const decision = decideChunkRecovery({
+      error: chunkError(),
+      now,
+      offline: false,
+      record: {
+        lastAttemptAt: now - RECOVERY_COOLDOWN_MS - 1,
+        totalAttempts: 0,
       },
     });
     expect(decision).toEqual({ reload: true, reason: "cooldown-elapsed" });
@@ -153,7 +171,7 @@ describe("attemptChunkRecovery", () => {
     });
   });
 
-  it("does not loop: an immediate second failure is suppressed and shows the error page", () => {
+  it("does not loop: this tab auto reloads at most once, the second failure shows the error page", () => {
     const storage = createMemoryStorage();
     const reload = jest.fn();
 
@@ -171,8 +189,9 @@ describe("attemptChunkRecovery", () => {
       reload,
     });
 
-    expect(second).toEqual({ reload: false, reason: "cooldown-active" });
-    expect(third).toEqual({ reload: false, reason: "cooldown-active" });
+    // 上限为 1，所以从第二次起就不再刷新；冷却窗口只是第二重保护。
+    expect(second).toEqual({ reload: false, reason: "session-limit" });
+    expect(third).toEqual({ reload: false, reason: "session-limit" });
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
@@ -235,10 +254,10 @@ describe("attemptChunkRecovery", () => {
 
   it("reads back what it wrote", () => {
     const storage = createMemoryStorage();
-    writeRecoveryRecord({ lastAttemptAt: 42, totalAttempts: 2 }, storage);
+    writeRecoveryRecord({ lastAttemptAt: 42, totalAttempts: 1 }, storage);
     expect(readRecoveryRecord(storage)).toEqual({
       lastAttemptAt: 42,
-      totalAttempts: 2,
+      totalAttempts: 1,
     });
   });
 });

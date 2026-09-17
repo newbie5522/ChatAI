@@ -8,9 +8,11 @@
  * 这类错误刷新一次通常即可恢复，但如果没有保护，刷新本身就会变成死循环。
  *
  * 保护策略（三条同时生效，任一不满足都不自动刷新）：
- * 1. 冷却窗口：两次自动刷新之间至少间隔 RECOVERY_COOLDOWN_MS；
- *    刷新后问题依旧时，错误页会再次触发判定，此时仍在冷却窗口内 → 不刷新，展示错误页。
- * 2. 会话上限：同一标签页会话内自动刷新总次数不超过 MAX_AUTO_RECOVERIES_PER_SESSION。
+ * 1. 会话上限：整个标签页会话内最多自动刷新一次（MAX_AUTO_RECOVERIES_PER_SESSION = 1）。
+ *    这是首要保护：只要本会话已经自动刷新过，后续再出现分包失败一律不刷新，直接展示错误页，
+ *    即"整个标签页会话内最多自动刷新一次"。跨过冷却窗口也不会再刷新。
+ * 2. 冷却窗口：两次自动刷新之间至少间隔 RECOVERY_COOLDOWN_MS；
+ *    作为第二重保护兜底——当恢复记录缺失或计数不完整时，避免短时间内出现连续刷新。
  * 3. 前置条件：必须是"分包加载失败"，且浏览器处于在线状态才自动刷新。
  *
  * 判定与副作用分离：decideChunkRecovery 是纯函数（可测试），
@@ -22,8 +24,8 @@ export const CHUNK_RECOVERY_STORAGE_KEY = "newbiechat:chunk-recovery";
 /** 两次自动刷新之间的最小间隔，防止刷新循环 */
 export const RECOVERY_COOLDOWN_MS = 60 * 1000;
 
-/** 单个标签页会话内允许自动刷新的总次数上限 */
-export const MAX_AUTO_RECOVERIES_PER_SESSION = 2;
+/** 整个标签页会话内允许自动刷新的总次数上限。验收要求"自动恢复最多触发一次"，故固定为 1。 */
+export const MAX_AUTO_RECOVERIES_PER_SESSION = 1;
 
 export type ChunkRecoveryRecord = {
   /** 上一次自动刷新的时间戳（毫秒） */

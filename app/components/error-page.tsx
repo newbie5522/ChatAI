@@ -7,11 +7,14 @@
  * - 面向员工，不用技术词汇，明确告诉用户"发生了什么 / 现在该做什么"。
  * - 主操作永远是「重新加载页面」，因为它对分包加载失败这类问题真正有效；
  *   不再把「清空全部数据」当作首选动作 —— 那对加载失败不对症，还会破坏用户数据。
- * - 技术细节折叠收起，只在需要反馈问题时展开。
- * - 会话记录不会被这里影响，文案里明确说明，避免用户恐慌。
+ * - 技术细节折叠收起，只在需要反馈问题时展开；展开的也只是脱敏后的
+ *   错误类型 / 错误码 / 请求标识，不含错误原文与完整地址（见 app/utils/error-display.ts）。
+ * - 不对"数据是否已被保存"做任何承诺：当前系统仍以浏览器会话状态为中心，
+ *   服务端权威持久化是 V2 后续目标，这里只能说明"该做什么"。
  */
 
 import styles from "./error-page.module.scss";
+import { toSafeErrorDisplay } from "../utils/error-display";
 
 export type ErrorPageKind = "chunk" | "runtime" | "not-found";
 
@@ -31,8 +34,11 @@ const COPY: Record<ErrorPageKind, ErrorPageCopy> = {
   runtime: {
     badge: "页面出错",
     title: "这一步没能完成",
+    // 这里只说明"发生了什么 / 该做什么"，不对聊天数据的存储位置或存活情况做任何保证。
+    // 当前实现以浏览器会话状态为中心，服务端权威持久化是 V2 后续目标，
+    // 无法被现实现证明的话一律不写进面向员工的文案。
     description:
-      "页面遇到了一个错误。\n你的聊天记录保存在服务器上，不会因为这个错误丢失。",
+      "页面遇到了一个错误。\n你可以重新加载页面；如果反复出现，请把技术信息发给管理员。",
   },
   "not-found": {
     badge: "地址无效",
@@ -53,19 +59,6 @@ export type ErrorPageProps = {
   onRetry?: () => void;
   className?: string;
 };
-
-function describeError(error: unknown): string {
-  if (!error) return "";
-  if (typeof error === "string") return error;
-  const candidate = error as {
-    name?: string;
-    message?: string;
-    stack?: string;
-  };
-  const name = candidate?.name ? `${candidate.name}: ` : "";
-  const message = candidate?.message ?? String(error);
-  return `${name}${message}`.trim();
-}
 
 export function ErrorPage(props: ErrorPageProps) {
   const {
@@ -89,7 +82,12 @@ export function ErrorPage(props: ErrorPageProps) {
     }
   };
 
-  const detail = describeError(error);
+  // 只展示脱敏后的信息：错误类型名、错误码、请求标识，以及"站点 + 路径"形式的来源。
+  // 原始 error.message 与完整页面地址（含 query / hash 参数）一律不出现在页面上。
+  const detail = toSafeErrorDisplay(
+    error,
+    typeof window !== "undefined" ? window.location.href : undefined,
+  );
 
   return (
     <div
@@ -138,10 +136,10 @@ export function ErrorPage(props: ErrorPageProps) {
           <details className={styles.details}>
             <summary>技术信息（反馈问题时请复制这里）</summary>
             <div className={styles.detailBody}>
-              <code>{detail}</code>
-              <code>
-                {typeof window !== "undefined" ? window.location.href : ""}
-              </code>
+              {detail.name && <code>错误类型：{detail.name}</code>}
+              {detail.code && <code>错误码：{detail.code}</code>}
+              {detail.requestId && <code>请求标识：{detail.requestId}</code>}
+              {detail.location && <code>来源：{detail.location}</code>}
             </div>
           </details>
         )}
