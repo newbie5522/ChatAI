@@ -11,6 +11,11 @@
 # testing
 /coverage
 
+# playwright 端到端测试产物（失败截图与 trace 默认落在系统临时目录，这里兜底）
+/test-results/
+/playwright-report/
+/blob-report/
+
 # next.js
 /.next/
 /out/
