@@ -29,7 +29,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 18
+          # 与 Dockerfile 的 node:20-alpine 保持一致。
+          # @playwright/test 1.x 要求 node >= 20，锁在 18 会在安装阶段直接失败。
+          node-version: 20
           cache: "yarn"
 
       - name: Cache node_modules
