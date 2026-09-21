@@ -901,6 +901,9 @@ export const useChatStore = createPersistStore(
             onError(error) {
               const mediaError =
                 error instanceof MediaRequestError ? error : undefined;
+              const isAborted =
+                (error instanceof Error && error.name === "AbortError") ||
+                mediaError?.code === "REQUEST_ABORTED";
               const rawMessage =
                 error instanceof Error && error.message
                   ? error.message
@@ -913,8 +916,8 @@ export const useChatStore = createPersistStore(
                 botMessage.errorMessage = safeMessage;
               }
               botMessage.streaming = false;
-              if (!replayMessage) userMessage.isError = true;
-              botMessage.isError = true;
+              if (!replayMessage) userMessage.isError = !isAborted;
+              botMessage.isError = !isAborted;
               botMessage.errorCode = mediaError?.code;
               botMessage.errorRetryable = mediaError?.retryable;
               botMessage.requestId = mediaError?.requestId || undefined;

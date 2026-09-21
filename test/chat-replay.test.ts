@@ -496,3 +496,36 @@ test("media failure preserves already received partial content", async () => {
     isError: true,
   });
 });
+
+test("user abort preserves partial output without marking messages as errors", async () => {
+  const session = useChatStore.getState().currentSession();
+  jest.mocked(getClientApi).mockReturnValue({
+    llm: {
+      chat: async (options: ChatOptions) => {
+        options.onUpdate?.("partial result", "partial result");
+        const abortError = new Error("The operation was aborted.");
+        abortError.name = "AbortError";
+        options.onError?.(abortError);
+      },
+      speech: jest.fn(),
+      usage: jest.fn(),
+      models: jest.fn(),
+    },
+    config: jest.fn(),
+    prompts: jest.fn(),
+    masks: jest.fn(),
+    share: jest.fn(),
+  });
+
+  await useChatStore.getState().onUserInput("continue");
+
+  expect(session.messages.at(-2)).toMatchObject({
+    role: "user",
+    isError: false,
+  });
+  expect(session.messages.at(-1)).toMatchObject({
+    role: "assistant",
+    content: "partial result",
+    isError: false,
+  });
+});
