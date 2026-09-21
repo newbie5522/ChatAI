@@ -15,6 +15,12 @@ const config: Config = {
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
   },
+  // `.worktrees/` 里是另一个执行端（并行窗口）的工作副本。
+  // 如果不排除，本仓库执行测试时会连带跑起那份副本里的用例：
+  // 既会出现同名模块冲突告警，也可能执行到"会改动文件"的用例，
+  // 使本仓库的测试结果不可复现。并行开发场景下必须显式隔离。
+  testPathIgnorePatterns: ["/node_modules/", "<rootDir>/.worktrees/"],
+  modulePathIgnorePatterns: ["<rootDir>/.worktrees/"],
   // Keep next/jest transforms and jest.mock semantics consistent locally and in CI.
   extensionsToTreatAsEsm: [],
   injectGlobals: true,

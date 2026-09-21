@@ -4,6 +4,11 @@ let a="useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict";let nan
 
 self.addEventListener("activate", function (event) {
   console.log("ServiceWorker activated.");
+  // #14：立即接管当前已打开的页面。
+  // 有了 clients.claim()，首次访问后无需刷新页面即可让 /api/cache 上传生效，
+  // 从而不再需要旧实现那种"为了生效而强制刷新用户页面"的做法 ——
+  // 那正是刷新循环与"页面加载中被刷新导致分包失败"的来源。
+  event.waitUntil(self.clients.claim());
 });
 
 self.addEventListener("install", function (event) {

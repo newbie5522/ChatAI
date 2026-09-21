@@ -1,0 +1,150 @@
+// 错误页样式。
+// 通过 --ep-* 变量集中定义取值与兜底值：app/global-error.tsx 会替换根布局，
+// 那种情况下 globals.scss 里的主题变量可能尚未生效，兜底值保证样式不会崩。
+.error-page {
+  --ep-bg: var(--gray, #fafafa);
+  --ep-card-bg: var(--white, #ffffff);
+  --ep-text: var(--black, #303030);
+  --ep-border: var(--border-in-light, 1px solid #dedede);
+  --ep-shadow: var(--card-shadow, 0px 2px 4px rgba(0, 0, 0, 0.05));
+  --ep-primary: var(--primary, #1d93ab);
+  --ep-soft: var(--second, #e7f8ff);
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: 24px;
+  background: var(--ep-bg);
+  color: var(--ep-text);
+}
+
+.card {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 480px;
+  padding: 26px 24px 22px;
+  border-radius: 20px;
+  background: var(--ep-card-bg);
+  border: var(--ep-border);
+  box-shadow: var(--ep-shadow);
+  text-align: center;
+}
+
+.badge {
+  display: inline-block;
+  margin-bottom: 14px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--ep-primary);
+  background: var(--ep-soft);
+}
+
+.title {
+  margin: 0 0 10px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.description {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.8;
+  opacity: 0.75;
+  white-space: pre-line;
+}
+
+.note {
+  margin: 14px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--ep-primary);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 22px;
+}
+
+.primaryButton,
+.secondaryButton {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 132px;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+  user-select: none;
+
+  &:hover {
+    opacity: 0.86;
+  }
+
+  &:active {
+    opacity: 0.72;
+  }
+}
+
+.primaryButton {
+  border: 1px solid var(--ep-primary);
+  background: var(--ep-primary);
+  color: #ffffff;
+}
+
+.secondaryButton {
+  border: var(--ep-border);
+  background: transparent;
+  color: var(--ep-text);
+}
+
+.details {
+  margin-top: 18px;
+  text-align: left;
+  font-size: 12px;
+
+  summary {
+    cursor: pointer;
+    text-align: center;
+    opacity: 0.55;
+    list-style: none;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+  }
+}
+
+.detailBody {
+  box-sizing: border-box;
+  margin-top: 10px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--ep-bg);
+  border: var(--ep-border);
+
+  code {
+    display: block;
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-all;
+    opacity: 0.8;
+  }
+}
