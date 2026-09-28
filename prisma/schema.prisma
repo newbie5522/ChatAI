@@ -1,0 +1,115 @@
+// NewbieChat V2 Data Model
+// ADR-001: 服务端为会话唯一事实源
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 会话：多轮对话的容器
+model Conversation {
+  id         String    @id @default(cuid())
+  employeeId String    // 员工账号 ID
+  topic      String    // 会话标题
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime? // 软删除
+
+  messages Message[]
+  
+  @@index([employeeId, deletedAt])
+  @@map("conversations")
+}
+
+// 消息：用户或助手的单条发言
+model Message {
+  id             String    @id @default(cuid())
+  conversationId String
+  parentId       String?   // 支持消息分支（重新生成）
+  role           String    // "user" | "assistant" | "system"
+  content        String    @db.Text
+  contentType    String    @default("text") // "text" | "multimodal"
+  createdAt      DateTime  @default(now())
+  deletedAt      DateTime? // 软删除
+
+  conversation Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  parent       Message?       @relation("MessageBranch", fields: [parentId], references: [id])
+  children     Message[]      @relation("MessageBranch")
+  runs         Run[]
+  attachments  Attachment[]
+  
+  @@index([conversationId, deletedAt])
+  @@index([parentId])
+  @@map("messages")
+}
+
+// 运行：单次模型调用的生命周期
+model Run {
+  id            String    @id @default(cuid())
+  messageId     String
+  requestId     String    @unique // 幂等标识
+  status        String    // "pending" | "running" | "completed" | "failed" | "cancelled"
+  model         String    // 模型名称
+  providerName  String    // 供应商名称
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+  errorCode     String?
+  errorMessage  String?   @db.Text
+  
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  usage   Usage?
+  
+  @@index([messageId])
+  @@index([status])
+  @@map("runs")
+}
+
+// 附件：消息关联的用户上传文件或模型生成的媒体引用
+model Attachment {
+  id         String   @id @default(cuid())
+  messageId  String
+  kind       String   // "upload" | "image" | "video" | "audio"
+  artifactId String
+  name       String?
+  metadata   Json?    // 扩展信息（宽高、时长等）
+  createdAt  DateTime @default(now())
+  
+  message  Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  artifact Artifact @relation(fields: [artifactId], references: [id])
+  
+  @@index([messageId])
+  @@map("attachments")
+}
+
+// 产物：持久化的二进制对象（文件、图片、视频）
+model Artifact {
+  id         String   @id @default(cuid())
+  storageKey String   @unique // 对象存储路径
+  mimeType   String
+  size       Int
+  checksum   String?  // SHA256
+  createdAt  DateTime @default(now())
+  
+  attachments Attachment[]
+  
+  @@map("artifacts")
+}
+
+// 用量：模型调用的 token 消耗和成本
+model Usage {
+  id               String   @id @default(cuid())
+  runId            String   @unique
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  cost             Decimal  @default(0) @db.Decimal(10, 6)
+  createdAt        DateTime @default(now())
+  
+  run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
+  
+  @@map("usages")
+}
