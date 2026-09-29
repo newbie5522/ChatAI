@@ -25,16 +25,27 @@ model Conversation {
   @@map("conversations")
 }
 
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+enum MessageContentType {
+  text
+  multimodal
+}
+
 // 消息：用户或助手的单条发言
 model Message {
-  id             String    @id @default(cuid())
+  id             String             @id @default(cuid())
   conversationId String
-  parentId       String?   // 支持消息分支（重新生成）
-  role           String    // "user" | "assistant" | "system"
-  content        String    @db.Text
-  contentType    String    @default("text") // "text" | "multimodal"
-  createdAt      DateTime  @default(now())
-  deletedAt      DateTime? // 软删除
+  parentId       String?            // 支持消息分支（重新生成）
+  role           MessageRole
+  content        String             @db.Text
+  contentType    MessageContentType @default(text)
+  createdAt      DateTime           @default(now())
+  deletedAt      DateTime?          // 软删除
 
   conversation Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   parent       Message?       @relation("MessageBranch", fields: [parentId], references: [id])
@@ -47,12 +58,20 @@ model Message {
   @@map("messages")
 }
 
+enum RunStatus {
+  pending
+  running
+  completed
+  failed
+  cancelled
+}
+
 // 运行：单次模型调用的生命周期
 model Run {
   id            String    @id @default(cuid())
   messageId     String
   requestId     String    @unique // 幂等标识
-  status        String    // "pending" | "running" | "completed" | "failed" | "cancelled"
+  status        RunStatus
   model         String    // 模型名称
   providerName  String    // 供应商名称
   startedAt     DateTime  @default(now())
@@ -68,11 +87,18 @@ model Run {
   @@map("runs")
 }
 
+enum AttachmentKind {
+  upload
+  image
+  video
+  audio
+}
+
 // 附件：消息关联的用户上传文件或模型生成的媒体引用
 model Attachment {
-  id         String   @id @default(cuid())
+  id         String         @id @default(cuid())
   messageId  String
-  kind       String   // "upload" | "image" | "video" | "audio"
+  kind       AttachmentKind
   artifactId String
   name       String?
   metadata   Json?    // 扩展信息（宽高、时长等）

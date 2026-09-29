@@ -11,6 +11,10 @@ import type {
   Attachment,
   Artifact,
   Usage,
+  MessageRole,
+  MessageContentType,
+  RunStatus,
+  AttachmentKind,
 } from '../types/v2-models';
 
 export class ConversationRepository {
@@ -61,9 +65,9 @@ export class MessageRepository {
 
   async create(data: {
     conversationId: string;
-    role: 'user' | 'assistant' | 'system';
+    role: MessageRole;
     content: string;
-    contentType?: 'text' | 'multimodal';
+    contentType?: MessageContentType;
     parentId?: string;
   }): Promise<Message> {
     return this.prisma.message.create({
@@ -147,7 +151,7 @@ export class RunRepository {
 
   async updateStatus(
     id: string,
-    status: 'running' | 'completed' | 'failed' | 'cancelled',
+    status: Exclude<RunStatus, 'pending'>,
     error?: { code: string; message: string },
   ): Promise<Run> {
     return this.prisma.run.update({
@@ -203,7 +207,7 @@ export class AttachmentRepository {
 
   async create(data: {
     messageId: string;
-    kind: 'upload' | 'image' | 'video' | 'audio';
+    kind: AttachmentKind;
     artifactId: string;
     name?: string;
     metadata?: Record<string, any>;
