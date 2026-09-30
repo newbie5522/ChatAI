@@ -48,6 +48,9 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
       - name: Run Jest tests
         run: yarn test:ci
 
@@ -88,6 +91,9 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
 
       - name: Generate masks
         run: yarn mask
