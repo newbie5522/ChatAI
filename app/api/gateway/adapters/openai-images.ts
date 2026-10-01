@@ -260,10 +260,30 @@ async function callOpenRouterImages(
   }
 
   const json = await res.json();
+  
+  // Issue #15: 验证响应内容有效性
+  const normalized = normalizedImageData(json);
+  if (!Array.isArray(normalized.data) || normalized.data.length === 0) {
+    console.error(
+      `[OpenRouterImages] EMPTY_RESPONSE: HTTP 200 but no valid media content model=${model} json=${JSON.stringify(json)}`,
+    );
+    return new Response(
+      JSON.stringify({
+        error: {
+          message: "Provider returned empty response",
+          code: "EMPTY_RESPONSE",
+          provider: "openrouter",
+          model,
+        },
+      }),
+      { status: 502, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
   console.log(
-    `[OpenRouterImages] success model=${model} mode=${isImageToImage ? "img2img" : "txt2img"} data.length=${json?.data?.length}`,
+    `[OpenRouterImages] success model=${model} mode=${isImageToImage ? "img2img" : "txt2img"} data.length=${normalized.data.length}`,
   );
-  return Response.json(normalizedImageData(json), { status: 200 });
+  return Response.json(normalized, { status: 200 });
 }
 
 export async function callOpenAIImages(
@@ -373,8 +393,22 @@ export async function callOpenAIImages(
   }
 
   const json = await res.json();
+  
+  // Issue #15: 验证响应内容有效性，拒绝 HTTP 200 但无有效媒体内容的响应
+  const normalized = normalizedImageData(json);
+  if (!Array.isArray(normalized.data) || normalized.data.length === 0) {
+    console.error(
+      `[OpenAIImages] EMPTY_RESPONSE: HTTP 200 but no valid media content model=${effectiveModel} json=${JSON.stringify(json)}`,
+    );
+    return gatewayJsonError(502, "Provider returned empty response", {
+      code: "EMPTY_RESPONSE",
+      provider: ctx.model.provider,
+      model: effectiveModel,
+    });
+  }
+
   console.log(
-    `[OpenAIImages] success model=${effectiveModel} data.length=${json?.data?.length}`,
+    `[OpenAIImages] success model=${effectiveModel} data.length=${normalized.data.length}`,
   );
-  return Response.json(normalizedImageData(json), { status: 200 });
+  return Response.json(normalized, { status: 200 });
 }
