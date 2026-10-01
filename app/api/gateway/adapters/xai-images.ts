@@ -45,9 +45,38 @@ export async function callXAIImages(
     redirect: "manual",
   });
 
-  return new Response(res.body, {
-    status: res.status,
-    statusText: res.statusText,
-    headers: copyResponseHeaders(res),
-  });
+  if (!res.ok) {
+    console.error(
+      `[XAIImages] upstream error ${res.status} ${res.statusText} model=${ctx.model.model}`,
+    );
+    return new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: copyResponseHeaders(res),
+    });
+  }
+
+  // Issue #15: 验证响应内容有效性
+  const json = await res.json();
+  const data = Array.isArray(json?.data) ? json.data.filter((item: any) => item?.url || item?.b64_json) : [];
+  
+  if (data.length === 0) {
+    console.error(
+      `[XAIImages] EMPTY_RESPONSE: HTTP 200 but no valid media content model=${ctx.model.model} json=${JSON.stringify(json)}`,
+    );
+    return new Response(
+      JSON.stringify({
+        error: {
+          message: "Provider returned empty response",
+          code: "EMPTY_RESPONSE",
+          provider: "xai",
+          model: ctx.model.model,
+        },
+      }),
+      { status: 502, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  console.log(`[XAIImages] success model=${ctx.model.model} data.length=${data.length}`);
+  return Response.json({ ...json, data }, { status: 200 });
 }
