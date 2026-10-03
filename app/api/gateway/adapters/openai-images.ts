@@ -400,11 +400,16 @@ export async function callOpenAIImages(
     console.error(
       `[OpenAIImages] EMPTY_RESPONSE: HTTP 200 but no valid media content model=${effectiveModel} json=${JSON.stringify(json)}`,
     );
-    return gatewayJsonError(502, "Provider returned empty response", {
-      code: "EMPTY_RESPONSE",
-      provider: ctx.model.provider,
-      model: effectiveModel,
-    });
+    return new Response(
+      JSON.stringify({
+        error: true,
+        message: "Provider returned empty response",
+        code: "EMPTY_RESPONSE",
+        provider: ctx.model.provider,
+        model: effectiveModel,
+      }),
+      { status: 502, headers: { "Content-Type": "application/json" } },
+    );
   }
 
   console.log(
