@@ -146,7 +146,7 @@ export class MessageRepository {
       include: {
         parts: true,
       },
-    });
+    }) as Promise<Message>;
   }
 
   /**
@@ -167,7 +167,7 @@ export class MessageRepository {
       orderBy: { createdAt: "asc" },
       take: filter.limit,
       skip: filter.offset,
-    });
+    }) as Promise<Message[]>;
   }
 
   /**
@@ -187,7 +187,7 @@ export class MessageRepository {
           orderBy: { order: "asc" },
         },
       },
-    });
+    }) as Promise<Message | null>;
   }
 
   /**
@@ -206,7 +206,7 @@ export class MessageRepository {
       include: {
         parts: true,
       },
-    });
+    }) as Promise<Message>;
   }
 }
 
@@ -229,7 +229,7 @@ export class ResponseRunRepository {
         modelId: input.modelId,
         status: "pending",
       },
-    });
+    }) as Promise<ResponseRun>;
   }
 
   /**
@@ -242,7 +242,7 @@ export class ResponseRunRepository {
     return this.prisma.responseRun.update({
       where: { id: responseRunId },
       data: input,
-    });
+    }) as Promise<ResponseRun>;
   }
 
   /**
@@ -251,7 +251,7 @@ export class ResponseRunRepository {
   async findById(responseRunId: string): Promise<ResponseRun | null> {
     return this.prisma.responseRun.findUnique({
       where: { id: responseRunId },
-    });
+    }) as Promise<ResponseRun | null>;
   }
 }
 
@@ -368,7 +368,7 @@ export class QuotaRecordRepository {
       });
 
       if (existing) {
-        return existing;
+        return existing as QuotaRecord;
       }
 
       // 创建预留记录
@@ -380,7 +380,7 @@ export class QuotaRecordRepository {
           balance: currentBalance - input.amount,
           referenceId: input.referenceId,
         },
-      });
+      }) as Promise<QuotaRecord>;
     });
   }
 
@@ -399,7 +399,7 @@ export class QuotaRecordRepository {
       });
 
       if (existing) {
-        return existing;
+        return existing as QuotaRecord;
       }
 
       // 查询当前余额
@@ -419,7 +419,7 @@ export class QuotaRecordRepository {
           balance: currentBalance,
           referenceId: input.referenceId,
         },
-      });
+      }) as Promise<QuotaRecord>;
     });
   }
 
@@ -438,7 +438,7 @@ export class QuotaRecordRepository {
       });
 
       if (existing) {
-        return existing;
+        return existing as QuotaRecord;
       }
 
       // 查询当前余额
@@ -458,7 +458,7 @@ export class QuotaRecordRepository {
           balance: currentBalance + input.amount,
           referenceId: input.referenceId,
         },
-      });
+      }) as Promise<QuotaRecord>;
     });
   }
 
