@@ -262,10 +262,10 @@ describe("QuotaRecordRepository - 原子性额度操作", () => {
   });
 
   test("reserve() 余额不足时抛出错误", async () => {
-    // 当前余额 0.5，但要预留 1.0
+    // reserve() 执行顺序：1. 查余额(lastRecord)  2. 检查余额  3. 如果够再查幂等
+    // 余额 0.5 < 1.0，直接在第2步抛出，不会走到第3步
     mockPrisma.quotaRecord.findFirst
-      .mockResolvedValueOnce({ balance: 0.5 }) // lastRecord
-      .mockResolvedValueOnce(null); // 无重复预留
+      .mockResolvedValueOnce({ balance: 0.5 }); // 1. lastRecord → 余额不足直接抛出
 
     await expect(
       repo.reserve({ employeeId: "emp-001", amount: 1.0, referenceId: "run-001" }),
@@ -273,9 +273,10 @@ describe("QuotaRecordRepository - 原子性额度操作", () => {
   });
 
   test("reserve() 余额足够时创建预留记录", async () => {
+    // reserve() 执行顺序：1. 查余额(lastRecord)  2. 查幂等去重  3. 创建记录
     mockPrisma.quotaRecord.findFirst
-      .mockResolvedValueOnce({ balance: 10.0 }) // lastRecord
-      .mockResolvedValueOnce(null); // 无重复预留
+      .mockResolvedValueOnce({ balance: 10.0 }) // 1. lastRecord
+      .mockResolvedValueOnce(null);             // 2. 无重复预留
     mockPrisma.quotaRecord.create.mockResolvedValueOnce({
       id: "quota-001", type: "reserve", amount: -1.0, balance: 9.0,
     });
@@ -289,10 +290,11 @@ describe("QuotaRecordRepository - 原子性额度操作", () => {
   });
 
   test("reserve() 重复预留时幂等返回已有记录", async () => {
+    // reserve() 执行顺序：1. 查余额(lastRecord)  2. 查幂等去重 → 有则直接返回
     const existing = { id: "quota-001", type: "reserve" };
     mockPrisma.quotaRecord.findFirst
-      .mockResolvedValueOnce({ balance: 10.0 }) // lastRecord
-      .mockResolvedValueOnce(existing); // 已有预留记录
+      .mockResolvedValueOnce({ balance: 10.0 }) // 1. lastRecord
+      .mockResolvedValueOnce(existing);         // 2. 已有预留记录 → 直接返回
 
     const result = await repo.reserve({ employeeId: "emp-001", amount: 1.0, referenceId: "run-001" });
 
@@ -301,9 +303,10 @@ describe("QuotaRecordRepository - 原子性额度操作", () => {
   });
 
   test("release() 释放时余额增加", async () => {
+    // release() 执行顺序：1. 查幂等去重  2. 查余额(lastRecord)  3. 创建记录
     mockPrisma.quotaRecord.findFirst
-      .mockResolvedValueOnce(null) // 无重复释放
-      .mockResolvedValueOnce({ balance: 9.0 }); // lastRecord
+      .mockResolvedValueOnce(null)              // 1. 无重复释放
+      .mockResolvedValueOnce({ balance: 9.0 }); // 2. lastRecord
     mockPrisma.quotaRecord.create.mockResolvedValueOnce({
       id: "quota-002", type: "release", amount: 1.0, balance: 10.0,
     });
