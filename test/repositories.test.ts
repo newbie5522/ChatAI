@@ -8,8 +8,10 @@
  * 3. 事务原子性（额度操作）
  */
 
+import type { PrismaClient } from "@prisma/client";
+
 // 手动 mock PrismaClient
-const mockPrisma = {
+const mockPrisma: any = {
   conversation: {
     create: jest.fn(),
     findMany: jest.fn(),
