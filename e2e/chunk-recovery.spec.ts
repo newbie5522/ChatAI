@@ -92,6 +92,19 @@ type ChunkFault = {
  * 注意只打断**命中的那个分包**，不会牵连页面主包：
  * 如果连页面主包也打断，浏览器会直接白屏、页面脚本根本不执行，
  * 那就测不到错误页和自动恢复了，与真实现场也不符。
+ *
+ * ## failForever 语义说明
+ *
+ * `failForever > 0` 表示"接下来加载的分包一直不存在"，对应真实情形：
+ * 旧版本的分包文件在新容器里永久缺失。
+ *
+ * 实现上，一旦 `failForever` 标志生效，**每一个**命中的 chunk URL 都会
+ * 立即加入 `broken` set 并返回 404，而不是只消耗一次计数。
+ * 这样才能正确应对生产构建中多个 chunk **并发加载**的情形：
+ * 随着依赖增多（如引入 @prisma/client 后），webpack 会拆出更多 chunk，
+ * 单次导航可能同时触发 2 个以上 `/_next/static/**` 请求；
+ * 若仅消耗一次计数，后续并发请求会漏网导致页面加载成功，
+ * 错误页永远不会显示，测试超时失败。
  */
 async function installChunkFault(page: Page): Promise<ChunkFault> {
   const fault: ChunkFault = {
@@ -115,11 +128,15 @@ async function installChunkFault(page: Page): Promise<ChunkFault> {
     }
 
     if (fault.failOnce > 0) {
+      // failOnce：只让这一次失败，不记录 URL，下次同一 URL 可以成功。
+      // 对应"部署切换瞬间旧文件短暂缺失，刷新后新文件已就位"的场景。
       fault.failOnce -= 1;
     } else {
-      if (fault.failForever > 0) {
-        fault.failForever -= 1;
-      }
+      // failForever：把命中的每一个 URL 都加入 broken set，之后永久失败。
+      // 注意：不递减 failForever 计数——只要标志 > 0，
+      // 所有并发请求都必须失败，直到测试代码主动将其归零。
+      // 这样才能正确模拟"新版本里这些分包确实不存在"的情形，
+      // 无论 webpack 拆出多少个并发 chunk 请求都能被拦截。
       fault.broken.add(url);
     }
 
@@ -290,8 +307,10 @@ test.describe("#14 设置页分包崩溃与全局恢复", () => {
     const loadsWhenErrored = await readLoadCount(page);
     expect(loadsWhenErrored).toBe(2);
 
-    // 被判定失效的始终只有那一个分包；页面主包必须正常，否则就是白屏而不是错误页
-    expect(fault.broken.size).toBe(1);
+    // 至少有一个分包被判定失效；页面主包必须正常，否则就是白屏而不是错误页。
+    // 注：随着依赖增多（如 @prisma/client），webpack 可能拆出多个并发 chunk，
+    // 因此使用 >= 1 而不是 === 1，只要有分包被打断、主包保持正常即满足验收要求。
+    expect(fault.broken.size).toBeGreaterThanOrEqual(1);
     // 第一次点击失败 1 次、刷新后又失败 1 次
     expect(fault.served.length).toBeGreaterThanOrEqual(2);
 
