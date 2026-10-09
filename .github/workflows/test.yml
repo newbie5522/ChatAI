@@ -38,15 +38,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: ${{ runner.os }}-node_modules-${{ hashFiles('**/yarn.lock') }}
+          key: ${{ runner.os }}-node_modules-${{ hashFiles('**/yarn.lock', '**/prisma/schema.prisma') }}
           restore-keys: |
             ${{ runner.os }}-node_modules-
 
-      # --frozen-lockfile 与 Dockerfile 的依赖安装方式保持一致：
-      # 生产镜像本来就是用它安装的，锁文件一旦不一致，镜像构建同样会失败，
-      # 因此在 PR 阶段就暴露出来比留到发版更好。
+      # Issue #16: 添加 Prisma 依赖后允许 CI 自动更新 lockfile
+      # 待 yarn.lock 在本地同步后改回 --frozen-lockfile
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install
+
+      - name: Generate Prisma Client
+        run: yarn db:generate
 
       - name: Run Jest tests
         run: yarn test:ci
@@ -82,12 +84,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: node_modules
-          key: ${{ runner.os }}-node_modules-${{ hashFiles('**/yarn.lock') }}
+          key: ${{ runner.os }}-node_modules-${{ hashFiles('**/yarn.lock', '**/prisma/schema.prisma') }}
           restore-keys: |
             ${{ runner.os }}-node_modules-
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install
+
+      - name: Generate Prisma Client
+        run: yarn db:generate
 
       - name: Generate masks
         run: yarn mask

@@ -1,0 +1,191 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// Core Entities
+// ============================================================================
+
+/// 员工账号（租户边界）
+model Employee {
+  id        String   @id @default(cuid())
+  name      String
+  role      String   // "user" | "admin" | "super-admin"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关系
+  conversations Conversation[]
+  messages      Message[]
+  quotaRecords  QuotaRecord[]
+  usageRecords  UsageRecord[]
+
+  @@index([role])
+  @@map("employees")
+}
+
+/// 对话会话
+model Conversation {
+  id         String   @id @default(cuid())
+  employeeId String
+  topic      String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  deletedAt  DateTime? // 软删除
+
+  // 关系
+  employee Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  messages Message[]
+  branches Branch[]
+
+  @@index([employeeId, deletedAt])
+  @@index([updatedAt])
+  @@map("conversations")
+}
+
+/// 消息（用户输入或助手响应的根）
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  employeeId     String
+  role           String   // "user" | "assistant" | "system"
+  createdAt      DateTime @default(now())
+  deletedAt      DateTime? // 软删除
+
+  // 消息内容由 MessagePart 组成（支持多模态）
+  parts MessagePart[]
+
+  // 如果是助手消息，关联到生成它的 ResponseRun
+  responseRun ResponseRun?
+
+  // 关系
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([employeeId])
+  @@map("messages")
+}
+
+/// 消息内容片段（支持 text / image_url / tool_call / tool_result）
+model MessagePart {
+  id        String   @id @default(cuid())
+  messageId String
+  type      String   // "text" | "image_url" | "audio_url" | "tool_call" | "tool_result"
+  content   String   // JSON string，根据 type 解析
+  order     Int      // 同一消息内的顺序
+  createdAt DateTime @default(now())
+
+  // 关系
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId, order])
+  @@map("message_parts")
+}
+
+/// 响应运行（一次完整的 LLM 调用）
+model ResponseRun {
+  id             String   @id @default(cuid())
+  messageId      String   @unique // 一个助手消息对应一个 ResponseRun
+  branchId       String?  // 如果是分支重新生成，关联到 Branch
+  providerId     String   // 使用的 provider
+  modelId        String   // 使用的 model
+  status         String   // "pending" | "streaming" | "completed" | "failed" | "aborted"
+  startedAt      DateTime @default(now())
+  completedAt    DateTime?
+  errorCode      String?  // 错误码（如果失败）
+  errorMessage   String?  // 错误信息（如果失败）
+
+  // 关系
+  message      Message       @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  branch       Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  toolCalls    ToolCall[]
+  usageRecords UsageRecord[]
+
+  @@index([status, startedAt])
+  @@index([providerId, modelId])
+  @@map("response_runs")
+}
+
+/// 分支（对话的分叉点，用于重新生成）
+model Branch {
+  id             String   @id @default(cuid())
+  conversationId String
+  parentMessageId String? // 分支点的父消息 ID
+  name           String?  // 分支名称（可选）
+  createdAt      DateTime @default(now())
+
+  // 关系
+  conversation Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  responseRuns ResponseRun[]
+
+  @@index([conversationId])
+  @@map("branches")
+}
+
+/// 工具调用（Function Calling）
+model ToolCall {
+  id            String   @id @default(cuid())
+  responseRunId String
+  name          String   // 工具名称
+  arguments     String   // JSON string
+  result        String?  // 工具执行结果（JSON string）
+  status        String   // "pending" | "completed" | "failed"
+  createdAt     DateTime @default(now())
+  completedAt   DateTime?
+
+  // 关系
+  responseRun ResponseRun @relation(fields: [responseRunId], references: [id], onDelete: Cascade)
+
+  @@index([responseRunId])
+  @@map("tool_calls")
+}
+
+/// 用量记录（完整的成本明细）
+model UsageRecord {
+  id              String   @id @default(cuid())
+  employeeId      String
+  responseRunId   String?  // 关联到 ResponseRun（如果是 LLM 调用）
+  providerId      String
+  modelId         String
+  inputTokens     Int      @default(0)
+  outputTokens    Int      @default(0)
+  totalTokens     Int      @default(0)
+  cachedTokens    Int      @default(0)
+  costAmount      Float    @default(0) // 成本金额（单位：元）
+  createdAt       DateTime @default(now())
+
+  // 关系
+  employee    Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  responseRun ResponseRun? @relation(fields: [responseRunId], references: [id], onDelete: SetNull)
+
+  @@index([employeeId, createdAt])
+  @@index([providerId, modelId])
+  @@map("usage_records")
+}
+
+/// 额度记录（预留 / 确认 / 释放）
+model QuotaRecord {
+  id           String   @id @default(cuid())
+  employeeId   String
+  type         String   // "reserve" | "confirm" | "release"
+  amount       Float    // 额度变动金额（单位：元）
+  balance      Float    // 操作后余额
+  referenceId  String?  // 关联的 ResponseRun ID（用于幂等）
+  createdAt    DateTime @default(now())
+
+  // 关系
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, createdAt])
+  @@index([referenceId])
+  @@map("quota_records")
+}
