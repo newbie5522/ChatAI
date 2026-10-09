@@ -73,11 +73,14 @@ type ChunkFault = {
    */
   failOnce: number;
   /**
-   * 让接下来 N 个分包请求失败，并记住这些地址，之后一直失败。
+   * 设为 1 后，触发"永久失败模式"：把当前这批并发 chunk 请求的 URL 全部
+   * 加入 `broken` set，之后该标志自动清零。后续（含刷新后）只有 broken 里
+   * 的 URL 才失败，主包 / 框架 chunk 不受影响。
+   *
    * 对应真实情形：这个分包在新版本里确实没有了（新旧版本长期不一致）。
    */
   failForever: number;
-  /** 已被判定为"新版本里不存在"的分包地址 */
+  /** 已被判定为"新版本里不存在"的分包地址，刷新后仍持续 404 */
   broken: Set<string>;
   /** 实际被中断的请求地址，用来证明"确实发生过分包 404" */
   served: string[];
@@ -93,18 +96,18 @@ type ChunkFault = {
  * 如果连页面主包也打断，浏览器会直接白屏、页面脚本根本不执行，
  * 那就测不到错误页和自动恢复了，与真实现场也不符。
  *
- * ## failForever 语义说明
+ * ## failForever 实现说明
  *
- * `failForever > 0` 表示"接下来加载的分包一直不存在"，对应真实情形：
- * 旧版本的分包文件在新容器里永久缺失。
+ * `failForever > 0` 开启"永久失败模式"：
  *
- * 实现上，一旦 `failForever` 标志生效，**每一个**命中的 chunk URL 都会
- * 立即加入 `broken` set 并返回 404，而不是只消耗一次计数。
- * 这样才能正确应对生产构建中多个 chunk **并发加载**的情形：
- * 随着依赖增多（如引入 @prisma/client 后），webpack 会拆出更多 chunk，
- * 单次导航可能同时触发 2 个以上 `/_next/static/**` 请求；
- * 若仅消耗一次计数，后续并发请求会漏网导致页面加载成功，
- * 错误页永远不会显示，测试超时失败。
+ * 第一个命中的请求会开启一个短时采集窗口（50 ms）。在窗口期内到达的所有
+ * 并发 chunk URL 都被加入 `broken` set 并返回 404；窗口关闭时 failForever
+ * 自动清零。**此后只有 broken set 里记录的 URL 才持续失败**，其他请求
+ * （主包、框架 chunk、刷新后新加载的资源）照常放行。
+ *
+ * 这样既能正确模拟"多个并发 chunk 都不存在"的情形（Prisma 等大依赖引入
+ * 后 webpack 会拆出更多并发 chunk），又不会因为 failForever 标志残留而在
+ * 自动刷新时把主包也拦截掉——那会导致白屏，错误页永远不会显示。
  */
 async function installChunkFault(page: Page): Promise<ChunkFault> {
   const fault: ChunkFault = {
@@ -114,12 +117,33 @@ async function installChunkFault(page: Page): Promise<ChunkFault> {
     served: [],
   };
 
+  /**
+   * 采集窗口截止时间戳（ms）。
+   * failForever 模式下，第一个请求到来时设置为 Date.now() + BATCH_WINDOW_MS，
+   * 窗口内的所有新 URL 都加入 broken set；窗口过后 failForever 清零。
+   */
+  let batchDeadline = 0;
+  /** 采集窗口时长：足够覆盖同一次导航触发的所有并发 chunk 请求 */
+  const BATCH_WINDOW_MS = 200;
+
   await page.route("**/_next/static/**", async (route) => {
     const url = route.request().url();
+    const now = Date.now();
 
+    // failForever 模式激活：开启或延续采集窗口
+    if (fault.failForever > 0) {
+      if (batchDeadline === 0) {
+        // 第一个请求到来，开启窗口并清零 failForever，
+        // 确保刷新后不再无差别拦截（主包、框架 chunk 不受影响）。
+        batchDeadline = now + BATCH_WINDOW_MS;
+        fault.failForever = 0;
+      }
+    }
+
+    const inBatchWindow = batchDeadline > 0 && now <= batchDeadline;
     const shouldFail =
       fault.failOnce > 0 ||
-      fault.failForever > 0 ||
+      inBatchWindow ||
       fault.broken.has(url);
 
     if (!shouldFail) {
@@ -132,11 +156,7 @@ async function installChunkFault(page: Page): Promise<ChunkFault> {
       // 对应"部署切换瞬间旧文件短暂缺失，刷新后新文件已就位"的场景。
       fault.failOnce -= 1;
     } else {
-      // failForever：把命中的每一个 URL 都加入 broken set，之后永久失败。
-      // 注意：不递减 failForever 计数——只要标志 > 0，
-      // 所有并发请求都必须失败，直到测试代码主动将其归零。
-      // 这样才能正确模拟"新版本里这些分包确实不存在"的情形，
-      // 无论 webpack 拆出多少个并发 chunk 请求都能被拦截。
+      // failForever / broken：把命中的 URL 加入 broken set，之后永久失败。
       fault.broken.add(url);
     }
 
@@ -297,6 +317,14 @@ test.describe("#14 设置页分包崩溃与全局恢复", () => {
     fault.failForever = 1;
 
     await clickSettings(page);
+
+    // 等待一小段时间，确保自动刷新和第二次加载都完成
+    await page.waitForTimeout(3_000);
+
+    // 调试：输出 broken set 内容 和 served 列表，帮助分析 URL 是否匹配
+    console.log("[DEBUG] broken set:", [...fault.broken]);
+    console.log("[DEBUG] served list:", fault.served);
+    console.log("[DEBUG] loadCount after click:", await readLoadCount(page));
 
     // 自动刷新一次后仍然失败，此时会话上限生效，必须停在错误页上
     await expect(page.getByText("页面加载失败")).toBeVisible({
