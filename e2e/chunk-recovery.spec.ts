@@ -316,15 +316,14 @@ test.describe("#14 设置页分包崩溃与全局恢复", () => {
     // ↓ 时间点：这个分包一直拿不到（模拟新旧版本长期不一致）
     fault.failForever = 1;
 
+    // 清空浏览器 HTTP 缓存，防止 Next.js prefetch 已把 settings chunk
+    // 缓存到内存/磁盘，导致 clickSettings 时不再发起网络请求，
+    // 使拦截器无法命中，错误页也永远不会显示。
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Network.clearBrowserCache");
+    await cdp.detach();
+
     await clickSettings(page);
-
-    // 等待一小段时间，确保自动刷新和第二次加载都完成
-    await page.waitForTimeout(3_000);
-
-    // 调试：输出 broken set 内容 和 served 列表，帮助分析 URL 是否匹配
-    console.log("[DEBUG] broken set:", [...fault.broken]);
-    console.log("[DEBUG] served list:", fault.served);
-    console.log("[DEBUG] loadCount after click:", await readLoadCount(page));
 
     // 自动刷新一次后仍然失败，此时会话上限生效，必须停在错误页上
     await expect(page.getByText("页面加载失败")).toBeVisible({
