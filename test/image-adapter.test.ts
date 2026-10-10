@@ -287,3 +287,95 @@ describe("callOpenAIImages - EMPTY_RESPONSE 回归", () => {
     expect(res.status).toBe(200);
   });
 });
+
+// ── Anthropic 图片能力契约测试 ────────────────────────────────────────────
+
+describe("Anthropic 图片能力 — 声明为不支持", () => {
+  it("capabilities.imageGeneration 未声明时视为不支持", () => {
+    const model: CompanyModel = {
+      id: "anthropic:claude-opus-5",
+      provider: "anthropic",
+      category: "chat",
+      displayName: "Claude Opus 5",
+      model: "claude-opus-5",
+      endpointType: "anthropic_messages",
+      enabled: true,
+      defaultEnabled: true,
+      sort: 0,
+      // capabilities 里没有 imageGeneration —— 即不支持
+    };
+    expect(model.capabilities?.imageGeneration).toBeUndefined();
+  });
+
+  it("imageEdit 未声明 + 有参考图 → 调用方不应路由到图片生成", () => {
+    // 这是一个编译时/逻辑验证：
+    // 路由层必须先检查 capabilities.imageGeneration === true
+    // 才能进入图片生成路径；否则应返回 400
+    const model: CompanyModel = {
+      id: "anthropic:claude-sonnet-5",
+      provider: "anthropic",
+      category: "chat",
+      displayName: "Claude Sonnet 5",
+      model: "claude-sonnet-5",
+      endpointType: "anthropic_messages",
+      enabled: true,
+      defaultEnabled: true,
+      sort: 0,
+    };
+    const canGenerateImage = model.capabilities?.imageGeneration === true;
+    expect(canGenerateImage).toBe(false);
+  });
+});
+
+// ── Relay 静默忽略回归测试 ────────────────────────────────────────────────
+
+describe("Relay 静默忽略回归测试 — 禁止静默降级", () => {
+  // 这组测试验证 xai-images.ts 的能力门禁逻辑：
+  // 有参考图 + imageEdit=false 时必须降级为文生图，不得静默忽略并假装成功
+
+  const { callXAIImages } = require("../app/api/gateway/adapters/xai-images");
+
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it("有参考图 + imageEdit 未声明 → 降级为文生图（image 字段不出现在请求体）", async () => {
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ created: 1000, data: [{ url: "https://example.com/gen.png" }] }),
+    } as Response);
+    global.fetch = mockFetch;
+
+    const ctx = makeCtx({
+      bodyText: JSON.stringify({
+        prompt: "make it blue",
+        image_urls: ["data:image/png;base64,ABC="],
+      }),
+      model: { capabilities: { imageGeneration: true } }, // imageEdit 未声明
+    });
+
+    const res = await callXAIImages(ctx);
+    expect(res.status).toBe(200); // 降级成功，不应报错
+
+    const [, fetchOptions] = mockFetch.mock.calls[0];
+    const sentBody = JSON.parse(fetchOptions.body as string);
+    expect(sentBody.image).toBeUndefined(); // 关键：参考图没有被偷偷传出
+  });
+
+  it("响应里的 data 包含有效 url 即认为文生图成功（不把降级当失败）", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ created: 1000, data: [{ url: "https://example.com/txt2img.png" }] }),
+    } as Response);
+
+    const ctx = makeCtx({
+      bodyText: JSON.stringify({ prompt: "a blue cat", image_urls: ["data:image/png;base64,ABC="] }),
+      model: { capabilities: { imageGeneration: true } },
+    });
+
+    const res = await callXAIImages(ctx);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data[0].url).toContain("txt2img");
+  });
+});

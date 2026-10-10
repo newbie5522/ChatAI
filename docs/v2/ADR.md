@@ -165,3 +165,19 @@ nginx: configuration file /etc/nginx/nginx.conf test is successful  ✅
 - 删除快照：`rm -rf /opt/newbiechat/static-history /opt/newbiechat/static-history-merged`
 - 回滚后行为：回到"旧页面 404，由 #14 恢复机制兜底"
 
+## ADR-007：图片 Provider 双轨适配策略（OpenAI + Anthropic）
+
+- 状态：Accepted（2026-10-10）
+- 决定：图片生成与编辑能力按 Provider + Model + Endpoint 三维注册，不以模型名称猜测能力。
+  双轨：官方 Native（OpenAI official, Anthropic official）+ Relay/Compatible（openai-compatible relay）。
+- OpenAI 图片能力：gpt-image-2 支持 imageGeneration + imageEdit + imageReference；
+  relay 仅按 capabilities.imageGeneration 声明来决定是否路由到图片端点。
+- Anthropic Claude：不支持图片生成/编辑（无 /images 端点），capability 声明为空，
+  有图片请求时前端不展示此功能，服务端返回 400。
+- Relay 静默降级规则：有参考图但模型未声明 imageEdit 时，
+  不得静默退化为文生图；必须明确 warn 并由调用方决定是否降级。
+- 探测策略：当前版本不实现自动探测，全部由管理员在 model-registry 中显式声明
+  capabilities；admin-declared 优先级最高，不得被运行时自动覆盖。
+- 回滚：移除 capabilities.imageEdit/imageReference 字段声明，relay 自动退化为文生图，
+  不影响任何现有代码路径。
+
