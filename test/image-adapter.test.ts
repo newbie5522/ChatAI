@@ -7,6 +7,8 @@
  * 3. capabilities 字段：imageEdit / imageReference / multiImageReference 类型检查
  *
  * 测试策略：mock fetch，不发真实请求
+ *
+ * @jest-environment node
  */
 
 import type { GatewayAdapterContext } from "../app/api/gateway/adapters/types";
