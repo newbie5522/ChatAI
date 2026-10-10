@@ -43,6 +43,9 @@ export interface CompanyModel {
     tools?: boolean;
     webSearch?: boolean;
     imageGeneration?: boolean;
+    imageEdit?: boolean; // 图生图 / 图片编辑（需要参考图 + 可选遮罩）
+    imageReference?: boolean; // 参考图合成（无遮罩，风格/内容引导）
+    multiImageReference?: boolean; // 多张参考图
     videoGeneration?: boolean;
   };
 }
@@ -132,7 +135,7 @@ export const DEFAULT_COMPANY_MODELS: CompanyModel[] = [
     enabled: true,
     defaultEnabled: true,
     sort: 615,
-    capabilities: { imageGeneration: true },
+    capabilities: { imageGeneration: true, imageEdit: true, imageReference: true },
   },
   {
     id: "anthropic:claude-opus-5",
