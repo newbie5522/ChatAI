@@ -14,10 +14,11 @@
 | 分支 | `recovery/revert-pr30-pr39` |
 | PR | [#40 — revert: restore pre-PR30 safety baseline (R0)](https://github.com/newbie5522/ChatAI/pull/40) |
 | base SHA（main HEAD） | `0a4a1f75723462fa25e1ecbfe53a54c597f9c013` |
-| head SHA | `4c8f25df678ed52259e31f9bde0f50023f006b2f` |
+| head SHA（最终） | `6653db2577603a4b1ba83413f8c64a0d657f0f25` |
 | 执行端 | WB-00（WorkBuddy / Claude Sonnet 5） |
 | 开始时间 | 2026-10-13 16:57 CST（收到指令） |
-| 完成时间 | 2026-10-13 17:10 CST（报告生成） |
+| 完成时间 | 2026-10-13 17:20 CST（报告更新） |
+| 关联 Issue | [#41 — [V2-R0] 恢复安全代码基线](https://github.com/newbie5522/ChatAI/issues/41) |
 
 **注意**：base 是 `0a4a1f7`，比指令中预期的 `5c18b9c` 多一个纯文档提交（`docs: V2 升级工程验收报告`，仅新增 `docs/v2/ACCEPTANCE_REPORT.md`）。该文档提交未被 revert，与 R0 范围无关联。
 
@@ -103,7 +104,7 @@ package.json
 ### 3.4 范围声明
 
 - ✅ 无手工功能修改
-- ✅ 无新增文件
+- ✅ 新增功能代码 0 个；仅新增 R0 验收报告（`docs/v2/reviews/R0_RECOVERY_REPORT.md`）
 - ✅ 无依赖升级（package.json 恢复到 Prisma 引入前）
 - ✅ 无文档状态修改（ACCEPTANCE_REPORT.md 保留不动）
 - ✅ 无测试门禁放宽（删除的测试为 PR #30～#39 引入的新测试，非放宽原有测试断言）
@@ -114,30 +115,35 @@ package.json
 
 ## 4. 测试证据
 
-> **注**：CI Run 链接和最终结果在本报告提交时尚在运行，待 CI 完成后将在 PR #40 评论中补充精确结果。
-
 ### 4.1 CI 配置
 
 - Workflow: `.github/workflows/test.yml`
 - 触发：PR 对 `main` 的 `opened / synchronize / reopened / review_requested`
 - Jobs：`test`（Jest 全量 + TypeScript + 生产构建）+ `e2e`（Playwright）
 
-### 4.2 预期测试范围
+### 4.2 最终 CI 结果
 
-R0 执行后，仓库回到 PR #24（commit `2bb3771`）合并后的状态（加 `0a4a1f7` 文档提交）。该基线的测试应与 PR #24 CI 一致：
+**CI Run ID**: `38373962529`  
+**Head SHA**: `6653db2577603a4b1ba83413f8c64a0d657f0f25`  
+**触发时间**: 2026-10-13T09:06:33Z  
+**结果**: ✅ **全部通过**
 
-- Jest 全量：原有 test 套件（不含 PR #30～#39 引入的 mock 测试）
-- TypeScript：无新类型错误（Prisma 依赖已被移除）
+| Job | 结论 | 关键步骤 |
+|-----|------|---------|
+| `test` | ✅ success | Install dependencies ✅ / Run Jest tests ✅ / Type check ✅ / Production build (standalone) ✅ |
+| `e2e` | ✅ success | Install dependencies ✅ / Production build ✅ / Install Playwright chromium ✅ / Run Playwright E2E ✅ |
+
+**CI Run 链接**:  
+`https://github.com/newbie5522/ChatAI/actions/runs/38373962529`
+
+### 4.3 测试范围说明
+
+R0 执行后，仓库回到 PR #24（commit `2bb3771`）合并后的状态（加 `0a4a1f7` 文档提交）：
+
+- Jest 全量：原有 test 套件（PR #30～#39 引入的 mock 测试已全部删除）
+- TypeScript：无类型错误（Prisma 依赖已被移除，相关类型文件已删除）
 - 生产构建：Next.js standalone 构建通过
 - E2E：`e2e/chunk-recovery.spec.ts`（PR #14 验收场景，5/5 通过）
-
-### 4.3 CI Run 补充说明
-
-PR #40 推送后自动触发 CI（workflow run ID 待确认）。  
-CI 结果将在 GitHub Actions 页面可查：  
-`https://github.com/newbie5522/ChatAI/actions?query=branch%3Arecovery%2Frevert-pr30-pr39`
-
-**若 CI 出现失败，将在 PR #40 评论中说明失败详情，不会自行合并。**
 
 ---
 
