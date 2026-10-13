@@ -27,6 +27,7 @@ model Employee {
   messages      Message[]
   quotaRecords  QuotaRecord[]
   usageRecords  UsageRecord[]
+  attachments   Attachment[]  // Issue #18：持久化附件
 
   @@index([role])
   @@map("employees")
