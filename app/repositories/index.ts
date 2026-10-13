@@ -11,8 +11,6 @@ import type {
   ResponseRun,
   UsageRecord,
   QuotaRecord,
-  Attachment,
-  CreateAttachmentInput,
   CreateConversationInput,
   CreateMessageInput,
   CreateResponseRunInput,
@@ -478,104 +476,6 @@ export class QuotaRecordRepository {
 }
 
 // ============================================================================
-// AttachmentRepository（Issue #18：持久化附件管线）
-// ============================================================================
-
-export class AttachmentRepository {
-  constructor(private prisma: PrismaClient) {}
-
-  /**
-   * 创建附件记录
-   */
-  async create(input: CreateAttachmentInput): Promise<Attachment> {
-    return this.prisma.attachment.create({
-      data: {
-        employeeId: input.employeeId,
-        name: input.name,
-        mimeType: input.mimeType,
-        size: input.size,
-        kind: input.kind,
-        storageKey: input.storageKey,
-        status: "ready",
-        expiresAt: input.expiresAt,
-      },
-    }) as Promise<Attachment>;
-  }
-
-  /**
-   * 更新附件状态
-   */
-  async updateStatus(
-    id: string,
-    status: "pending" | "processing" | "ready" | "failed",
-    errorMessage?: string,
-  ): Promise<Attachment> {
-    return this.prisma.attachment.update({
-      where: { id },
-      data: {
-        status,
-        errorMessage: errorMessage ?? null,
-      },
-    }) as Promise<Attachment>;
-  }
-
-  /**
-   * 查询某员工的附件列表（强制租户隔离）
-   */
-  async findByEmployee(
-    employeeId: string,
-    limit?: number,
-  ): Promise<Attachment[]> {
-    return this.prisma.attachment.findMany({
-      where: { employeeId },
-      orderBy: { createdAt: "desc" },
-      take: limit,
-    }) as Promise<Attachment[]>;
-  }
-
-  /**
-   * 按 ID 查询附件（强制租户隔离）
-   */
-  async findById(id: string, employeeId: string): Promise<Attachment | null> {
-    return this.prisma.attachment.findFirst({
-      where: { id, employeeId },
-    }) as Promise<Attachment | null>;
-  }
-
-  /**
-   * 绑定附件到消息（消息发出后绑定）
-   */
-  async bindToMessage(
-    id: string,
-    messageId: string,
-    employeeId: string,
-  ): Promise<Attachment> {
-    // 先验证所有权
-    const attachment = await this.findById(id, employeeId);
-    if (!attachment) {
-      throw new Error("Attachment not found or access denied");
-    }
-
-    return this.prisma.attachment.update({
-      where: { id },
-      data: { messageId },
-    }) as Promise<Attachment>;
-  }
-
-  /**
-   * 清理过期附件
-   */
-  async deleteExpired(): Promise<number> {
-    const result = await this.prisma.attachment.deleteMany({
-      where: {
-        expiresAt: { lte: new Date() },
-      },
-    });
-    return result.count;
-  }
-}
-
-// ============================================================================
 // 导出工厂函数
 // ============================================================================
 
@@ -588,6 +488,5 @@ export function createRepositories(prisma?: PrismaClient) {
     responseRuns: new ResponseRunRepository(client),
     usageRecords: new UsageRecordRepository(client),
     quotaRecords: new QuotaRecordRepository(client),
-    attachments: new AttachmentRepository(client),
   };
 }

@@ -232,34 +232,3 @@ export interface UsageRecordFilter {
   limit?: number;
   offset?: number;
 }
-
-// ============================================================================
-// Attachment（Issue #18：持久化附件管线）
-// ============================================================================
-
-export type AttachmentStatus = "pending" | "processing" | "ready" | "failed";
-
-export interface Attachment {
-  id: string;
-  employeeId: string;
-  messageId: string | null;
-  name: string;
-  mimeType: string;
-  size: number;
-  kind: string; // "document" | "image" | "table" | "text" | "other"
-  storageKey: string;
-  status: AttachmentStatus;
-  errorMessage: string | null;
-  createdAt: Date;
-  expiresAt: Date | null;
-}
-
-export interface CreateAttachmentInput {
-  employeeId: string;
-  name: string;
-  mimeType: string;
-  size: number;
-  kind: string;
-  storageKey: string;
-  expiresAt?: Date;
-}

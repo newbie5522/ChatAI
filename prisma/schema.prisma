@@ -27,7 +27,6 @@ model Employee {
   messages      Message[]
   quotaRecords  QuotaRecord[]
   usageRecords  UsageRecord[]
-  attachments   Attachment[]  // Issue #18：持久化附件
 
   @@index([role])
   @@map("employees")
@@ -66,9 +65,6 @@ model Message {
 
   // 如果是助手消息，关联到生成它的 ResponseRun
   responseRun ResponseRun?
-
-  // 附件（Issue #18：持久化附件管线）
-  attachments Attachment[]
 
   // 关系
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -192,30 +188,4 @@ model QuotaRecord {
   @@index([employeeId, createdAt])
   @@index([referenceId])
   @@map("quota_records")
-}
-
-/// 附件元数据（Issue #18：持久化附件管线）
-/// 存储上传文件的元信息与对象存储引用，不存储文件二进制内容本身
-model Attachment {
-  id          String   @id @default(cuid())
-  employeeId  String
-  messageId   String?  // 关联到 Message（消息发出后绑定）
-  name        String   // 原始文件名
-  mimeType    String   // MIME type（如 application/pdf）
-  size        Int      // 字节数
-  kind        String   // "document" | "image" | "table" | "text" | "other"
-  storageKey  String   // Cloudflare KV / 对象存储 key，用于读取解析内容
-  status      String   @default("pending") // "pending" | "processing" | "ready" | "failed"
-  errorMessage String? // 解析失败时的错误信息
-  createdAt   DateTime @default(now())
-  expiresAt   DateTime? // 过期时间（为空则永不过期）
-
-  // 关系
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  message  Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
-
-  @@index([employeeId, createdAt])
-  @@index([messageId])
-  @@index([storageKey])
-  @@map("attachments")
 }

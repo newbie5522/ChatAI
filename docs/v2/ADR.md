@@ -197,14 +197,3 @@ nginx: configuration file /etc/nginx/nginx.conf test is successful  ✅
 - 回滚：删除 app/api/chat/runs/ 目录与 app/hooks/use-run-tracker.ts；
   现有流式聊天路径完全不依赖这些文件，删除后功能无变化。
 
-## ADR-009：持久化附件管线
-
-- 状态：Accepted（2026-10-13）
-- 决定：附件上传后在 Attachment 表记录元数据，storageKey 指向已有的本地归档 session；
-  重启后通过 storageKey 恢复解析内容，消除纯内存依赖。
-- 范围：document/table 类型的大文档（需 analysisId 的），图片和短文本暂不改变（仍内联）
-- 状态机：pending / processing / ready / failed（5xx 时更新为 failed + errorMessage）
-- 过期：expiresAt = 30 天，与现有内存 TTL 一致；CleanupJob（后续任务）定期删除过期记录
-- 权限：findById 强制绑定 employeeId，禁止跨账号访问
-- 回滚：注释掉 POST 路由中的 create() 调用，现有逻辑不受影响
-
