@@ -263,37 +263,3 @@ export interface CreateAttachmentInput {
   storageKey: string;
   expiresAt?: Date;
 }
-
-// ============================================================================
-// MediaJob（Issue #19：图片与视频异步任务系统）
-// ============================================================================
-
-export type MediaJobStatus = "pending" | "processing" | "completed" | "failed" | "cancelled";
-export type MediaJobKind = "image" | "video";
-
-export interface MediaJob {
-  id: string;
-  employeeId: string;
-  messageId: string | null;
-  kind: MediaJobKind;
-  status: MediaJobStatus;
-  prompt: string;
-  modelId: string;
-  providerId: string;
-  storageKey: string | null;
-  resultUrl: string | null;
-  errorMessage: string | null;
-  createdAt: Date;
-  completedAt: Date | null;
-  expiresAt: Date | null;
-}
-
-export interface CreateMediaJobInput {
-  employeeId: string;
-  messageId?: string;
-  kind: MediaJobKind;
-  prompt: string;
-  modelId: string;
-  providerId: string;
-  expiresAt?: Date;
-}
