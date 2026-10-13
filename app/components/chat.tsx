@@ -1231,12 +1231,9 @@ function _Chat() {
     );
     const providerId = selectedModel?.provider?.id?.toLowerCase();
     const providerName = selectedModel?.provider?.providerName?.toLowerCase();
-    const canGenerateImage =
-      selectedModel?.capabilities?.imageGeneration === true;
     const supportsReferenceImageGeneration =
       selectedModel?.category === "image" &&
-      (selectedModel?.capabilities?.imageEdit === true ||
-        providerId === "openai" ||
+      (providerId === "openai" ||
         providerId === "google" ||
         providerName === "openai" ||
         providerName === "google");
@@ -1682,12 +1679,9 @@ function _Chat() {
       );
       const providerId = selectedModel?.provider?.id?.toLowerCase();
       const providerName = selectedModel?.provider?.providerName?.toLowerCase();
-      const canGenerateImage =
-        selectedModel?.capabilities?.imageGeneration === true;
       const supportsReferenceImageGeneration =
         selectedModel?.category === "image" &&
-        (selectedModel?.capabilities?.imageEdit === true ||
-          providerId === "openai" ||
+        (providerId === "openai" ||
           providerId === "google" ||
           providerName === "openai" ||
           providerName === "google");
