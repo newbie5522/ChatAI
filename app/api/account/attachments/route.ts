@@ -383,8 +383,8 @@ export async function POST(req: NextRequest) {
     await Promise.all(
       attachments
         .filter(
-          (a): a is Extract<TransientChatAttachment, { analysisId: string }> =>
-            "analysisId" in a && typeof a.analysisId === "string",
+          (a): a is TransientChatAttachment & { analysisId: string } =>
+            typeof a.analysisId === "string" && a.analysisId.length > 0,
         )
         .map((a) =>
           attachmentRepo.create({
