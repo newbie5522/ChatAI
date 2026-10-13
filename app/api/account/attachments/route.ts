@@ -9,6 +9,7 @@ import {
   createAttachmentAnalysisSession,
   deleteAttachmentAnalysisSessions,
 } from "@/app/config/attachment-analysis-store";
+import { getPrismaClient, AttachmentRepository } from "@/app/repositories";
 import type {
   AttachmentKind,
   TransientChatAttachment,
@@ -375,6 +376,28 @@ export async function POST(req: NextRequest) {
         expiresAt: new Date(session.expiresAt).toISOString(),
       });
     }
+
+    // 持久化大文档附件记录（document/spreadsheet + analysisId，#18）
+    const attachmentRepo = new AttachmentRepository(getPrismaClient());
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 天后
+    await Promise.all(
+      attachments
+        .filter(
+          (a): a is Extract<TransientChatAttachment, { analysisId: string }> =>
+            "analysisId" in a && typeof a.analysisId === "string",
+        )
+        .map((a) =>
+          attachmentRepo.create({
+            employeeId: account.id,
+            name: a.name,
+            mimeType: a.mimeType,
+            size: a.size,
+            kind: a.kind,
+            storageKey: a.analysisId,
+            expiresAt,
+          }),
+        ),
+    );
 
     return NextResponse.json({ error: false, attachments });
   } catch (error) {

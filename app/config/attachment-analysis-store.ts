@@ -12,6 +12,7 @@ import type {
   TableProfile,
   TableSheetData,
 } from "@/app/utils/attachment-analysis";
+import { getPrismaClient } from "@/app/repositories";
 
 export type StoredAnalysisMode = "document_index" | "table_analysis";
 
@@ -111,17 +112,40 @@ export function createAttachmentAnalysisSession(
   return session;
 }
 
-export function readAttachmentAnalysisSession(
+export async function readAttachmentAnalysisSession(
   accountId: string,
   analysisId: string,
-) {
+): Promise<AttachmentAnalysisSession | undefined> {
   cleanup();
   const session =
     sessions.get(analysisId) ?? readAnalysisArchive(accountId, analysisId);
-  if (!session || session.accountId !== accountId) return undefined;
-  session.lastAccessedAt = Date.now();
-  cleanup();
-  return session;
+  if (session) {
+    if (session.accountId !== accountId) return undefined;
+    session.lastAccessedAt = Date.now();
+    cleanup();
+    return session;
+  }
+
+  // DB fallback（#18）：内存和本地文件都 miss 时，从 Attachment 表查询
+  try {
+    const prisma = getPrismaClient();
+    const attachment = await prisma.attachment.findFirst({
+      where: { storageKey: analysisId, employeeId: accountId, status: "ready" },
+    });
+    if (attachment) {
+      // 尝试从本地磁盘归档路径恢复（storageKey 即 analysisId）
+      const archived = readAnalysisArchive(accountId, attachment.storageKey);
+      if (archived) {
+        archived.lastAccessedAt = Date.now();
+        sessions.set(archived.id, archived);
+        return archived;
+      }
+    }
+  } catch {
+    // DB 不可用时静默降级，不影响现有逻辑
+  }
+
+  return undefined;
 }
 
 export function deleteAttachmentAnalysisSessions(
