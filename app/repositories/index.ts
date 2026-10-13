@@ -12,7 +12,10 @@ import type {
   UsageRecord,
   QuotaRecord,
   Attachment,
+  MediaJob,
+  MediaJobStatus,
   CreateAttachmentInput,
+  CreateMediaJobInput,
   CreateConversationInput,
   CreateMessageInput,
   CreateResponseRunInput,
@@ -576,6 +579,101 @@ export class AttachmentRepository {
 }
 
 // ============================================================================
+// MediaJobRepository（Issue #19：图片与视频异步任务系统）
+// ============================================================================
+
+export class MediaJobRepository {
+  constructor(private prisma: PrismaClient) {}
+
+  /**
+   * 创建媒体生成任务
+   */
+  async create(input: CreateMediaJobInput): Promise<MediaJob> {
+    return this.prisma.mediaJob.create({
+      data: {
+        employeeId: input.employeeId,
+        messageId: input.messageId,
+        kind: input.kind,
+        prompt: input.prompt,
+        modelId: input.modelId,
+        providerId: input.providerId,
+        status: "pending",
+        expiresAt: input.expiresAt,
+      },
+    }) as Promise<MediaJob>;
+  }
+
+  /**
+   * 更新任务状态（含可选的产物字段）
+   */
+  async updateStatus(
+    id: string,
+    status: MediaJobStatus,
+    opts?: {
+      storageKey?: string;
+      resultUrl?: string;
+      errorMessage?: string;
+    },
+  ): Promise<MediaJob> {
+    return this.prisma.mediaJob.update({
+      where: { id },
+      data: {
+        status,
+        storageKey: opts?.storageKey ?? undefined,
+        resultUrl: opts?.resultUrl ?? undefined,
+        errorMessage: opts?.errorMessage ?? null,
+        completedAt:
+          status === "completed" || status === "failed" || status === "cancelled"
+            ? new Date()
+            : undefined,
+      },
+    }) as Promise<MediaJob>;
+  }
+
+  /**
+   * 按 ID 查询任务（强制租户隔离）
+   */
+  async findById(id: string, employeeId: string): Promise<MediaJob | null> {
+    return this.prisma.mediaJob.findFirst({
+      where: { id, employeeId },
+    }) as Promise<MediaJob | null>;
+  }
+
+  /**
+   * 查询未完成的任务（刷新恢复用）
+   */
+  async findPending(employeeId: string): Promise<MediaJob[]> {
+    return this.prisma.mediaJob.findMany({
+      where: {
+        employeeId,
+        status: { in: ["pending", "processing"] },
+      },
+      orderBy: { createdAt: "desc" },
+    }) as Promise<MediaJob[]>;
+  }
+
+  /**
+   * 取消任务（强制租户隔离）
+   */
+  async cancel(id: string, employeeId: string): Promise<MediaJob> {
+    const job = await this.findById(id, employeeId);
+    if (!job) {
+      throw new Error("MediaJob not found or access denied");
+    }
+    if (job.status === "completed" || job.status === "failed") {
+      throw new Error("Cannot cancel a finished job");
+    }
+    return this.prisma.mediaJob.update({
+      where: { id },
+      data: {
+        status: "cancelled",
+        completedAt: new Date(),
+      },
+    }) as Promise<MediaJob>;
+  }
+}
+
+// ============================================================================
 // 导出工厂函数
 // ============================================================================
 
@@ -589,5 +687,6 @@ export function createRepositories(prisma?: PrismaClient) {
     usageRecords: new UsageRecordRepository(client),
     quotaRecords: new QuotaRecordRepository(client),
     attachments: new AttachmentRepository(client),
+    mediaJobs: new MediaJobRepository(client),
   };
 }

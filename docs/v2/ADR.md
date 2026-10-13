@@ -208,3 +208,13 @@ nginx: configuration file /etc/nginx/nginx.conf test is successful  ✅
 - 权限：findById 强制绑定 employeeId，禁止跨账号访问
 - 回滚：注释掉 POST 路由中的 create() 调用，现有逻辑不受影响
 
+## ADR-010：图片与视频异步任务系统
+
+- 状态：Accepted（2026-10-13）
+- 决定：媒体生成任务通过 MediaJob 状态机异步管理，产物存入 Cloudflare KV，
+  不依赖临时内存 URL 或 Markdown 图片链接。
+- 状态机：pending → processing → completed / failed / cancelled
+- 产物永久性：storageKey 指向 KV key，resultUrl 为访问地址；expiresAt 为空则永久保存
+- 刷新恢复：GET /api/media/jobs?status=pending 返回未完成任务，前端可展示恢复提示
+- 回滚：注释 MediaJob 创建调用，现有图片生成同步路径不受影响
+

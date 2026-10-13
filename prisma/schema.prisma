@@ -28,6 +28,7 @@ model Employee {
   quotaRecords  QuotaRecord[]
   usageRecords  UsageRecord[]
   attachments   Attachment[]  // Issue #18：持久化附件
+  mediaJobs     MediaJob[]    // Issue #19：图片与视频异步任务
 
   @@index([role])
   @@map("employees")
@@ -218,4 +219,29 @@ model Attachment {
   @@index([messageId])
   @@index([storageKey])
   @@map("attachments")
+}
+
+/// 媒体生成任务（Issue #19：图片与视频异步任务系统）
+/// 跟踪文生图、图生图等任务的完整生命周期，产物持久化在 Cloudflare KV
+model MediaJob {
+  id           String    @id @default(cuid())
+  employeeId   String
+  messageId    String?   // 关联到发起的消息（可选）
+  kind         String    // "image" | "video"
+  status       String    @default("pending") // pending/processing/completed/failed/cancelled
+  prompt       String
+  modelId      String
+  providerId   String
+  storageKey   String?   // 完成后的 Cloudflare KV key
+  resultUrl    String?   // 完成后的持久 URL
+  errorMessage String?
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+  expiresAt    DateTime? // 永久产物可不设
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, createdAt])
+  @@index([status])
+  @@map("media_jobs")
 }
