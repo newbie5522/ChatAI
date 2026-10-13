@@ -181,19 +181,3 @@ nginx: configuration file /etc/nginx/nginx.conf test is successful  ✅
 - 回滚：移除 capabilities.imageEdit/imageReference 字段声明，relay 自动退化为文生图，
   不影响任何现有代码路径。
 
-## ADR-008：可恢复流式聊天运行时
-
-- 状态：Accepted（2026-10-13）
-- 决定：通过 ResponseRun 状态机跟踪每次 LLM 流式请求的生命周期；
-  前端通过 `useRunTracker` hook 在现有回调钩子中插入状态同步调用，不重写流式逻辑。
-- 核心设计：
-  - 5 状态机：pending → streaming → completed / failed / aborted
-  - 服务端 API：POST /api/chat/runs（创建）、PATCH /api/chat/runs/:id（更新）、GET /api/chat/runs/pending（刷新检测）
-  - 幂等性：同一 messageId 重复 POST 返回已有 run，防止重复扣费和重复消息
-  - 租户隔离：所有查询通过 Message.employeeId 绑定当前账号
-  - 断线检测：页面加载时调用 `/api/chat/runs/pending`，发现 streaming/pending run 即展示恢复提示
-- 取消与停止：用户停止时 PATCH status=aborted，现有 ChatControllerPool.abort() 逻辑不变
-- 编辑消息创建分支：当前版本不实现（依赖 V2 Branch 表的前端接入，属后续任务）
-- 回滚：删除 app/api/chat/runs/ 目录与 app/hooks/use-run-tracker.ts；
-  现有流式聊天路径完全不依赖这些文件，删除后功能无变化。
-
