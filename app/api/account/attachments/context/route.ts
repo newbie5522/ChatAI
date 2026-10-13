@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAccount } from "@/app/config/account-auth";
-import { readAttachmentAnalysisSession } from "@/app/config/attachment-analysis-store";
+import { readAttachmentAnalysisSessionWithFallback } from "@/app/config/attachment-analysis-store";
 import { AttachmentArchiveError } from "@/app/config/attachment-analysis-archive";
 import type { AttachmentContextItem } from "@/app/types/attachment";
 import {
@@ -48,10 +48,12 @@ export async function POST(req: NextRequest) {
     return errorResponse("附件分析请求无效。");
   }
 
-  let sessions: ReturnType<typeof readAttachmentAnalysisSession>[];
+  let sessions: Awaited<ReturnType<typeof readAttachmentAnalysisSessionWithFallback>>[];
   try {
-    sessions = analysisIds.map((analysisId) =>
-      readAttachmentAnalysisSession(account.id, analysisId),
+    sessions = await Promise.all(
+      analysisIds.map((analysisId) =>
+        readAttachmentAnalysisSessionWithFallback(account.id, analysisId),
+      ),
     );
   } catch (error) {
     return errorResponse(

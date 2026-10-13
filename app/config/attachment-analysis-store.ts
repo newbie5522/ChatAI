@@ -112,10 +112,10 @@ export function createAttachmentAnalysisSession(
   return session;
 }
 
-export async function readAttachmentAnalysisSession(
+export function readAttachmentAnalysisSession(
   accountId: string,
   analysisId: string,
-): Promise<AttachmentAnalysisSession | undefined> {
+): AttachmentAnalysisSession | undefined {
   cleanup();
   const session =
     sessions.get(analysisId) ?? readAnalysisArchive(accountId, analysisId);
@@ -125,8 +125,17 @@ export async function readAttachmentAnalysisSession(
     cleanup();
     return session;
   }
+  return undefined;
+}
 
-  // DB fallback（#18）：内存和本地文件都 miss 时，从 Attachment 表查询
+// DB fallback（#18）：内存和本地文件都 miss 时，从 Attachment 表查询
+export async function readAttachmentAnalysisSessionWithFallback(
+  accountId: string,
+  analysisId: string,
+): Promise<AttachmentAnalysisSession | undefined> {
+  const session = readAttachmentAnalysisSession(accountId, analysisId);
+  if (session) return session;
+
   try {
     const prisma = getPrismaClient();
     const attachment = await prisma.attachment.findFirst({
