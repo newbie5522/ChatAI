@@ -45,9 +45,42 @@ export async function callXAIImages(
     redirect: "manual",
   });
 
-  return new Response(res.body, {
-    status: res.status,
-    statusText: res.statusText,
-    headers: copyResponseHeaders(res),
-  });
+  if (!res.ok) {
+    return new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: copyResponseHeaders(res),
+    });
+  }
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    console.error(`[XAIImages] response is not valid JSON model=${ctx.model.model}`);
+    return Response.json(
+      { error: true, message: "image provider returned a non-JSON response" },
+      { status: 502 },
+    );
+  }
+
+  if (json && typeof json === "object" && (json as any).error) {
+    const errMsg =
+      typeof (json as any).error === "string"
+        ? (json as any).error
+        : (json as any).error?.message ?? "upstream image error";
+    console.error(`[XAIImages] upstream error in 200 body model=${ctx.model.model} error=${errMsg}`);
+    return Response.json({ error: true, message: errMsg }, { status: 502 });
+  }
+
+  const data = Array.isArray((json as any)?.data) ? (json as any).data : [];
+  if (data.length === 0) {
+    console.error(`[XAIImages] empty data array model=${ctx.model.model}`);
+    return Response.json(
+      { error: true, message: "image provider returned an empty response" },
+      { status: 502 },
+    );
+  }
+
+  return Response.json(json, { status: 200 });
 }

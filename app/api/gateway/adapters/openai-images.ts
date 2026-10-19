@@ -260,10 +260,31 @@ async function callOpenRouterImages(
   }
 
   const json = await res.json();
+  // HTTP 200 but upstream returned an error object
+  if (json && typeof json === "object" && json.error) {
+    const errMsg =
+      typeof json.error === "string"
+        ? json.error
+        : (json.error as any)?.message ?? "upstream image error";
+    console.error(
+      `[OpenRouterImages] upstream error in 200 body model=${model} error=${errMsg}`,
+    );
+    return Response.json({ error: true, message: errMsg }, { status: 502 });
+  }
+  const normalized = normalizedImageData(json);
+  if (normalized.data.length === 0) {
+    console.error(
+      `[OpenRouterImages] empty data array model=${model} mode=${isImageToImage ? "img2img" : "txt2img"}`,
+    );
+    return Response.json(
+      { error: true, message: "image provider returned an empty response" },
+      { status: 502 },
+    );
+  }
   console.log(
-    `[OpenRouterImages] success model=${model} mode=${isImageToImage ? "img2img" : "txt2img"} data.length=${json?.data?.length}`,
+    `[OpenRouterImages] success model=${model} mode=${isImageToImage ? "img2img" : "txt2img"} data.length=${normalized.data.length}`,
   );
-  return Response.json(normalizedImageData(json), { status: 200 });
+  return Response.json(normalized, { status: 200 });
 }
 
 export async function callOpenAIImages(
@@ -372,9 +393,39 @@ export async function callOpenAIImages(
     return upstreamErrorResponse(res);
   }
 
-  const json = await res.json();
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    console.error(`[OpenAIImages] response is not valid JSON model=${effectiveModel}`);
+    return Response.json(
+      { error: true, message: "image provider returned a non-JSON response" },
+      { status: 502 },
+    );
+  }
+  // HTTP 200 but upstream returned an error object
+  if (json && typeof json === "object" && (json as any).error) {
+    const errMsg =
+      typeof (json as any).error === "string"
+        ? (json as any).error
+        : (json as any).error?.message ?? "upstream image error";
+    console.error(
+      `[OpenAIImages] upstream error in 200 body model=${effectiveModel} error=${errMsg}`,
+    );
+    return Response.json({ error: true, message: errMsg }, { status: 502 });
+  }
+  const normalized = normalizedImageData(json);
+  if (normalized.data.length === 0) {
+    console.error(
+      `[OpenAIImages] empty data array model=${effectiveModel}`,
+    );
+    return Response.json(
+      { error: true, message: "image provider returned an empty response" },
+      { status: 502 },
+    );
+  }
   console.log(
-    `[OpenAIImages] success model=${effectiveModel} data.length=${json?.data?.length}`,
+    `[OpenAIImages] success model=${effectiveModel} data.length=${normalized.data.length}`,
   );
-  return Response.json(normalizedImageData(json), { status: 200 });
+  return Response.json(normalized, { status: 200 });
 }
