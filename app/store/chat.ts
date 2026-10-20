@@ -843,7 +843,11 @@ export const useChatStore = createPersistStore(
             },
             async onFinish(message) {
               botMessage.streaming = false;
-              if (message.trim()) {
+              // message 可以是字符串（文本回复）或数组（图片 URL 等多模态内容）
+              const hasContent = Array.isArray(message)
+                ? message.length > 0
+                : typeof message === "string" && message.trim().length > 0;
+              if (hasContent) {
                 botMessage.content = message;
                 botMessage.date = new Date().toLocaleString();
                 userMessage.isError = false;
