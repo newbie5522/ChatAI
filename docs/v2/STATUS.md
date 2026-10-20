@@ -1,6 +1,6 @@
 # V2 实时状态板
 
-最后更新：2026-10-19 G0 基线校准
+最后更新：2026-10-19 S0-02 修复完成待审核
 
 > R0 已完成（PR #40 合并，merge commit `c1db2bb`），PR #30～#39 全部逆序撤销。
 > main 已恢复到 PR #30 之前的安全基线（+ R0 验收报告 + ACCEPTANCE_REPORT 否决标注）。
@@ -17,7 +17,7 @@
 | 阶段 | Issue | 状态 | 说明 |
 |---|---|---|---|
 | S0-01 | #14 | DONE | PR #24 代码仍在 main，chunk-recovery + 错误页 E2E 通过。R0 后唯一保持 DONE 的 V2 Issue。 |
-| S0-02 | #15 | REVERTED — 等待重做 | PR #30 已被 R0 撤销。media-error.ts 已删除，空响应检测回退。Issue 已重新打开。 |
+| S0-02 | #15 | IN_REVIEW | hotfix/s0-02-image-generation-production 分支已完成修复：Provider 层空响应返回 502（commit ad01eba）+ chat.ts:onFinish 空消息删除 botMessage（本次新增）。本地 16 个测试全绿，等待非作者 Review 后合并。 |
 | S0-03 | #26 | REVERTED — 等待重做 | PR #33 已被 R0 撤销。ADR-005 恢复为 Proposed。服务器侧 nginx 变更状态未知。Issue 已重新打开。 |
 | S1-01 | #16 | REVERTED — 等待重做 | PR #31 已被 R0 撤销。prisma/schema.prisma、repositories、迁移脚本全部删除。Issue 已重新打开。 |
 | S2-01 | #20 | REVERTED — 等待重做 | PR #32 已被 R0 撤销。app/gateway/ 目录已删除。Issue 已重新打开。 |

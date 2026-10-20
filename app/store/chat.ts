@@ -855,6 +855,14 @@ export const useChatStore = createPersistStore(
                   );
                 });
                 showToast("模型未返回内容，已保留原回复。");
+              } else {
+                // 空响应且无原始回复：从消息列表中移除 botMessage，避免留下空助手消息
+                get().updateTargetSession(session, (target) => {
+                  target.messages = target.messages.filter(
+                    (item) => item.id !== botMessage.id,
+                  );
+                });
+                if (!replayMessage) userMessage.isError = true;
               }
               ChatControllerPool.remove(session.id, botMessage.id);
             },
