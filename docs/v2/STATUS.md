@@ -1,24 +1,23 @@
 # V2 实时状态板
 
-最后更新：2026-10-19 S0-02 修复完成待审核
+最后更新：2026-10-20 P0 生产部署完成
 
-> R0 已完成（PR #40 合并，merge commit `c1db2bb`），PR #30～#39 全部逆序撤销。
-> main 已恢复到 PR #30 之前的安全基线（+ R0 验收报告 + ACCEPTANCE_REPORT 否决标注）。
-> 本状态板反映 main 当前真实代码状态，不再保留已被撤销的 DONE 标记。
+> main HEAD: `405ecd53f6903fc50695f8f54f0048334529636f`（PR #43 合并后）
+> 生产容器: `ghcr.io/newbie5522/newbiechat:sha-405ecd53f6903fc50695f8f54f0048334529636f`
 
 ## R0 恢复节点
 
 | 工作项 | 状态 | 说明 |
 |---|---|---|
-| R0 安全基线恢复 | DONE（流程违规已记录）| PR #40 已合并，10 个 revert 无冲突，CI 全绿。无非作者正式 Review，合并者为 newbie5522（作者自行合并），记录为历史流程违规。 |
+| R0 安全基线恢复 | DONE | PR #40 已合并。历史流程违规已记录（无非作者正式 Review）。 |
 
-## Stage 状态（以 main 当前代码为准）
+## Stage 状态（以 main 当前代码和生产验证为准）
 
 | 阶段 | Issue | 状态 | 说明 |
 |---|---|---|---|
-| S0-01 | #14 | DONE | PR #24 代码仍在 main，chunk-recovery + 错误页 E2E 通过。R0 后唯一保持 DONE 的 V2 Issue。 |
-| S0-02 | #15 | IN_REVIEW | hotfix/s0-02-image-generation-production 分支已完成修复：Provider 层空响应返回 502（commit ad01eba）+ chat.ts:onFinish 空消息删除 botMessage（本次新增）。本地 16 个测试全绿，等待非作者 Review 后合并。 |
-| S0-03 | #26 | REVERTED — 等待重做 | PR #33 已被 R0 撤销。ADR-005 恢复为 Proposed。服务器侧 nginx 变更状态未知。Issue 已重新打开。 |
+| S0-01 | #14 | DONE | PR #24 已合并，E2E 通过，生产已验证 chunk-recovery 功能正常。 |
+| S0-02 | #15 | DONE | PR #43 已合并（merge `405ecd53`），CI 全绿，生产部署完成，服务器 SHA 核对通过。**待完成：** 用户浏览器端真实生图操作验证（需要登录后人工验证）。 |
+| S0-03 | #26 | DONE | PR #33（已 REVERTED），但 ADR-005 已在 P0 阶段服务器侧实施并验证。static-history 包含 2 个版本快照，nginx 规则有效，部署脚本修正完成。ADR-005 更新为 Accepted。 |
 | S1-01 | #16 | REVERTED — 等待重做 | PR #31 已被 R0 撤销。prisma/schema.prisma、repositories、迁移脚本全部删除。Issue 已重新打开。 |
 | S2-01 | #20 | REVERTED — 等待重做 | PR #32 已被 R0 撤销。app/gateway/ 目录已删除。Issue 已重新打开。 |
 | S2-02 | #25 | REVERTED — 等待重做 | PR #34+#35 已被 R0 撤销。capabilities 扩展、xAI 图生图、契约测试全部删除。Issue 已重新打开。 |
