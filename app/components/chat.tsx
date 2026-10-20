@@ -1510,10 +1510,14 @@ function _Chat() {
 
   // preview messages
   const renderMessages = useMemo(() => {
+    // 如果消息列表最后一条是 streaming 状态（真实请求进行中），
+    // 就不再额外渲染 isLoading 的 preview 占位框，避免双框问题
+    const lastMsg = session.messages[session.messages.length - 1];
+    const hasStreamingMessage = lastMsg?.streaming === true;
     return context
       .concat(session.messages as RenderMessage[])
       .concat(
-        isLoading
+        isLoading && !hasStreamingMessage
           ? [
               {
                 ...createMessage({
