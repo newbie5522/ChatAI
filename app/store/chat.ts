@@ -971,8 +971,8 @@ export const useChatStore = createPersistStore(
         // system prompts, to get close to OpenAI Web ChatGPT
         // 图片生成模型不注入聊天 System Prompt
         const modelName = session.mask.modelConfig.model || "";
-        const currentModel = get()
-          .config.models.find((m) => m.name === modelName);
+        const allModels = useAppConfig.getState().models;
+        const currentModel = allModels.find((m) => m.name === modelName);
         const isImageGenerationModel =
           currentModel?.capabilities?.imageGeneration === true;
         const shouldInjectSystemPrompts =
