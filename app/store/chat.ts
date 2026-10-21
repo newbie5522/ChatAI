@@ -27,7 +27,6 @@ import {
   ServiceProvider,
   StoreKey,
   SUMMARIZE_MODEL,
-  IMAGE_GENERATION_MODEL_REGEXES,
 } from "../constant";
 import Locale, { getLang } from "../locales";
 import { createPersistStore } from "../utils/store";
@@ -972,9 +971,10 @@ export const useChatStore = createPersistStore(
         // system prompts, to get close to OpenAI Web ChatGPT
         // 图片生成模型不注入聊天 System Prompt
         const modelName = session.mask.modelConfig.model || "";
-        const isImageGenerationModel = IMAGE_GENERATION_MODEL_REGEXES.some(
-          (regex) => regex.test(modelName),
-        );
+        const currentModel = get()
+          .config.models.find((m) => m.name === modelName);
+        const isImageGenerationModel =
+          currentModel?.capabilities?.imageGeneration === true;
         const shouldInjectSystemPrompts =
           modelConfig.enableInjectSystemPrompts &&
           !isImageGenerationModel &&
