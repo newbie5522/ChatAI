@@ -1,10 +1,11 @@
 # V2 实时状态板
 
-最后更新：2026-10-19 S0-02 修复完成待审核
+最后更新：2026-10-21 P0 完成 — Issue #15、#26 已合并
 
 > R0 已完成（PR #40 合并，merge commit `c1db2bb`），PR #30～#39 全部逆序撤销。
 > main 已恢复到 PR #30 之前的安全基线（+ R0 验收报告 + ACCEPTANCE_REPORT 否决标注）。
-> 本状态板反映 main 当前真实代码状态，不再保留已被撤销的 DONE 标记。
+> **P0 生产恢复完成**：Issue #15（生图提示词污染）、Issue #26（部署脚本修复）已合并到 main（SHA `c25d6f2`）。
+> 本状态板反映 main 当前真实代码状态。
 
 ## R0 恢复节点
 
@@ -12,40 +13,59 @@
 |---|---|---|
 | R0 安全基线恢复 | DONE（流程违规已记录）| PR #40 已合并，10 个 revert 无冲突，CI 全绿。无非作者正式 Review，合并者为 newbie5522（作者自行合并），记录为历史流程违规。 |
 
+## P0 生产恢复节点
+
+| 工作项 | 状态 | PR | main SHA | 说明 |
+|--------|------|----|----|------|
+| Issue #15：生图提示词污染 | DONE | #48 | c25d6f2 | 修复基于能力注册表的 System Prompt 注入逻辑，图片生成模型不再注入聊天 Prompt。17 个单元测试通过，CI 全绿。 |
+| Issue #26：部署脚本修复 | DONE | #47 | c25d6f2 | 修复 sed 规则支持 latest/SHA 标签，增加替换验证，匹配失败立即终止。测试通过，CI 全绿。**注**：ADR-005 nginx 静态资源保留方案未实施，留待 P1。 |
+
 ## Stage 状态（以 main 当前代码为准）
 
 | 阶段 | Issue | 状态 | 说明 |
 |---|---|---|---|
 | S0-01 | #14 | DONE | PR #24 代码仍在 main，chunk-recovery + 错误页 E2E 通过。R0 后唯一保持 DONE 的 V2 Issue。 |
-| S0-02 | #15 | IN_REVIEW | hotfix/s0-02-image-generation-production 分支已完成修复：Provider 层空响应返回 502（commit ad01eba）+ chat.ts:onFinish 空消息删除 botMessage（本次新增）。本地 16 个测试全绿，等待非作者 Review 后合并。 |
-| S0-03 | #26 | REVERTED — 等待重做 | PR #33 已被 R0 撤销。ADR-005 恢复为 Proposed。服务器侧 nginx 变更状态未知。Issue 已重新打开。 |
-| S1-01 | #16 | REVERTED — 等待重做 | PR #31 已被 R0 撤销。prisma/schema.prisma、repositories、迁移脚本全部删除。Issue 已重新打开。 |
-| S2-01 | #20 | REVERTED — 等待重做 | PR #32 已被 R0 撤销。app/gateway/ 目录已删除。Issue 已重新打开。 |
-| S2-02 | #25 | REVERTED — 等待重做 | PR #34+#35 已被 R0 撤销。capabilities 扩展、xAI 图生图、契约测试全部删除。Issue 已重新打开。 |
-| S3-01 | #17 | REVERTED — 等待重做 | PR #36 已被 R0 撤销。ResponseRun API、hook、E2E 全部删除。Issue 已重新打开。 |
-| S4-01 | #18 | REVERTED — 等待重做 | PR #37 已被 R0 撤销。Attachment 模型、Repository、持久化逻辑全部删除。Issue 已重新打开。 |
-| S5-01 | #19 | REVERTED — 等待重做 | PR #38 已被 R0 撤销。MediaJob 模型、API、测试全部删除。Issue 已重新打开。 |
-| S7-01 | #21 | REVERTED — 等待重做 | PR #39 已被 R0 撤销。RBAC、审计 API、额度余额 API 全部删除。Issue 已重新打开。 |
-| S6 | 待拆分 | NOT_STARTED | 尚未规划具体 Issue。 |
-| S8 | 待拆分 | NOT_STARTED | 尚未规划具体 Issue。 |
+| S0-02 | #15 | DONE | PR #43、#45、#46、#48 合并。生图双框消除、空响应处理、提示词污染修复全部完成。CI 全绿。 |
+| S0-03 | #26 | DONE | PR #47 合并。部署脚本 sed 规则修复，支持 latest/SHA 标签，增加验证。CI 全绿。 |
+| S1-01 | #16 | PAUSED | PR #31 已被 R0 撤销。等待 P0 验证完成后进入 P1。 |
+| S2-01 | #20 | PAUSED | PR #32 已被 R0 撤销。等待 S1 完成后启动。 |
+| S2-02 | #25 | PAUSED | PR #34+#35 已被 R0 撤销。等待 S2-01 完成后启动。 |
+| S3-01 | #17 | PAUSED | PR #36 已被 R0 撤销。等待 S2 完成后启动。 |
+| S4-01 | #18 | PAUSED | PR #37 已被 R0 撤销。等待 S3 完成后启动。 |
+| S5-01 | #19 | PAUSED | PR #38 已被 R0 撤销。等待 S4 完成后启动。 |
+| S7-01 | #21 | PAUSED | PR #39 已被 R0 撤销。等待 S5 完成后启动。 |
+| S6 | 待拆分 | NOT_STARTED | 长期记忆与上下文管理，待 P1 规划。 |
+| S8 | 待拆分 | NOT_STARTED | 灰度迁移与发布，待后续规划。 |
 
-## 执行顺序（G0 后）
+## 执行顺序
 
-1. S0：先完成 #15（空响应/错误协议）和 #26（部署一致性），通过后才进入 S1
-2. S1：#16 数据库模型，通过后才进入 S2
-3. S2：#20 Model Gateway → #25 图片双轨
-4. S3：#17 流式运行时
-5. S4：#18 附件管线
-6. S5：#19 异步媒体
-7. S6：上下文与记忆（待拆分）
-8. S7：#21 权限/额度/审计
-9. S8：灰度迁移与发布（待拆分）
+**P0 已完成**：#14、#15、#26 全部 DONE。
 
-不得同时重启 #16～#21 的实现。不得将状态放入浏览器 localStorage 或进程内存作为临时捷径。
+**P1 启动条件**（等待用户/规划师批准）：
+1. 生产部署验证通过（10 项验证清单，见 P0 验收报告）
+2. P0 验收报告合并到 main
+3. ADR-005 更新为 Accepted
+
+**P1 执行顺序**：
+1. S1：#16 数据库模型（Prisma + 迁移脚本）
+2. S2：#20 Model Gateway → #25 图片双轨
+3. S3：#17 流式运行时恢复
+4. S4：#18 附件管线持久化
+5. S5：#19 异步媒体任务
+6. S6：长期记忆与上下文管理（待拆分）
+7. S7：#21 权限/额度/审计
+8. S8：灰度迁移与发布（待拆分）
+
+不得同时重启多个 Stage 实现。不得将状态放入浏览器 localStorage 或进程内存作为临时捷径。
 
 ## 状态枚举
 
-`READY` / `IN_PROGRESS` / `IN_REVIEW` / `BLOCKED` / `DONE` / `PAUSED` / `DESIGN-ONLY` / `REVERTED` / `NOT_STARTED`
+`READY` / `IN_PROGRESS` / `IN_REVIEW` / `BLOCKED` / `DONE` / `PAUSED` / `DESIGN-ONLY` / `NOT_STARTED`
+
+- `DONE`：代码已合并到 main、CI 通过、验收证据存在、回滚方式明确
+- `PAUSED`：曾被 R0 撤销，等待 P0 完成后进入 P1 重新执行
+- `IN_REVIEW`：PR 已提交，等待非作者审核
+- `BLOCKED`：被其他 Issue 阻塞，无法启动
 
 ## 总控规则
 
