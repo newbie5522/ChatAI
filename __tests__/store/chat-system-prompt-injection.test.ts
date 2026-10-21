@@ -5,9 +5,16 @@
  */
 import { describe, it, expect } from "@jest/globals";
 
+type TestModel = {
+  name: string;
+  capabilities?: {
+    imageGeneration?: boolean;
+  };
+};
+
 describe("Image Generation Model Capability Detection", () => {
   it("应该正确识别配置了 imageGeneration 能力的模型", () => {
-    const models = [
+    const models: TestModel[] = [
       {
         name: "dall-e-3",
         capabilities: { imageGeneration: true },
@@ -34,7 +41,7 @@ describe("Image Generation Model Capability Detection", () => {
   });
 
   it("虚拟图片模型名称不包含关键词也能正确识别", () => {
-    const models = [
+    const models: TestModel[] = [
       {
         name: "random-name-123",
         capabilities: { imageGeneration: true },
@@ -58,7 +65,7 @@ describe("Image Generation Model Capability Detection", () => {
   });
 
   it("未配置 capabilities 的模型不应被识别为图片模型", () => {
-    const models = [
+    const models: TestModel[] = [
       {
         name: "gpt-4-turbo",
       },
@@ -68,7 +75,7 @@ describe("Image Generation Model Capability Detection", () => {
     ];
 
     const checkModel = (name: string) => {
-      const model = models.find((m: any) => m.name === name);
+      const model = models.find((m) => m.name === name);
       return model?.capabilities?.imageGeneration === true;
     };
 
