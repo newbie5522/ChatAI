@@ -975,11 +975,12 @@ export const useChatStore = createPersistStore(
         const currentModel = allModels.find((m) => m.name === modelName);
         const isImageGenerationModel =
           currentModel?.capabilities?.imageGeneration === true;
+        
+        // 仅根据能力配置决定是否注入 System Prompt
+        // 图片生成模型：永不注入
+        // 文本模型：根据 enableInjectSystemPrompts 配置决定
         const shouldInjectSystemPrompts =
-          modelConfig.enableInjectSystemPrompts &&
-          !isImageGenerationModel &&
-          ((session.mask.modelConfig.model || "").startsWith("gpt-") ||
-            (session.mask.modelConfig.model || "").startsWith("chatgpt-"));
+          !isImageGenerationModel && modelConfig.enableInjectSystemPrompts;
 
         const mcpEnabled = await isMcpEnabled();
         const mcpSystemPrompt = mcpEnabled ? await getMcpSystemPrompt() : "";
